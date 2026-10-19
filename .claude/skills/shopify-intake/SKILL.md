@@ -10,6 +10,7 @@ user-invocable: false
 
 **Goal:** `brief.md` § Asked is complete, and the work type and its facts are recorded.
 
+0. **Investigated first?** If `kit.mjs status` says so, read `.claude/logs/<KEY>/investigation.md`. Its question, answer and evidence are this task's starting context. Re-check any code it cites at the current commit before relying on it, and carry its Confirmed findings into `brief.md`.
 1. **Read the ticket:** `node .claude/kit/jira.mjs <KEY>`. It prints JSON:
    - summary and description
    - every custom field by its display name (acceptance criteria, targeting, QA URLs…)
@@ -31,7 +32,7 @@ user-invocable: false
    | `feature` | the client asks for a new feature or change directly (no A/B test behind it) |
    | `bugfix` | something is broken and must be fixed |
 
-   Tell the dev the type you picked. If two types fit, ask. The kit only handles tickets that change theme code. For anything else (app checks, investigations, content-only work), say so and stop.
+   Tell the dev the type you picked. If two types fit, ask. The kit only implements tickets that change theme code. For a feasibility check, a debugging task or a question, suggest `/shopify-investigate <KEY>` and stop. App development and content-only work are out of scope.
 4. **Which theme.** The kit builds on a copy of the **live** theme. If the ticket targets another theme (e.g. a campaign theme), say that it's out of scope for kit v0.1, and stop.
 5. **A/B ports only.** Ask in one AskUserQuestion round, skipping anything the tickets already state:
    - Which variation won? (offer the variations named in the ticket)

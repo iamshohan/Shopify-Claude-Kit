@@ -50,6 +50,9 @@ Work through these checks in order. Report each one as ✓ or ✗ with the exact
 6. **Shopify logins.** These are browser logins, so the dev runs them with the `!` prefix (the guard blocks the agent from running them):
    - Theme login missing → `! shopify theme list --store <store>`
    - Admin API login missing, or scopes missing → the `adminLoginFix` / `adminScopesFix` command from auth-check. It's needed to read and create metafield and metaobject definitions and QA data.
+   - `investigateScopesFix` → the same command. It adds read access to menus, markets, languages, translations, pages and blogs, discounts, files and sales channels, which `/shopify-investigate` reads. Without it, investigations of those settings stop at a missing-scope error.
+
+   The login command can be typed in Claude Code with the `!` prefix (the output lands in the chat), or run in any terminal without the `!`.
 
    The dev also needs a staff account on the store with theme permissions and the right to manage metafields/metaobjects. Re-run auth-check afterwards.
 7. **Shopify plugin.**
@@ -61,4 +64,4 @@ Work through these checks in order. Report each one as ✓ or ✗ with the exact
    - The extension needs site access to the storefront domain and `admin.shopify.com`.
 
    Without these, QA browser checks are BLOCKED.
-9. **Summary.** List what works and what's missing. If everything is ✓, end with: "Ready. Start a task with /implement <KEY>."
+9. **Summary.** List what works and what's missing. If everything is ✓, end with: "Ready. Start a task with /implement <KEY>, or investigate with /shopify-investigate <KEY or question>."

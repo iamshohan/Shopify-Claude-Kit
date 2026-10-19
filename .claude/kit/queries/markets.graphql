@@ -1,0 +1,26 @@
+# Markets with their regions, domains or subfolders, languages and currency.
+query KitMarkets {
+  markets(first: 50) {
+    nodes {
+      id
+      name
+      handle
+      status
+      type
+      conditions {
+        regionsCondition {
+          regions(first: 250) { nodes { name ... on MarketRegionCountry { code } } }
+        }
+      }
+      webPresences(first: 10) {
+        nodes {
+          domain { host }
+          subfolderSuffix
+          defaultLocale { locale }
+          alternateLocales { locale }
+        }
+      }
+      currencySettings { baseCurrency { currencyCode } localCurrencies }
+    }
+  }
+}

@@ -32,6 +32,15 @@ export const STAGES = [
   { name: 'handoff', skill: 'shopify-handoff' },
 ];
 
+// /shopify-investigate: read-only, ends in an answer instead of a draft theme.
+export const INVESTIGATION_STAGES = [
+  { name: 'frame', skill: 'shopify-investigate' },
+  { name: 'gather', skill: 'shopify-investigate' },
+  { name: 'conclude', skill: 'shopify-investigate', gate: 'the dev accepts the answer or asks for more' },
+];
+
+export const stagesFor = (st) => (st?.kind === 'investigation' ? INVESTIGATION_STAGES : STAGES);
+
 export const now = () => new Date().toISOString();
 
 export function print(value) {
@@ -43,7 +52,7 @@ export function fail(message, code = 1) {
   process.exit(code);
 }
 
-const BOOLEAN_FLAGS = new Set(['dry-run', 'baseline', 'json', 'help', 'force', 'no-comments', 'selftest']);
+const BOOLEAN_FLAGS = new Set(['dry-run', 'baseline', 'json', 'help', 'force', 'no-comments', 'selftest', 'investigate']);
 
 export function parseArgs(argv) {
   const out = { _: [], flags: {} };

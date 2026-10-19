@@ -1,0 +1,13 @@
+# One collection by handle: template, sort order, product count, metafields, and what fills it.
+query KitCollection($handle: String!) {
+  collectionByIdentifier(identifier: { handle: $handle }) {
+    id
+    title
+    handle
+    templateSuffix
+    sortOrder
+    productsCount { count }
+    sources { __typename id title }
+    metafields(first: 100) { nodes { namespace key type value } }
+  }
+}

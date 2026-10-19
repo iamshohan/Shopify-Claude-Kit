@@ -1,16 +1,17 @@
 #!/usr/bin/env node
-// Task state for /implement. One folder per ticket: .claude/logs/<KEY>/.
+// Task state for /implement and /shopify-investigate. One folder per ticket: .claude/logs/<KEY>/.
 import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import {
-  ROOT, KIT_DIR, LOGS, KIT_VERSION, STAGES, THEME_DIRS, print, fail, parseArgs, normKey, now, git, currentBranch,
+  ROOT, KIT_DIR, LOGS, KIT_VERSION, STAGES, stagesFor, THEME_DIRS, print, fail, parseArgs, normKey, now, run, git, currentBranch,
   readConfig, readState, writeState, owner, branchFor, protectedBranches, storefrontPath, parseCliJson, ignoreMatcher,
 } from './lib.mjs';
 
 const HELP = `Usage: node .claude/kit/kit.mjs <verb> ...
   list                                   all tasks in this repo and their stage
-  start <KEY>                            create .claude/logs/<KEY>/ (state + brief.md, plan.md, report.md)
+  start <KEY>                            create .claude/logs/<KEY>/ (state + brief.md, plan.md, report.md); turns a finished investigation into an implementation
+  start <KEY> --investigate              start a read-only investigation instead (state + investigation.md)
   status <KEY> [--json]                  current stage, the skill to load, gates, branch, draft
   done <KEY> <stage> [--answer "TEXT"] [--note "TEXT"]
                                          finish the current stage; gate stages need --answer with the dev's words
@@ -24,8 +25,9 @@ const HELP = `Usage: node .claude/kit/kit.mjs <verb> ...
 
 const list = (v) => v.split(',').map((s) => s.trim()).filter(Boolean);
 const oneOf = (...allowed) => (v) => (allowed.includes(v) ? v : fail(`Expected one of: ${allowed.join(', ')}`));
+const TYPES = { implement: ['abtest', 'feature', 'bugfix'], investigation: ['feasibility', 'debug', 'question'] };
 const SETTABLE = {
-  type: oneOf('abtest', 'feature', 'bugfix'),
+  type: String, // checked against the task's kind in "set"
   tickets: list,
   branch: String,
   base: String,
@@ -45,6 +47,7 @@ const SETTABLE = {
 };
 
 const TEMPLATES = ['brief.md', 'plan.md', 'report.md'];
+const kindOf = (st) => st?.kind || 'implement';
 const read = (p) => (existsSync(p) ? readFileSync(p, 'utf8') : '');
 const tpl = (key, file) => read(join(KIT_DIR, 'templates', file)).replaceAll('{{KEY}}', key);
 
@@ -68,7 +71,7 @@ function added(key, file, heading, within) {
 
 const filled = (key, file, heading, within, min = 20) => added(key, file, heading, within).join('').length >= min;
 const tableRows = (key, file, heading, within) => added(key, file, heading, within).filter((l) => l.startsWith('|') && !/^\|[\s:|-]+\|?$/.test(l));
-const stageIndex = (name) => STAGES.findIndex((s) => s.name === name);
+const stageIndex = (name, st) => stagesFor(st).findIndex((s) => s.name === name);
 const ref = (r) => git(['rev-parse', '--verify', '--quiet', r], { allowFail: true });
 
 // Each check proves the stage's output exists, so a stage can't be marked done on intent alone.
@@ -123,7 +126,44 @@ const EXIT_CHECKS = {
     !filled(key, 'report.md', '## Handoff', undefined, 80) && 'write report.md § Handoff',
     !branchPushed(st) && `push the task branch: git push -u origin ${st.branch}`,
   ],
+  // Investigation stages.
+  frame: (key, st) => [
+    !st.type && 'record the kind of investigation: kit.mjs set <KEY> type=feasibility|debug|question',
+    !filled(key, 'investigation.md', '## Question', undefined, 40) && 'write the precise question and what counts as answered in investigation.md § Question',
+  ],
+  gather: (key, st) => {
+    const labelled = tableRows(key, 'investigation.md', '## Evidence').filter((l) => /\b(Confirmed|Inferred|Assumed|Unknown)\b/.test(l));
+    return [
+      labelled.length < 3 && `investigation.md § Evidence needs at least 3 rows labelled Confirmed, Inferred, Assumed or Unknown (it has ${labelled.length})`,
+      !labelled.some((l) => /\bConfirmed\b/.test(l)) && 'no Confirmed evidence yet: read or observe something that settles a claim',
+      st.type === 'debug' && tableRows(key, 'investigation.md', '## Hypotheses').length < 2
+        && 'a debug investigation needs at least 2 hypotheses in investigation.md § Hypotheses, each confirmed, ruled out or open',
+      st.type === 'debug' && !filled(key, 'investigation.md', '## Reproduction')
+        && 'fill investigation.md § Reproduction: the steps, URL and what you observed, or why it could not be reproduced',
+    ];
+  },
+  conclude: (key, st) => {
+    const changed = themeChanges(st);
+    return [
+      !filled(key, 'investigation.md', '## Answer') && 'write investigation.md § Answer',
+      !filled(key, 'investigation.md', '## Could not determine', undefined, 10) && 'fill investigation.md § Could not determine ("Nothing material" only if that is true)',
+      !filled(key, 'investigation.md', '## Next step') && 'write investigation.md § Next step',
+      !filled(key, 'investigation.md', '## Review') && 'run the evidence-checker agent and record its result in investigation.md § Review',
+      changed.length && `theme files changed since the investigation started (${changed.join(', ')}). Investigations are read-only: undo your own edits; edits the dev made are theirs to keep, so ask`,
+    ];
+  },
 };
+
+// Raw output: git() trims, which would cut the leading space of the first " M path" line.
+const themeStatus = () => run('git', ['status', '--porcelain', '--', ...existingThemeDirs()]).stdout.split(/\r?\n/).filter(Boolean);
+
+/** Theme files whose git status differs from when the investigation started. */
+function themeChanges(st) {
+  const before = new Set(st.readonly?.themeStatus || []);
+  const current = themeStatus();
+  const differ = [...current.filter((l) => !before.has(l)), ...[...before].filter((l) => !current.includes(l))];
+  return [...new Set(differ.map((l) => l.slice(3)))];
+}
 
 function existingThemeDirs() {
   return THEME_DIRS.filter((d) => existsSync(join(ROOT, d)));
@@ -135,20 +175,29 @@ function branchPushed(st) {
 }
 
 function summaryLines(key, st, cfg) {
-  const i = stageIndex(st.stage);
+  const stages = stagesFor(st);
+  const i = stageIndex(st.stage, st);
+  const label = kindOf(st) === 'investigation' ? `investigation (${st.type || 'type not set'})` : st.type || 'type not set';
   const lines = [];
   if (st.stage === 'done' || st.stage === 'abandoned') {
-    lines.push(`${key} · ${st.type || 'type not set'} · ${st.stage === 'done' ? 'finished' : 'abandoned'}`);
+    lines.push(`${key} · ${label} · ${st.stage === 'done' ? 'finished' : 'abandoned'}`);
   } else {
-    const s = STAGES[i];
-    lines.push(`${key} · ${st.type || 'type not set'} · stage ${i + 1}/${STAGES.length}: ${s.name}${s.gate ? ` (${s.gate})` : ''}`);
+    const s = stages[i];
+    lines.push(`${key} · ${label} · stage ${i + 1}/${stages.length}: ${s.name}${s.gate ? ` (${s.gate})` : ''}`);
     lines.push(`Next: load the skill "${s.skill}" and do the "${s.name}" stage.`);
   }
-  const done = STAGES.filter((_, j) => j < (i === -1 ? STAGES.length : i)).map((s) => {
+  const done = stages.filter((_, j) => j < (i === -1 ? stages.length : i)).map((s) => {
     const g = st.gates?.[s.name];
     return g ? `${s.name} ✓ ("${g.answer.slice(0, 60)}${g.answer.length > 60 ? '…' : ''}")` : `${s.name} ✓`;
   });
   if (done.length) lines.push(`Done: ${done.join(' · ')}`);
+  if (kindOf(st) === 'investigation') {
+    lines.push('Read-only: no theme edits, no store changes, no draft theme. A fix becomes /implement on this key afterwards.');
+    lines.push(`Logs: .claude/logs/${key}/investigation.md`);
+    if (st.kitVersion !== KIT_VERSION) lines.push(`Note: started with kit ${st.kitVersion}, this is kit ${KIT_VERSION}.`);
+    return lines.join('\n');
+  }
+  if (st.investigation) lines.push(`Investigated first (${st.investigation.type}): intake reads .claude/logs/${key}/investigation.md.`);
   lines.push(`Branch: ${st.branch || `${branchFor(cfg, key)} (not created yet)`} · base: ${st.base ? st.base.slice(0, 7) : '—'} · protected: ${protectedBranches(cfg).join(', ')}`);
   if (cfg?.commitPattern) lines.push(`Commit messages: ${cfg.commitPattern.replace('{KEY}', key).replace('{key}', key.toLowerCase())}`);
   if (st.stage === 'build') lines.push(`Stage with: git add -- ${existingThemeDirs().join(' ')}`);
@@ -180,7 +229,7 @@ function runSummary(key, st) {
     if (m) verdicts[m[1]]++;
   }
   return {
-    key, type: st.type, stage: st.stage, owner: st.owner?.name, kitVersion: st.kitVersion,
+    key, kind: kindOf(st), type: st.type, stage: st.stage, owner: st.owner?.name, kitVersion: st.kitVersion,
     startedAt: st.createdAt, lastUpdate: st.updatedAt, elapsedMinutes: minutes(st.createdAt, st.updatedAt),
     minutesPerStage: perStage,
     loopsBack: events.filter((e) => e.event === 'back').map((e) => `${e.from} → ${e.to}: ${e.reason}`),
@@ -209,6 +258,8 @@ function selftest() {
   eq('ignore folder glob', ignore('assets/src/theme.css'), true);
   eq('ignore regex', ignore('assets/theme.js.map'), true);
   eq('ignore miss', ignore('sections/header.liquid'), false);
+  eq('stages implement', stagesFor({}).map((x) => x.name).slice(0, 2), ['intake', 'analyze']);
+  eq('stages investigation', stagesFor({ kind: 'investigation' }).map((x) => x.name), ['frame', 'gather', 'conclude']);
   const failed = checks.filter((c) => !c[1]);
   for (const [name, , got, want] of failed) print(`FAIL ${name}: got ${JSON.stringify(got)}, want ${JSON.stringify(want)}`);
   print(failed.length ? `${failed.length} of ${checks.length} failed` : `all ${checks.length} passed`);
@@ -226,7 +277,8 @@ switch (verb) {
     for (const k of keys) {
       const st = readState(k);
       const draft = st.draft?.themeId && !st.draft.deletedAt ? ` · draft ${st.draft.name || st.draft.themeId} still exists` : '';
-      print(`${k}\t${st.type || '-'}\t${st.stage}\t${st.updatedAt.slice(0, 10)}\t${st.owner?.name || ''}${draft}`);
+      const type = kindOf(st) === 'investigation' ? `investigation:${st.type || '-'}` : st.type || '-';
+      print(`${k}\t${type}\t${st.stage}\t${st.updatedAt.slice(0, 10)}\t${st.owner?.name || ''}${draft}`);
     }
     break;
   }
@@ -234,14 +286,41 @@ switch (verb) {
   case 'start': {
     const key = normKey(rawKey);
     const cfg = readConfig();
-    if (!readState(key, { required: false })) {
+    const existing = readState(key, { required: false });
+    const implementFields = {
+      kind: 'implement', type: null, stage: STAGES[0].name, gates: {},
+      branch: null, base: null, abtest: {}, featurePrefix: null, buildOutputs: [], draft: {}, previews: [], qa: {},
+    };
+    const writeTemplates = (files) => {
       mkdirSync(join(LOGS, key), { recursive: true });
-      for (const f of TEMPLATES) if (!existsSync(join(LOGS, key, f))) writeFileSync(join(LOGS, key, f), tpl(key, f));
+      for (const f of files) if (!existsSync(join(LOGS, key, f))) writeFileSync(join(LOGS, key, f), tpl(key, f));
+    };
+    if (flags.investigate) {
+      if (existing && kindOf(existing) !== 'investigation') fail(`${key} is an implementation task (stage ${existing.stage}). Investigate inside it, or start a separate key such as INV-${new Date().toISOString().slice(5, 16).replace(/\D/g, '')}.`);
+      if (!existing) {
+        writeTemplates(['investigation.md']);
+        writeState(key, {
+          schemaVersion: 1, kitVersion: KIT_VERSION, key, kind: 'investigation', type: null, tickets: [key],
+          createdAt: now(), owner: owner(), stage: stagesFor({ kind: 'investigation' })[0].name, gates: {},
+          history: [{ at: now(), event: 'start' }],
+          // conclude compares against this, so an investigation can't end with theme files changed.
+          readonly: { head: git(['rev-parse', 'HEAD'], { allowFail: true }), themeStatus: themeStatus() },
+          draft: {}, mutations: [], previews: [],
+        });
+      }
+    } else if (existing && kindOf(existing) === 'investigation') {
+      if (!['done', 'abandoned'].includes(existing.stage)) fail(`${key} is an investigation in progress (stage ${existing.stage}). Finish it with /shopify-investigate ${key}, or abandon it, before implementing.`);
+      // The finished investigation becomes the implementation's starting context; intake reads its file.
+      const { readonly, ...rest } = existing;
+      const st = { ...rest, ...implementFields, mutations: existing.mutations || [], investigation: { type: existing.type, stage: existing.stage, endedAt: existing.updatedAt } };
+      st.history.push({ at: now(), event: 'convert', from: 'investigation' });
+      writeTemplates(TEMPLATES);
+      writeState(key, st);
+    } else if (!existing) {
+      writeTemplates(TEMPLATES);
       writeState(key, {
-        schemaVersion: 1, kitVersion: KIT_VERSION, key, type: null, tickets: [key],
-        createdAt: now(), owner: owner(), stage: STAGES[0].name, gates: {}, history: [{ at: now(), event: 'start' }],
-        branch: null, base: null, abtest: {}, featurePrefix: null, buildOutputs: [],
-        draft: {}, mutations: [], previews: [], qa: {},
+        schemaVersion: 1, kitVersion: KIT_VERSION, key, tickets: [key], createdAt: now(), owner: owner(),
+        history: [{ at: now(), event: 'start' }], ...implementFields, mutations: [],
       });
     }
     print(summaryLines(key, readState(key), cfg));
@@ -264,14 +343,15 @@ switch (verb) {
     const st = readState(key);
     if (['done', 'abandoned'].includes(st.stage)) fail(`${key} is ${st.stage === 'done' ? 'finished' : 'abandoned'}. Use "back" to reopen a stage.`);
     if (stage !== st.stage) fail(`The current stage is "${st.stage}", not "${stage}". Finish "${st.stage}" first, or use "back" to reopen an earlier stage.`);
-    const def = STAGES[stageIndex(stage)];
+    const stages = stagesFor(st);
+    const def = stages[stageIndex(stage, st)];
     const answer = typeof flags.answer === 'string' ? flags.answer.trim() : '';
     if (def.gate && !answer) fail(`"${stage}" is a gate (${def.gate}). Ask the dev, then record their words: --answer "..."`);
     const missing = (EXIT_CHECKS[stage]?.(key, st) || []).filter(Boolean);
     if (missing.length) fail(`"${stage}" isn't finished:\n${missing.map((m) => `- ${m.replace('<KEY>', key)}`).join('\n')}`);
     if (def.gate) st.gates[stage] = { answer, at: now() };
     st.history.push({ at: now(), event: 'done', stage, answer: answer || undefined, note: flags.note || undefined });
-    const next = STAGES[stageIndex(stage) + 1];
+    const next = stages[stageIndex(stage, st) + 1];
     st.stage = next ? next.name : 'done';
     writeState(key, st);
     print(summaryLines(key, st, readConfig({ required: false })));
@@ -282,12 +362,13 @@ switch (verb) {
     const key = normKey(rawKey);
     const target = rest[0];
     const st = readState(key);
-    const to = stageIndex(target);
-    const from = ['done', 'abandoned'].includes(st.stage) ? STAGES.length : stageIndex(st.stage);
-    if (to === -1) fail(`Unknown stage "${target}". Stages: ${STAGES.map((s) => s.name).join(', ')}`);
+    const stages = stagesFor(st);
+    const to = stageIndex(target, st);
+    const from = ['done', 'abandoned'].includes(st.stage) ? stages.length : stageIndex(st.stage, st);
+    if (to === -1) fail(`Unknown stage "${target}". Stages: ${stages.map((s) => s.name).join(', ')}`);
     if (to >= from) fail(`"${target}" isn't earlier than the current stage "${st.stage}".`);
     if (typeof flags.reason !== 'string' || !flags.reason.trim()) fail('Say why: --reason "..."');
-    for (const s of STAGES.slice(to)) delete st.gates[s.name];
+    for (const s of stages.slice(to)) delete st.gates[s.name];
     st.history.push({ at: now(), event: 'back', from: st.stage, to: target, reason: flags.reason.trim() });
     st.stage = target;
     writeState(key, st);
@@ -304,6 +385,7 @@ switch (verb) {
       const name = pair.slice(0, eq);
       if (eq === -1 || !SETTABLE[name]) fail(`Can't set "${pair}". Allowed: ${Object.keys(SETTABLE).join(', ')}`);
       const value = SETTABLE[name](pair.slice(eq + 1).trim());
+      if (name === 'type' && !TYPES[kindOf(st)].includes(value)) fail(`The type of ${kindOf(st) === 'investigation' ? 'an investigation' : 'an implementation'} is one of: ${TYPES[kindOf(st)].join(', ')}`);
       const [head, sub] = name.split('.');
       if (sub) st[head] = { ...(st[head] || {}), [sub]: value };
       else st[head] = value;

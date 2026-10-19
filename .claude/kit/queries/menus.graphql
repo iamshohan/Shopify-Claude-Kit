@@ -1,0 +1,24 @@
+# Navigation menus, three levels deep.
+query KitMenus {
+  menus(first: 50) {
+    nodes {
+      id
+      handle
+      title
+      isDefault
+      items {
+        title
+        type
+        url
+        resourceId
+        items {
+          title
+          type
+          url
+          resourceId
+          items { title type url resourceId }
+        }
+      }
+    }
+  }
+}

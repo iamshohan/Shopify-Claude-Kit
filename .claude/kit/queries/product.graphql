@@ -1,0 +1,21 @@
+# One product by handle: status, template, variants, options and every metafield.
+query KitProduct($handle: String!) {
+  productByIdentifier(identifier: { handle: $handle }) {
+    id
+    title
+    handle
+    status
+    templateSuffix
+    onlineStoreUrl
+    publishedAt
+    productType
+    vendor
+    tags
+    options { name values }
+    variants(first: 100) {
+      nodes { id title sku price compareAtPrice availableForSale inventoryQuantity selectedOptions { name value } }
+    }
+    metafields(first: 100) { nodes { namespace key type value } }
+    collections(first: 25) { nodes { handle title } }
+  }
+}

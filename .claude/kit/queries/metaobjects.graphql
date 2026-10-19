@@ -1,0 +1,12 @@
+# Entries of one metaobject type, with their field values.
+query KitMetaobjects($type: String!) {
+  metaobjects(type: $type, first: 100) {
+    nodes {
+      id
+      handle
+      displayName
+      updatedAt
+      fields { key type value }
+    }
+  }
+}

@@ -1,6 +1,6 @@
 # Shopify-Claude-Kit
 
-The **Shopify Implementation Kit**: a Claude Code setup that takes a Jira ticket in a Shopify theme repo to a QA'd draft theme. It covers winning A/B tests, features and bug fixes. The team guide (stages, safety rails, troubleshooting) ships inside the kit: [`.claude/README.md`](.claude/README.md).
+The **Shopify Implementation Kit**: a Claude Code setup that takes a Jira ticket in a Shopify theme repo to a QA'd draft theme. It covers winning A/B tests, features and bug fixes. `/shopify-investigate` adds read-only feasibility checks, debugging and questions. The team guide (stages, safety rails, troubleshooting) ships inside the kit: [`.claude/README.md`](.claude/README.md).
 
 ## Install or update in a theme repo
 
@@ -24,9 +24,9 @@ install.mjs                 installs or updates the kit in a theme repo
   CLAUDE.md                 always-loaded rules
   README.md                 team guide
   settings.json             guard hook, permissions, env
-  commands/                 /implement, /shopify-setup, /shopify-update
-  skills/                   one skill per pipeline phase (intake, plan, build, qa, handoff)
-  agents/                   theme-recon, abtest-analyst, theme-builder
+  commands/                 /implement, /shopify-investigate, /shopify-setup, /shopify-update
+  skills/                   one skill per phase (intake, plan, build, qa, handoff) plus shopify-investigate
+  agents/                   theme-recon, abtest-analyst, theme-builder, evidence-checker
   hooks/guard.mjs           the safety guard (with --selftest)
   kit/                      scripts: kit.mjs (task state), shopify.mjs (the only CLI wrapper),
                             jira.mjs, recon.mjs, contract.mjs, compare.mjs, probe.js, templates/, queries/
@@ -42,4 +42,4 @@ install.mjs                 installs or updates the kit in a theme repo
 - **When the Shopify CLI or plugin updates,** run `/shopify-update` in any theme repo. Fix what it reports here, then bump `.claude/VERSION` and add a `CHANGELOG.md` entry.
 - **Version bumps:** patch for fixes, minor for new behaviour. Each task's state records the kit version it started with.
 
-Status: v0.1, before the first pilot ticket. See `CHANGELOG.md`.
+Status: v0.2, before the first pilot ticket. See `CHANGELOG.md`.

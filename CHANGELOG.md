@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.0 — 2026-10-20
+
+- `/shopify-investigate <KEY or question>`: read-only feasibility checks, debugging and questions, in three stages (frame, gather, conclude) with a dev gate at the end.
+  - Every claim is labelled Confirmed, Inferred, Assumed or Unknown, with a source.
+  - Debugging needs a reproduction and at least two hypotheses.
+  - The new `evidence-checker` agent re-checks Confirmed claims before the dev sees the answer.
+  - Read-only is enforced: the wrapper refuses its write verbs for investigations, and `conclude` refuses if theme files changed.
+  - A finished investigation continues as `/implement` on the same key, and intake reads it.
+- `shopify.mjs query <name>`: kit queries for product, collection, metaobjects, menus, markets and locales, alongside shop and definitions, all validated against 2026-07. `shop` now includes the plan.
+- The Admin login requests read scopes for investigations (navigation, markets, locales, translations, content, discounts, files, publications). `auth-check` reports them separately as `investigateScopesFix`.
+- `cli-check` validates every kit query, not only definitions, and reports deprecated fields.
+
 ## 0.1.0 — 2026-10-20
 
 First version, before the pilot.

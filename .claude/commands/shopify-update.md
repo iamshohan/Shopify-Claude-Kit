@@ -12,7 +12,7 @@ The kit's wrapper (`.claude/kit/shopify.mjs`) depends on specific Shopify CLI co
    - the output schemas the CLI publishes (`store execute`, `store auth list`)
    - the read-only output of `theme list`
    - the plugin's `liquid` and `admin` topics and its `search_docs` and `validate` scripts
-   - that the kit's GraphQL still validates against the pinned Admin API version (`adminApiVersion` in `.claude/shopify-kit.json`)
+   - that every query in `.claude/kit/queries/` still validates against the pinned Admin API version (`adminApiVersion` in `.claude/shopify-kit.json`), and which ones use deprecated fields
 
    The result is saved in `.claude/cli-check.json`.
 2. **Everything ok** → tell the dev which CLI and plugin versions are verified, and that `/implement` can run.

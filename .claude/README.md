@@ -1,4 +1,4 @@
-# Shopify Implementation Kit · v0.1.0
+# Shopify Implementation Kit · v0.2.0
 
 A Claude Code setup for Shopify theme repos. Give it a Jira ticket and it takes the work to a QA'd draft theme:
 
@@ -9,6 +9,11 @@ A Claude Code setup for Shopify theme repos. Give it a Jira ticket and it takes 
 5. it checks the draft with measured values
 
 It handles winning A/B tests (implementation ticket + A/B ticket + the test's code), normal features, and bug fixes, for tickets that change theme code.
+
+`/shopify-investigate` covers the work before or instead of a change. It's read-only and ends in an answer backed by evidence:
+- feasibility checks ("can we build X, and how?")
+- debugging the storefront, theme, menus, markets, metafields, or an app's storefront output
+- questions about how something works
 
 It never publishes a theme, never writes to the live theme, and never pushes or merges into the base branch. Merging stays with you.
 
@@ -58,6 +63,24 @@ It never publishes a theme, never writes to the live theme, and never pushes or 
 /implement                  list tasks in this repo
 ```
 
+### Investigations
+
+```
+/shopify-investigate ABC-123                         investigate a ticket
+/shopify-investigate why do German menus link to English pages?   a question without a ticket (key INV-…)
+```
+
+| # | Stage | What happens | Your part |
+| --- | --- | --- | --- |
+| 1 | frame | Reads the ticket, picks the type (feasibility, debug, question), and writes the question precisely, with what counts as answered. | answer if it asks |
+| 2 | gather | Theme code and git history, live files, store data through read-only Admin queries (products, collections, metafields, metaobjects, menus, markets, languages), Shopify's docs, and the live storefront in Chrome. Every claim is labelled Confirmed, Inferred, Assumed or Unknown, with its source. Bugs are reproduced first and need at least two hypotheses. | resize the window if asked |
+| 3 | conclude | Writes the answer, what it couldn't determine, the next step and a Jira comment. A separate agent re-checks every Confirmed claim and looks for a better explanation. | **Gate:** accept, dig further, or "wrong question" |
+
+- Nothing changes: the wrapper refuses draft, push, preview and mutate for investigations, and `conclude` refuses if theme files changed.
+- If the answer is a theme fix, run `/implement` on the same key. The investigation becomes its starting context.
+
+### Implementations
+
 | # | Stage | What happens | Your part |
 | --- | --- | --- | --- |
 | 1 | intake | Reads the ticket and linked tickets and decides: A/B port, feature or bug fix. For A/B ports it asks which variation won, where the code is, and which tool runs the test. | answer; drop the A/B code in `.claude/logs/<KEY>/abtest/` |
@@ -79,6 +102,7 @@ Everything for a task is in `.claude/logs/<KEY>/`:
 | `plan.md` | What and how: the approved plan, amendments, and "as built". |
 | `report.md` | Proof and handoff: QA criteria with measured values and verdicts, PR text, admin steps, Jira comment. |
 | `contract.md` | What the merchant will see in the customizer, generated from the schemas. |
+| `investigation.md` | Investigations only: the question, answer, labelled evidence, hypotheses, reproduction, review and next step. |
 | `state.json` | Machine state, so a run can resume. Managed by `kit.mjs`; don't edit it by hand. |
 
 The logs are history, not a knowledge base. Every new task reads the code fresh, because code changes and stored descriptions of it go stale.
@@ -118,7 +142,7 @@ Expect roughly 1.5–3 hours of wall time per A/B port, about half of it QA. Tha
 | `theme check` | reporting only offenses the branch introduced |
 | `theme delete` | removing your draft, with approval |
 | `store auth list` | the granted scopes |
-| `store execute --version 2026-07` | Admin GraphQL: reading definitions; creating definitions and QA values, with approval |
+| `store execute --version 2026-07` | Admin GraphQL: reading definitions and, for investigations, products, collections, metaobjects, menus, markets and languages (`shopify.mjs query <name>`); creating definitions and QA values, with approval |
 
 **Shopify plugin** (`shopify-plugin:shopify` skill):
 - Fresh docs (`search_docs`) for every Liquid object, filter, tag and schema setting the theme doesn't already use.
@@ -132,7 +156,8 @@ Expect roughly 1.5–3 hours of wall time per A/B port, about half of it QA. Tha
 | --- | --- |
 | `/shopify-setup` says the guard didn't block `shopify version` | Update Claude Code and trust the folder. Don't use the kit until it's blocked. |
 | "Theme login missing or expired" | `! shopify theme list --store <store>` |
-| "Admin API login missing or lacks scopes" | `! shopify store auth --store <store> --scopes <the scopes it lists>` |
+| "Admin API login missing or lacks scopes" | `shopify store auth --store <store> --scopes <the scopes it lists>` (in Claude Code, prefix it with `!`) |
+| An investigation stops at "access denied" for a query | The login lacks a read scope. `shopify.mjs auth-check` prints the command as `investigateScopesFix`. |
 | "No Jira credentials" | Create `.claude/.env.local` (see Install), or paste the ticket text. |
 | "The theme library is full" | Remove old drafts: `kit/…` ones via `shopify.mjs delete-draft <KEY>`, others in the admin. Basic, Grow and Advanced plans allow 20 themes; Plus allows 100. |
 | push refuses: "Live has changed … since this branch's base" | Merge `origin/<base>` into the task branch, resolve, commit, push again. |
@@ -149,8 +174,9 @@ Maintainers:
 - After any guard or helper change, run `node .claude/hooks/guard.mjs --selftest` and `node .claude/kit/kit.mjs --selftest`.
 - After changing `kit/probe.js`, run `node .claude/kit/kit.mjs build-probe`.
 
-## Not in v0.1
+## Not in v0.2
 
+- Shopify app development (separate repos and risks; planned as its own kit)
 - fetching A/B code from shadow-drip automatically (you supply the path or files)
 - tickets that target a non-live theme
 - posting to Jira and creating PRs

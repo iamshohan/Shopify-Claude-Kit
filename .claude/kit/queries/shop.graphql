@@ -1,8 +1,10 @@
+# Shop basics, including the plan (Plus-only features matter for feasibility).
 query KitShop {
   shop {
     name
     myshopifyDomain
     primaryDomain { url }
     currencyCode
+    plan { publicDisplayName shopifyPlus }
   }
 }

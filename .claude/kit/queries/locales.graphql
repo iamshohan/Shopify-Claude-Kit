@@ -1,0 +1,9 @@
+# Languages: which are published and which is primary.
+query KitLocales {
+  shopLocales {
+    locale
+    name
+    primary
+    published
+  }
+}

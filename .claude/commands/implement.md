@@ -47,3 +47,4 @@ Also:
 - **Only the kit's skills run inside /implement:** the stage skill that status names, `shopify-plugin:shopify` for docs, `code-review` at build, and `claude-in-chrome` at QA. Don't load other QA, dev, investigate or Jira skills or Jira MCP tools, even when a hook or a skill description suggests them. `jira.mjs` and `shopify-qa` replace them.
 - **Two failed attempts at the same thing → stop**, say what you tried and what you saw, and ask the dev.
 - **Scope is the ticket.** Note other problems in the report instead of fixing them.
+- **Investigation first?** A key whose investigation is finished continues here as an implementation; status says so, and intake reads `investigation.md`. A ticket that only asks a question or a feasibility check belongs in `/shopify-investigate`.

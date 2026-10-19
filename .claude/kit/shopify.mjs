@@ -15,20 +15,27 @@ Read-only
   cli-check [--force]                    does the installed Shopify CLI and plugin still offer what the kit uses? (fast when unchanged)
   auth-check [--store S]                 CLI version, theme login, Admin API login, telemetry opt-out
   themes [--name TEXT]                   themes in the store: id, name, role
-  query <definitions|shop|FILE.graphql> [--owner PRODUCT] [--vars FILE.json]
-                                         read-only Admin GraphQL (mutations are refused)
+  query <NAME|FILE.graphql> [--owner PRODUCT] [--handle H] [--type T] [--vars FILE.json]
+                                         read-only Admin GraphQL (mutations are refused). NAME is a kit query:
+                                         shop, definitions (--owner), product (--handle), collection (--handle),
+                                         metaobjects (--type), menus, markets, locales
   pull-live <KEY> <file-or-glob>...      live theme files into .claude/logs/<KEY>/live/
   check <KEY> [--baseline]               theme check; reports only offenses this branch introduced
 This task's draft theme
   draft <KEY> [--dry-run]                reuse or create the draft: a copy of the live theme named kit/<KEY>/<you>
   push <KEY> [--dry-run]                 upload the theme files this branch changed (committed) to the draft
   preview <KEY> <overrides.json>         virtual preview of the draft with JSON overrides; prints the URL
+Investigations (kit.mjs start <KEY> --investigate) can't use draft, push, preview, mutate or delete-draft.
 The guard asks the dev before these run
   mutate <KEY> <FILE.graphql> [--vars FILE.json] [--dry-run]
                                          Admin GraphQL mutation, recorded in the task state
   delete-draft <KEY> [--dry-run]         delete this task's draft theme`;
 
-const SCOPES = 'read_products,write_products,read_metaobject_definitions,write_metaobject_definitions,read_metaobjects,write_metaobjects';
+// /implement needs these. /shopify-investigate also reads menus, markets, languages, translations,
+// pages and blogs, discounts, files and sales channels. One login requests both.
+const IMPLEMENT_SCOPES = 'read_products,write_products,read_metaobject_definitions,write_metaobject_definitions,read_metaobjects,write_metaobjects';
+const INVESTIGATE_SCOPES = 'read_online_store_navigation,read_markets,read_locales,read_translations,read_content,read_discounts,read_files,read_publications';
+const SCOPES = `${IMPLEMENT_SCOPES},${INVESTIGATE_SCOPES}`;
 const ADMIN_API_VERSION = '2026-07';
 
 // Every CLI command and flag this wrapper relies on, and what breaks if one changes.
@@ -89,12 +96,23 @@ function fullCliCheck(store) {
     for (const topic of ['liquid', 'admin']) if (!new RegExp(`\\|\\s*\`${topic}\``).test(skill)) problems.push(`The plugin's skill no longer has the "${topic}" topic. Affects: docs lookups in the plan and build stages.`);
     for (const s of ['search_docs.mjs', 'validate.mjs']) if (!existsSync(join(plugin.dir, 'scripts', s))) problems.push(`The plugin no longer ships scripts/${s}. Affects: docs lookups and GraphQL validation.`);
     const version = cfg?.adminApiVersion || ADMIN_API_VERSION;
-    const v = run(process.execPath, [join(plugin.dir, 'scripts', 'validate.mjs'), '--api', 'admin', '--version', version, '--file', join(KIT_DIR, 'queries', 'definitions.graphql')], { env: { OPT_OUT_INSTRUMENTATION: 'true' } });
-    if (!/VALID|SUCCESS/i.test(v.stdout) || /INVALID|FAILED/i.test(v.stdout)) {
-      problems.push(`The kit's definitions query doesn't validate against Admin API ${version} (unsupported version, or the schema changed). Bump adminApiVersion in .claude/shopify-kit.json and re-validate the kit's queries.`);
+    for (const q of readdirSync(join(KIT_DIR, 'queries')).filter((f) => f.endsWith('.graphql'))) {
+      const v = run(process.execPath, [join(plugin.dir, 'scripts', 'validate.mjs'), '--api', 'admin', '--version', version, '--file', join(KIT_DIR, 'queries', q)], { env: { OPT_OUT_INSTRUMENTATION: 'true' } });
+      if (!/VALID|SUCCESS/i.test(v.stdout) || /INVALID|FAILED/i.test(v.stdout)) {
+        problems.push(`The kit's ${q} doesn't validate against Admin API ${version} (unsupported version, or the schema changed). Affects: query ${q.replace('.graphql', '')}. Fix the query, or bump adminApiVersion in .claude/shopify-kit.json and re-validate.`);
+      } else if (/deprecated/i.test(v.stdout)) {
+        notes.push(`${q} uses a deprecated field; it still works on ${version}, but update it before the next version bump.`);
+      }
     }
   }
   return { problems, notes, pluginVersion: plugin?.version || null };
+}
+
+/** Task state for a verb that writes to the store; investigations are read-only. */
+function writableTask(key) {
+  const st = readState(key);
+  if (st.kind === 'investigation') fail(`${key} is an investigation, which is read-only. To change the theme or the store, finish it and run /implement ${key}.`);
+  return st;
 }
 
 function cli(args) {
@@ -324,8 +342,11 @@ switch (verb) {
       if (mine) {
         out.adminScopes = mine.scopes;
         out.adminLoginExpires = mine.expiresAt || null;
-        const lacking = SCOPES.split(',').filter((s) => !(mine.scopes || []).includes(s) && !(mine.scopes || []).includes(s.replace('read_', 'write_')));
-        if (lacking.length) out.adminScopesFix = `Missing ${lacking.join(', ')}: ! shopify store auth --store ${store} --scopes ${SCOPES}`;
+        const lacking = (scopes) => scopes.split(',').filter((s) => !(mine.scopes || []).includes(s) && !(mine.scopes || []).includes(s.replace('read_', 'write_')));
+        const forImplement = lacking(IMPLEMENT_SCOPES);
+        const forInvestigate = lacking(INVESTIGATE_SCOPES);
+        if (forImplement.length) out.adminScopesFix = `Missing ${forImplement.join(', ')} (needed by /implement): ! shopify store auth --store ${store} --scopes ${SCOPES}`;
+        if (forInvestigate.length) out.investigateScopesFix = `Missing ${forInvestigate.join(', ')} (needed by /shopify-investigate for menus, markets, languages and other store settings): ! shopify store auth --store ${store} --scopes ${SCOPES}`;
       }
     } else {
       out.adminLogin = 'missing';
@@ -346,15 +367,27 @@ switch (verb) {
   }
 
   case 'query': {
-    const what = pos[0] || fail('Usage: query <definitions|shop|FILE.graphql> [--owner PRODUCT] [--vars FILE.json]');
+    const what = pos[0] || fail('Usage: query <NAME|FILE.graphql> [--owner PRODUCT] [--handle H] [--type T] [--vars FILE.json]');
     let file = what;
     let vars = typeof flags.vars === 'string' ? flags.vars : null;
-    if (what === 'definitions' || what === 'shop') file = join(KIT_DIR, 'queries', `${what}.graphql`);
-    if (what === 'definitions') {
-      const ownerType = String(flags.owner || 'PRODUCT').toUpperCase();
-      const dir = mkdtempSync(join(tmpdir(), 'kit-'));
-      vars = join(dir, 'vars.json');
-      writeFileSync(vars, JSON.stringify({ ownerType }));
+    const named = join(KIT_DIR, 'queries', `${what}.graphql`);
+    if (/^[a-z-]+$/.test(what) && existsSync(named)) {
+      file = named;
+      // The kit's queries take at most one simple variable, given as a flag.
+      const given = {
+        ownerType: what === 'definitions' ? String(flags.owner || 'PRODUCT').toUpperCase() : undefined,
+        handle: typeof flags.handle === 'string' ? flags.handle : undefined,
+        type: typeof flags.type === 'string' ? flags.type : undefined,
+      };
+      const needed = [...readFileSync(named, 'utf8').matchAll(/\$(\w+):/g)].map((m) => m[1]);
+      const missing = needed.filter((n) => given[n] === undefined);
+      if (missing.length) fail(`query ${what} needs --${missing.map((n) => (n === 'ownerType' ? 'owner' : n)).join(' --')}`);
+      if (needed.length) {
+        vars = join(mkdtempSync(join(tmpdir(), 'kit-')), 'vars.json');
+        writeFileSync(vars, JSON.stringify(Object.fromEntries(needed.map((n) => [n, given[n]]))));
+      }
+    } else if (!existsSync(file)) {
+      fail(`No kit query named "${what}" and no such file. Kit queries: ${readdirSync(join(KIT_DIR, 'queries')).map((f) => f.replace('.graphql', '')).join(', ')}`);
     }
     if (hasMutation(gqlFile(file))) fail('This file contains a mutation. Mutations go through: shopify.mjs mutate <KEY> <file> (the dev approves it).');
     const data = storeExecute(cfg.store, file, vars);
@@ -418,7 +451,7 @@ switch (verb) {
 
   case 'draft': {
     const key = normKey(pos[0]);
-    const st = readState(key);
+    const st = writableTask(key);
     const themes = listThemes(cfg.store);
     const existing = taskDraft(st, themes);
     if (existing) {
@@ -466,7 +499,7 @@ switch (verb) {
 
   case 'push': {
     const key = normKey(pos[0]);
-    const st = readState(key);
+    const st = writableTask(key);
     if (!st.draft?.themeId) fail(`No draft yet. Run: shopify.mjs draft ${key}`);
     if (st.draft.route === 'github') fail('This draft is GitHub-connected: update it with git push origin <branch>, not the CLI.');
     if (!st.base) fail(`No base commit recorded. Run: kit.mjs set ${key} base=<sha>`);
@@ -541,7 +574,7 @@ switch (verb) {
 
   case 'preview': {
     const key = normKey(pos[0]);
-    const st = readState(key);
+    const st = writableTask(key);
     if (!st.draft?.themeId) fail(`No draft yet. Run: shopify.mjs draft ${key}`);
     const { abs, ok } = inTaskFolder(key, pos[1] || '');
     if (!pos[1] || !ok) fail(`Put the overrides file in .claude/logs/${key}/previews/ and pass its path.`);
@@ -563,7 +596,7 @@ switch (verb) {
 
   case 'mutate': {
     const key = normKey(pos[0]);
-    const st = readState(key);
+    const st = writableTask(key);
     const { abs, ok } = inTaskFolder(key, pos[1] || '');
     if (!pos[1] || !ok) fail(`Put the mutation in .claude/logs/${key}/mutations/ and pass its path.`);
     const text = gqlFile(abs);
@@ -587,7 +620,7 @@ switch (verb) {
 
   case 'delete-draft': {
     const key = normKey(pos[0]);
-    const st = readState(key);
+    const st = writableTask(key);
     if (!st.draft?.themeId || st.draft.deletedAt) fail(`${key} has no draft to delete.`);
     const target = listThemes(cfg.store).find((t) => t.id === st.draft.themeId);
     assertOwnDraft(key, st, target);
