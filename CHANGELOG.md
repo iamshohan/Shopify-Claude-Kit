@@ -11,6 +11,14 @@
 - `shopify.mjs query <name>`: kit queries for product, collection, metaobjects, menus, markets and locales, alongside shop and definitions, all validated against 2026-07. `shop` now includes the plan.
 - The Admin login requests read scopes for investigations (navigation, markets, locales, translations, content, discounts, files, publications). `auth-check` reports them separately as `investigateScopesFix`.
 - `cli-check` validates every kit query, not only definitions, and reports deprecated fields.
+- Draft themes are named after the key alone (`ABC-123`), not `kit/<KEY>/<git user>`, which collided when devs share a git name. An existing unpublished theme with that name is adopted but treated as not made by the kit, so the kit never offers to delete it on its own. Old `kit/<KEY>/…` drafts still work.
+- The build stage creates the task branch with `--no-track`, so it doesn't track the base branch.
+- Fixes from the first store rehearsal (cherries, CLI 4.9.4):
+  - `preview` failed on Windows: `theme preview --overrides` drops a path's backslashes, so the wrapper now passes every path with forward slashes.
+  - `theme preview --json` prints its result to stderr, wrapped in a diagnostic event; the wrapper reads it from there.
+  - CLI errors hid behind the `<claude-code-hint>` tag that Claude Code hides. The wrapper now drops that tag, and falls back to the exit code and raw output when there's no structured error.
+  - QA: `Shopify.theme.id` is read only after load, and the editor wait is up to 60 s.
+  - `compare.mjs --help` works.
 - The Admin API login is optional (`adminApi` in `shopify-kit.json`). It installs Shopify's CLI app once per store, which many devs aren't allowed to do. Without it:
   - definitions and QA values become admin steps for the dev, checked in Chrome
   - investigations read admin pages and public storefront data

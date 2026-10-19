@@ -45,6 +45,7 @@ const sections = (html) => [...html.matchAll(/id="shopify-section-([^"]+)"/g)]
 const count = (html, needle) => (needle ? html.split(needle).length - 1 : null);
 
 const [rawKey, ...paths] = process.argv.slice(2);
+if (!rawKey || rawKey === '--help' || rawKey === 'help') { print('Usage: node .claude/kit/compare.mjs <KEY> [path ...]   e.g. home cart products/x (defaults: qa.paths, else home and cart)'); process.exit(rawKey ? 0 : 1); }
 const key = normKey(rawKey);
 const cfg = readConfig();
 const st = readState(key);

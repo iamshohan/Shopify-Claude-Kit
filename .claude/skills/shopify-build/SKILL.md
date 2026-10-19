@@ -17,7 +17,7 @@ user-invocable: false
         - **"New branch <KEY>-kit"** → create it as below
 
         Never create a second branch whose name differs only by case.
-     2. Otherwise run `git switch -c <branch> origin/<baseBranch>`, with the name from status.
+     2. Otherwise run `git switch --no-track -c <branch> origin/<baseBranch>`, with the name from status. `--no-track` keeps the task branch from tracking the base branch.
      3. Record the branch and base: `kit.mjs set <KEY> branch=<branch> base=<sha>`. Get the sha from `git rev-parse origin/<baseBranch>`, or from the merge-base when reusing a branch.
      4. While the tree is untouched, record the theme-check baseline: `node .claude/kit/shopify.mjs check <KEY> --baseline` (about a minute; run it with a 10-minute timeout).
 2. **Implement.** Spawn `theme-builder` with the key and `mode: build`. In a fix loop, use `mode: fix` and paste the failing QA rows or review findings into the prompt. Wait for its "As built" report.
@@ -68,7 +68,7 @@ user-invocable: false
    4. **Create-only:** never update or delete an existing definition.
    5. QA test values go only on the products the dev named (`qa.products`), through the same `mutate` path.
    6. A scope error gives you the exact `! shopify store auth …` command. Pass it to the dev, then retry.
-2. **Draft theme:** `node .claude/kit/shopify.mjs draft <KEY>`, run with a 10-minute timeout. It reuses this task's draft, or copies the live theme into a new unpublished theme named `kit/<KEY>/<you>` and waits until Shopify finishes processing it.
+2. **Draft theme:** `node .claude/kit/shopify.mjs draft <KEY>`, run with a 10-minute timeout. It reuses this task's draft, or copies the live theme into a new unpublished theme named `<KEY>` and waits until Shopify finishes processing it. If an unpublished theme with that name already exists, it adopts it and says so; tell the dev, because a teammate may be using it.
    - **The command timed out.** Run it again; it adopts the copy it already started.
    - **"The theme library is full".** Show the dev the listed themes. Ask which to remove: kit drafts of finished tasks via `shopify.mjs delete-draft <THAT-KEY>`, anything else in the admin.
    - **The CLI can't do it** (no access, or the store's permissions forbid it). Tell the dev exactly what to create: an unpublished copy of the live theme with `<KEY>` in its name, or a GitHub-connected theme on the task branch. Then record what they give you: `kit.mjs set <KEY> draft.themeId=<id> draft.name=<name> draft.route=manual` (or `draft.route=github`).

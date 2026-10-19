@@ -127,6 +127,20 @@ export function parseCliJson(text) {
   return null;
 }
 
+/** The last diagnostic event whose message is a JSON object: where some CLI commands put their --json result. */
+export function diagnosticJson(text) {
+  const lines = String(text).split(/\r?\n/);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    try {
+      const event = JSON.parse(lines[i]);
+      if (event?.type !== 'diagnostic' || typeof event.message !== 'string') continue;
+      const value = JSON.parse(event.message);
+      if (value && typeof value === 'object') return value;
+    } catch { /* not a JSON event */ }
+  }
+  return null;
+}
+
 export function parseEnv(text) {
   const out = {};
   for (const raw of text.split(/\r?\n/)) {

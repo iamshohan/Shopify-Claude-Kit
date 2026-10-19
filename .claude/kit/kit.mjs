@@ -5,7 +5,7 @@ import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import {
   ROOT, KIT_DIR, LOGS, KIT_VERSION, STAGES, stagesFor, THEME_DIRS, print, fail, parseArgs, normKey, now, run, git, currentBranch,
-  readConfig, readState, writeState, owner, branchFor, protectedBranches, storefrontPath, parseCliJson, ignoreMatcher,
+  readConfig, readState, writeState, owner, branchFor, protectedBranches, storefrontPath, parseCliJson, diagnosticJson, ignoreMatcher,
 } from './lib.mjs';
 
 const HELP = `Usage: node .claude/kit/kit.mjs <verb> ...
@@ -252,6 +252,8 @@ function selftest() {
   eq('storefrontPath slash', storefrontPath('/products/x'), '/products/x');
   eq('parseCliJson ndjson', parseCliJson('{"type":"progress"}\n{"data":{"shop":1}}'), { data: { shop: 1 } });
   eq('parseCliJson pretty', parseCliJson('<claude-code-hint/>\n[\n  {"id": 1}\n]'), [{ id: 1 }]);
+  eq('diagnosticJson result', diagnosticJson('<claude-code-hint />\n{"type":"diagnostic","level":"info","message":"{\\"url\\":\\"https://x\\"}"}\n'), { url: 'https://x' });
+  eq('diagnosticJson plain text', diagnosticJson('{"type":"diagnostic","message":"Uploading files"}'), null);
   eq('sectionLines nested', sectionLines('## A\nx\n### B\ny\n## C\nz', '## A'), ['x', '### B', 'y']);
   eq('sectionLines suffix heading', sectionLines('## Found (analyze)\nfound it\n## Decided', '## Found'), ['found it']);
   const ignore = ignoreMatcher('*.json\n# comment\nassets/src/**\n/\\.map$/');

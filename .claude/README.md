@@ -90,7 +90,7 @@ It never publishes a theme, never writes to the live theme, and never pushes or 
 | 4 | plan | Writes the file-by-file plan, the store setup (validated mutations) and the QA criteria. | — |
 | 5 | approve | Shows the plan. | **Gate 2:** approve, change or reject |
 | 6 | build | Branches from a fresh base. The builder agent implements; `/code-review` plus a Shopify checklist reviews; then it commits. | — |
-| 7 | draft | Creates the planned definitions (you approve each mutation), copies the live theme to `kit/<KEY>/<you>`, and pushes the branch's changed files to it. | approve mutations |
+| 7 | draft | Creates the planned definitions (you approve each mutation), copies the live theme to an unpublished theme named `<KEY>`, and pushes the branch's changed files to it. | approve mutations |
 | 8 | qa | Measures every criterion on the draft: the storefront in Chrome, settings via virtual previews, the customizer contract from the schemas plus editor screenshots, and regression against live. | resize the window if asked; do the "by hand" checks |
 | 9 | accept | Shows the result. Failures go back to the builder. | **Gate 3:** accept or send back |
 | 10 | handoff | Pushes the branch and writes the PR text (with a run summary), admin steps, go-live order and a Jira comment for you to post. | create the PR, merge, go live |
@@ -113,7 +113,7 @@ The logs are history, not a knowledge base. Every new task reads the code fresh,
 - **The QA team** reviews in Jira's review status, using `report.md` § Criteria as the script. The dev moves the ticket there (in Drip's Jira usually "AC Review"), not to Done, which can start billing automation.
 - **Client or AC feedback** after handoff: run `/implement <KEY>`, then `kit.mjs back <KEY> build --reason "…"`. Keep the draft until review ends.
 - **Scope changes midway:** go `back` to the stage they affect. The plan records them under Amendments.
-- **Another dev takes over:** copy `.claude/logs/<KEY>/` to their machine. Their draft will be their own `kit/<KEY>/<name>` copy.
+- **Another dev takes over:** copy `.claude/logs/<KEY>/` to their machine. The draft is named after the key, so they continue on the same draft.
 - **Dropping a task:** `kit.mjs abandon <KEY> --reason "…"` lists the draft theme and store data left to clean up.
 - **Numbers for reporting:** `kit.mjs summary <KEY>` gives the time per stage, loops, gate answers, QA verdicts and store changes. Handoff puts it in the PR.
 
@@ -123,7 +123,7 @@ Expect roughly 1.5–3 hours of wall time per A/B port, about half of it QA. Tha
 
 | Rail | How |
 | --- | --- |
-| Shopify CLI only through one wrapper | `.claude/kit/shopify.mjs` builds every command itself and only writes to the task's own unpublished `kit/<KEY>/…` theme. A draft you made yourself must have the key in its name. The wrapper has no publish, live or delete-other command. The guard hook denies direct `shopify`, `npx @shopify/cli`, `SHOPIFY_FLAG_*` and Theme Kit calls, including inside npm scripts and `bash -c`/`cmd /c` wrappers. |
+| Shopify CLI only through one wrapper | `.claude/kit/shopify.mjs` builds every command itself and only writes to the task's own unpublished theme, named after the key. A draft you made yourself must have the key in its name. The wrapper has no publish, live or delete-other command. The guard hook denies direct `shopify`, `npx @shopify/cli`, `SHOPIFY_FLAG_*` and Theme Kit calls, including inside npm scripts and `bash -c`/`cmd /c` wrappers. |
 | Store changes | Every `mutate` and `delete-draft`, and any wrapper verb that isn't on the read-only list, shows you the exact GraphQL and variables (or theme name and id) and waits for your approval. |
 | Git | Pushes go only as `git push -u origin <task-branch>` with a literal name: no force, delete, `HEAD:main`, variables, or pushes to protected branches. No commits or merges on protected branches, even after `git switch main && …`. Commands that discard work (`reset --hard`, `clean -f`, `checkout <file>`, …) ask first. |
 | Files | `state.json` changes only through `kit.mjs`. Credential files (`.env*`, `.claude/.env.local`, Theme Kit `config.yml`) are never read or written, including through the shell. Merchant-owned JSON (`templates/*.json`, section groups, `settings_data.json`) and the kit's own files ask first. |
@@ -160,7 +160,7 @@ Expect roughly 1.5–3 hours of wall time per A/B port, about half of it QA. Tha
 | "Admin API login missing or lacks scopes" | `shopify store auth --store <store> --scopes <the scopes it lists>` (in Claude Code, prefix it with `!`) |
 | An investigation stops at "access denied" for a query | The login lacks a read scope. `shopify.mjs auth-check` prints the command as `investigateScopesFix`. |
 | "No Jira credentials" | Create `.claude/.env.local` (see Install), or paste the ticket text. |
-| "The theme library is full" | Remove old drafts: `kit/…` ones via `shopify.mjs delete-draft <KEY>`, others in the admin. Basic, Grow and Advanced plans allow 20 themes; Plus allows 100. |
+| "The theme library is full" | Remove old drafts: ones the kit made via `shopify.mjs delete-draft <KEY>`, others in the admin. Basic, Grow and Advanced plans allow 20 themes; Plus allows 100. |
 | push refuses: "Live has changed … since this branch's base" | Merge `origin/<base>` into the task branch, resolve, commit, push again. |
 | push refuses: "Shopify rejected files" | Fix the file it names (often a Liquid error), commit, push again. |
 | A `done` is refused | It lists what the stage is missing. Finish that and run it again. |

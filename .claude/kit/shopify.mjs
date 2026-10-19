@@ -7,7 +7,7 @@ import { join, relative } from 'node:path';
 import { tmpdir, homedir } from 'node:os';
 import {
   ROOT, LOGS, KIT_DIR, THEME_DIRS, MERCHANT_JSON, WIN, print, fail, parseArgs, normKey, now, run, git,
-  currentBranch, parseCliJson, readConfig, readState, writeState, owner, slug, secret, inTaskFolder, ignoreMatcher,
+  currentBranch, parseCliJson, diagnosticJson, readConfig, readState, writeState, secret, inTaskFolder, ignoreMatcher,
 } from './lib.mjs';
 
 const HELP = `Usage: node .claude/kit/shopify.mjs <verb> ...
@@ -22,7 +22,7 @@ Read-only
   pull-live <KEY> <file-or-glob>...      live theme files into .claude/logs/<KEY>/live/
   check <KEY> [--baseline]               theme check; reports only offenses this branch introduced
 This task's draft theme
-  draft <KEY> [--dry-run]                reuse or create the draft: a copy of the live theme named kit/<KEY>/<you>
+  draft <KEY> [--dry-run]                reuse or create the draft: a copy of the live theme named <KEY>
   push <KEY> [--dry-run]                 upload the theme files this branch changed (committed) to the draft
   preview <KEY> <overrides.json>         virtual preview of the draft with JSON overrides; prints the URL
 Investigations (kit.mjs start <KEY> --investigate) can't use draft, push, preview, mutate or delete-draft.
@@ -120,8 +120,11 @@ function cli(args) {
   const token = secret('SHOPIFY_CLI_THEME_TOKEN');
   if (token) env.SHOPIFY_CLI_THEME_TOKEN = token;
   // --no-input: an expired login fails fast instead of opening a browser and hanging the tool call.
-  const r = run('shopify', [...args, '--no-input'], { env, shell: true });
-  return { ...r, data: parseCliJson(r.stdout) };
+  // theme preview --overrides drops the backslashes of a Windows path (CLI 4.9.4); forward slashes work everywhere.
+  const posix = args.map((a) => (/^[A-Za-z]:\\/.test(a) ? a.replaceAll('\\', '/') : a));
+  const r = run('shopify', [...posix, '--no-input'], { env, shell: true });
+  // theme preview --json prints its result to stderr, wrapped in a diagnostic event (CLI 4.9.4).
+  return { ...r, data: parseCliJson(r.stdout) ?? diagnosticJson(r.stderr) };
 }
 
 function cliError(r) {
@@ -132,7 +135,8 @@ function cliError(r) {
   ].filter(Boolean);
   if (structured.length) return structured.join('\n');
   // No structured error: stderr or stdout, without the CLI's NDJSON progress and diagnostic events.
-  const clean = (t) => t.split('\n').filter((l) => !/^\{"type":"(progress|diagnostic)"/.test(l)).join('\n').trim();
+  // <claude-code-hint> lines are the CLI's plugin hints; Claude Code hides them, so they'd read as an empty error.
+  const clean = (t) => t.split('\n').filter((l) => !/^\{"type":"(progress|diagnostic)"|^<claude-code-hint\b/.test(l.trim())).join('\n').trim();
   return (clean(r.stderr) || clean(r.stdout)).slice(-1500);
 }
 
@@ -149,7 +153,9 @@ function loginHint(store, r) {
 
 function failCli(store, r, what) {
   const hint = loginHint(store, r);
-  fail(`${what} failed.\n${cliError(r)}${hint ? `\n\n${hint}` : ''}`);
+  // Exit 0 with an unexpected shape, or a silent failure, still needs something to act on.
+  const detail = cliError(r) || `CLI exit code ${r.code}. Output: ${(r.stdout.trim() || r.stderr.trim() || '(none)').slice(-1500)}`;
+  fail(`${what} failed.\n${detail}${hint ? `\n\n${hint}` : ''}`);
 }
 
 // Filters locally: the CLI's --name exits with an error when nothing matches.
@@ -186,7 +192,8 @@ function taskDraft(st, themes) {
 function assertOwnDraft(key, st, theme) {
   if (!theme) fail(`Theme ${st.draft?.themeId} no longer exists in the store. Run: shopify.mjs draft ${key}`);
   if (theme.role !== 'unpublished') fail(`Theme ${theme.id} is "${theme.role}", not unpublished. The kit only writes to unpublished drafts.`);
-  if (st.draft.route === 'cli' && !theme.name.startsWith(`kit/${key}/`)) fail(`Theme ${theme.id} is named "${theme.name}", not kit/${key}/…. Refusing to write to it.`);
+  // kit/<KEY>/… is the name drafts had before kit 0.2.0.
+  if (st.draft.route === 'cli' && theme.name.toUpperCase() !== key && !theme.name.startsWith(`kit/${key}/`)) fail(`Theme ${theme.id} is named "${theme.name}", not ${key}. Refusing to write to it.`);
   // A typed-in id could be a teammate's copy; a dev-made draft must carry the ticket key in its name.
   if (st.draft.route !== 'cli' && !theme.name.toUpperCase().includes(key)) {
     fail(`Theme ${theme.id} is named "${theme.name}", which doesn't contain ${key}. Ask the dev to rename their draft to include ${key}, then record it again.`);
@@ -465,15 +472,14 @@ switch (verb) {
       print({ reused: true, ...st.draft });
       break;
     }
-    const me = owner();
-    const name = `kit/${key}/${slug(me.name)}`.slice(0, 50);
+    const name = key;
     const live = themes.find((t) => t.role === 'live') || fail('No live theme found in the store.');
-    const others = themes.filter((t) => t.name.startsWith(`kit/${key}/`) && t.name !== name);
-    const same = themes.find((t) => t.name === name && t.role === 'unpublished');
-    const record = (theme, source) => {
+    const same = themes.find((t) => t.name.toUpperCase() === key && t.role === 'unpublished');
+    const others = themes.filter((t) => t.role !== 'live' && t !== same && t.name.toUpperCase().includes(key));
+    const record = (theme, source, route = 'cli') => {
       const handle = storeHandle(cfg.store);
       st.draft = {
-        themeId: theme.id, name: theme.name, route: 'cli', source, liveThemeId: live.id, createdAt: now(),
+        themeId: theme.id, name: theme.name, route, source, liveThemeId: live.id, createdAt: now(),
         previewUrl: `https://${cfg.store}/?preview_theme_id=${theme.id}`,
         editorUrl: `https://admin.shopify.com/store/${handle}/themes/${theme.id}/editor`,
         lastPushedCommit: null,
@@ -481,8 +487,9 @@ switch (verb) {
       writeState(key, st);
     };
     if (same) {
-      record(same, 'adopted an existing theme with this task\'s name');
-      print({ adopted: true, ...st.draft, note: 'This draft existed already (lost state or another session). Push before QA so it matches the branch.' });
+      // Someone else may have made it (a teammate, or by hand), so the kit never offers to delete it on its own.
+      record(same, 'adopted an existing theme with this task\'s name', 'manual');
+      print({ adopted: true, ...st.draft, note: `An unpublished theme named ${key} existed already (a teammate's draft, an earlier session, or made by hand). The kit will push to it. Pushing replaces the changed files, so check with whoever made it first.` });
       break;
     }
     const command = `shopify theme duplicate --store ${cfg.store} --theme ${live.id} --name ${name} --force --json --no-input`;
