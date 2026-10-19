@@ -1,0 +1,2 @@
+# Same bytes on Windows and macOS: scripts, prompts and JSON use LF.
+* text=auto eol=lf
