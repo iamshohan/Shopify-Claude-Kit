@@ -27,22 +27,26 @@ It never publishes a theme, never writes to the live theme, and never pushes or 
 
 ## Install into a theme repo
 
-1. Copy this `.claude/` folder into the repo root.
-   - If the repo already has a `.claude/` folder, copy the kit's files into it.
-   - If it already has its own `.claude/settings.json`, merge the kit's `hooks`, `permissions` and `env` into it instead of overwriting.
-2. Create `.claude/.env.local`. It's yours only: git ignores it, and Claude is denied from reading it.
+1. **Install with the installer, not by copying.** Clone the kit repo once, then run it against the theme repo:
    ```
-   JIRA_USER=you@company.com
-   JIRA_API_TOKEN=...
+   git clone https://github.com/DripDevelopment/Shopify-Claude-Kit.git
+   node Shopify-Claude-Kit/install.mjs <path-to-theme-repo>
    ```
-3. Open Claude Code in the repo, trust the folder, and run **`/shopify-setup`**. It:
+   - It writes `.claude/.gitignore`, which keeps the whole folder, including your credentials file, out of the theme repo's git. A hand copy misses this.
+   - It leaves the repo's own `.claude/` files alone.
+   - If the repo has its own `.claude/settings.json`, the installer writes the kit's version beside it as `settings.kit.json`; merge its `hooks`, `permissions` and `env` into yours.
+2. Open Claude Code in the repo, trust the folder, and run **`/shopify-setup`**. It:
    - proves the guard blocks a direct CLI call
+   - checks that `.claude/.env.local` is git-ignored, before you put a token in it
    - checks your logins and scopes
    - reads the repo
    - writes `.claude/shopify-kit.json` after you confirm the values (store, Jira URL, base branch, protected branches, branch and commit patterns, Admin API version)
    - creates the Shopify plugin's telemetry opt-out file
-
-The kit stays out of git for now (`.claude/.gitignore` ignores everything in the folder).
+3. When setup says so, create `.claude/.env.local`. It's yours only: git ignores it, and Claude is denied from reading it.
+   ```
+   JIRA_USER=you@company.com
+   JIRA_API_TOKEN=...
+   ```
 
 **Protect the base branch on GitHub** (require PRs). In repos where a merge deploys to the live theme, the guard is a seatbelt, not the boundary.
 
@@ -139,7 +143,7 @@ Expect roughly 1.5–3 hours of wall time per A/B port, about half of it QA. Tha
 
 ## Updating the kit
 
-Copy the new `.claude/` from the master over the repo's `.claude/`. Your `shopify-kit.json`, `.env.local`, `settings.local.json` and `logs/` aren't part of the kit, so they're kept. `VERSION` is recorded in each task's state, and a task started on an older version says so in status.
+Run `git pull` in your kit clone, then `node install.mjs <path-to-theme-repo>` again. Your `shopify-kit.json`, `.env.local`, `settings.local.json`, `cli-check.json` and `logs/` aren't part of the kit, so they're kept, and files a newer kit dropped are removed. `VERSION` is recorded in each task's state, and a task started on an older version says so in status. After a Shopify CLI or plugin update, run `/shopify-update`.
 
 Maintainers:
 - After any guard or helper change, run `node .claude/hooks/guard.mjs --selftest` and `node .claude/kit/kit.mjs --selftest`.

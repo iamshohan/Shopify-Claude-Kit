@@ -39,7 +39,9 @@ Work through these checks in order. Report each one as ✓ or ✗ with the exact
      "protectedBranches": ["main"], "branchPattern": "{KEY}", "commitPattern": "{key}__dev: <what changed>",
      "adminApiVersion": "2026-07" }
    ```
-5. **Jira.** Run `node .claude/kit/jira.mjs --check`. If the credentials are missing, tell the dev to create `.claude/.env.local` with these two lines, and never to paste the token into chat:
+5. **Jira.** Run `node .claude/kit/jira.mjs --check`.
+   - **`envLocalIgnoredByGit` is false (exit 2):** stop here. A token written into `.claude/.env.local` could be committed. The fix is to re-run the kit installer, which writes `.claude/.gitignore`, or to add `.claude/` to the repo's `.gitignore`. Then check again.
+   - **Credentials are missing:** tell the dev to create `.claude/.env.local` with these two lines, and never to paste the token into chat:
    ```
    JIRA_USER=<their Atlassian email>
    JIRA_API_TOKEN=<API token from id.atlassian.com → Security → API tokens>

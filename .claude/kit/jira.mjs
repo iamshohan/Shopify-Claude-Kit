@@ -5,7 +5,7 @@ const HELP = `Usage:
   node .claude/kit/jira.mjs <KEY>                ticket, links, mentioned keys, estimates, comments
   node .claude/kit/jira.mjs <KEY> --no-comments  the same without comments (for related tickets)
   node .claude/kit/jira.mjs --check              which credentials would be used (never prints the token)`;
-import { print, fail, normKey, readConfig, secret, secretSource } from './lib.mjs';
+import { print, fail, normKey, readConfig, secret, secretSource, git } from './lib.mjs';
 
 const SKIP = new Set(['lastViewed', 'watches', 'votes', 'worklog', 'timetracking', 'aggregatetimeestimate', 'aggregatetimeoriginalestimate',
   'aggregatetimespent', 'aggregateprogress', 'progress', 'workratio', 'issuerestriction', 'thumbnail', 'statuscategorychangedate',
@@ -89,9 +89,17 @@ if (!argv.length || argv.includes('--help') || argv.includes('help')) { print(HE
 const c = creds();
 
 if (argv.includes('--check')) {
-  print({ baseUrl: c.base || null, credentials: c.source || 'missing', user: c.user || null,
-    fix: c.source ? null : 'Create .claude/.env.local with two lines: JIRA_USER=<your Atlassian email> and JIRA_API_TOKEN=<token from id.atlassian.com>. Never paste the token into chat.' });
-  process.exit(0);
+  // The token file must be git-ignored before anyone writes a token into it.
+  const inRepo = git(['rev-parse', '--is-inside-work-tree'], { allowFail: true }) === 'true';
+  const ignored = !inRepo || git(['check-ignore', '.claude/.env.local'], { allowFail: true }) !== '';
+  print({
+    baseUrl: c.base || null, credentials: c.source || 'missing', user: c.user || null,
+    envLocalIgnoredByGit: ignored,
+    fix: !ignored
+      ? 'STOP: .claude/.env.local is not git-ignored here, so a token in it could be committed. Re-run the kit installer (it writes .claude/.gitignore) or add .claude/ to the repo\'s .gitignore first.'
+      : c.source ? null : 'Create .claude/.env.local with two lines: JIRA_USER=<your Atlassian email> and JIRA_API_TOKEN=<token from id.atlassian.com>. Never paste the token into chat.',
+  });
+  process.exit(ignored ? 0 : 2);
 }
 
 const key = normKey(argv.find((a) => !a.startsWith('--')));
