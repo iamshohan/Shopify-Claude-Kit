@@ -32,12 +32,13 @@ Work through these checks in order. Report each one as ✓ or ✗ with the exact
    - `branchPattern`: from recon's recent branches, e.g. `{KEY}` → `ABC-123`, or `{key}__dev`
    - `commitPattern`: from recon's commit subjects, e.g. `{key}__dev: <what changed>`
    - `adminApiVersion`: `2026-07` unless the dev says otherwise. Shopify supports each version for about a year.
+   - `adminApi`: `true` if the Admin API login works (step 6), else `false`. See step 6.
 
    Write the file with the Write tool:
    ```json
    { "store": "", "storefrontUrl": "", "jiraBaseUrl": "", "ticketPrefixes": [], "baseBranch": "main",
      "protectedBranches": ["main"], "branchPattern": "{KEY}", "commitPattern": "{key}__dev: <what changed>",
-     "adminApiVersion": "2026-07" }
+     "adminApiVersion": "2026-07", "adminApi": false }
    ```
 5. **Jira.** Run `node .claude/kit/jira.mjs --check`.
    - **`envLocalIgnoredByGit` is false (exit 2):** stop here. A token written into `.claude/.env.local` could be committed. The fix is to re-run the kit installer, which writes `.claude/.gitignore`, or to add `.claude/` to the repo's `.gitignore`. Then check again.
@@ -49,12 +50,22 @@ Work through these checks in order. Report each one as ✓ or ✗ with the exact
    Without a token the kit still works if they paste the ticket text.
 6. **Shopify logins.** These are browser logins, so the dev runs them with the `!` prefix (the guard blocks the agent from running them):
    - Theme login missing → `! shopify theme list --store <store>`
-   - Admin API login missing, or scopes missing → the `adminLoginFix` / `adminScopesFix` command from auth-check. It's needed to read and create metafield and metaobject definitions and QA data.
-   - `investigateScopesFix` → the same command. It adds read access to menus, markets, languages, translations, pages and blogs, discounts, files and sales channels, which `/shopify-investigate` reads. Without it, investigations of those settings stop at a missing-scope error.
+   - **Admin API login (optional).** `shopify store auth` installs Shopify's CLI app on the store, then stores a token for this dev.
+     - It needs someone allowed to install apps, and it has to be done once per store. On a client store, the client may need to agree first.
+     - Ask the dev which they want:
+
+     | Choice | Command | Config |
+     | --- | --- | --- |
+     | Full: the kit reads store data and creates definitions after the dev approves each one | the `adminLoginFix` command from auth-check | `adminApi: true` |
+     | Read-only: the kit reads store data; the dev creates definitions in the admin | the same command with only the `read_…` scopes | `adminApi: true` |
+     | None: nothing is installed. Definitions are made by hand in the admin, and the kit reads admin pages in Chrome. | none | `adminApi: false` |
+
+     - With the login in place, `adminScopesFix` and `investigateScopesFix` list missing scopes. Re-running the command replaces the grant.
+     - Without it, everything theme-related works the same. Store data gets slower and less exact.
 
    The login command can be typed in Claude Code with the `!` prefix (the output lands in the chat), or run in any terminal without the `!`.
 
-   The dev also needs a staff account on the store with theme permissions and the right to manage metafields/metaobjects. Re-run auth-check afterwards.
+   The dev also needs a staff account on the store with theme permissions, and the right to manage metafields and metaobjects (or someone who has it, for the manual path). Re-run auth-check afterwards, and make sure `adminApi` in the config matches the result.
 7. **Shopify plugin.**
    - Check that the `shopify-plugin:shopify` skill is in your skill list. Listing it in `.claude/settings.json` doesn't install it. If it's missing, the dev runs `! claude plugin install shopify-ai-toolkit@claude-plugins-official` and restarts Claude Code.
    - Then run `node .claude/kit/kit.mjs optout`, telling the dev it creates an empty opt-out file for this machine. The plugin otherwise reports prompts and code to shopify.dev.

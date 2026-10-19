@@ -25,6 +25,7 @@ It never publishes a theme, never writes to the live theme, and never pushes or 
 | Node 20+ and git | `node --version` | nodejs.org |
 | Shopify CLI with `theme duplicate`, `theme preview`, `store execute` | `/shopify-setup` → auth-check `cliCommands` | `npm i -g @shopify/cli@latest` |
 | A staff account on the store: themes, plus managing metafields and metaobjects | — | the store owner |
+| Optional: Admin API login. It installs Shopify's CLI app once per store, so it needs someone allowed to install apps. Without it the kit gives you admin steps for definitions and reads admin pages in Chrome. | `/shopify-setup` step 6 | `shopify store auth` (the command auth-check prints) |
 | Shopify plugin for Claude Code, installed by each person (listing it in settings doesn't install it) | `/plugin` → installed | `claude plugin install shopify-ai-toolkit@claude-plugins-official` |
 | Claude in Chrome, logged into the store admin, with site access to the storefront and `admin.shopify.com` | browser tools available in Claude Code | the Claude in Chrome extension |
 | A Jira API token | `node .claude/kit/jira.mjs --check` | id.atlassian.com → Security → API tokens |

@@ -64,6 +64,13 @@ An investigation ends in an answer backed by evidence, not in a code change. The
 | Checkout | A theme can't change checkout pages. Changes need Checkout Extensibility (apps, some Plus only). Confirm in the docs. | |
 | Anything else in the Admin API | Write a query in `.claude/logs/<KEY>/queries/<name>.graphql`. Validate it with the plugin (`--api admin --version <adminApiVersion from .claude/shopify-kit.json>`), which also prints the scopes it needs. Then run `shopify.mjs query <file>`. | A missing scope → give the dev the `investigateScopesFix` command from `shopify.mjs auth-check`. Never ask for order or customer data unless the dev explicitly says so; it's personal data. |
 
+**Without Admin API access** (`adminApi: false` in `.claude/shopify-kit.json`, and `query` refuses):
+- **Admin pages in Chrome, look only:** Content → Menus, Settings → Markets, Languages, Custom data, Products and Collections.
+- **Public storefront data:** `/products/<handle>.js`, `/collections/<handle>/products.json`, `/cart.js`, the page's `localization` form, and the rendered HTML.
+- **Otherwise ask the dev.**
+
+Label what you read this way as usual. A screenshot or page reading is Confirmed if you cite it.
+
 `node .claude/kit/recon.mjs` gives the theme's overall facts (theme name, build step, apps' experiment tools, locales) in one call, if you need them.
 
 ### Debug: reproduce first

@@ -11,6 +11,10 @@
 - `shopify.mjs query <name>`: kit queries for product, collection, metaobjects, menus, markets and locales, alongside shop and definitions, all validated against 2026-07. `shop` now includes the plan.
 - The Admin login requests read scopes for investigations (navigation, markets, locales, translations, content, discounts, files, publications). `auth-check` reports them separately as `investigateScopesFix`.
 - `cli-check` validates every kit query, not only definitions, and reports deprecated fields.
+- The Admin API login is optional (`adminApi` in `shopify-kit.json`). It installs Shopify's CLI app once per store, which many devs aren't allowed to do. Without it:
+  - definitions and QA values become admin steps for the dev, checked in Chrome
+  - investigations read admin pages and public storefront data
+  - `query` and `mutate` refuse with that explanation
 
 ## 0.1.0 — 2026-10-20
 

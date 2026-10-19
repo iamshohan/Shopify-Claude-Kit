@@ -54,6 +54,14 @@ user-invocable: false
 ## Stage: draft
 
 1. **Store setup.** Do this only if `plan.md` § Store setup lists definitions or QA test data that don't exist yet.
+
+   **`adminApi: false` (no Admin API login):**
+   - Give the dev the plan's admin steps, and ask them to create the definitions and set the QA values on the named products.
+   - Wait for them to confirm. Then check in Chrome that each definition exists with the planned namespace, key and type (Settings → Custom data, look only).
+   - Record what was created as an Amendment in `plan.md` ("created by the dev in the admin"), so handoff and cleanup know about it.
+   - Skip steps 1–6 below.
+
+   **With the Admin API:**
    1. Re-check what exists: `node .claude/kit/shopify.mjs query definitions --owner <OWNER>`. If something now fits, use it, and add an Amendment to the plan.
    2. Run the files the plan validated (`.claude/logs/<KEY>/mutations/`). Re-validate only a file you changed.
    3. Run each one with `node .claude/kit/shopify.mjs mutate <KEY> <file> --vars <file>`. The guard shows the dev the mutation and its variables, and the dev approves or declines it. The created IDs are recorded in the task state.

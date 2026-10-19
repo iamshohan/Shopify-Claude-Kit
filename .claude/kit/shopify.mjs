@@ -294,6 +294,10 @@ const { flags } = args;
 if (!verb || verb === 'help' || flags.help) { print(HELP); process.exit(verb && verb !== 'help' ? 1 : 0); }
 
 const cfg = verb === 'auth-check' || verb === 'cli-check' ? readConfig({ required: false }) : readConfig();
+// adminApi: false in shopify-kit.json means nobody could approve the CLI's app on this store.
+const NO_ADMIN = 'This repo runs without Admin API access (adminApi: false in .claude/shopify-kit.json), so the kit can\'t query or change store data. '
+  + 'Use the manual path: read the admin page in Chrome (look only) or ask the dev, and give store changes to the dev as admin steps. '
+  + 'Once someone approves the login (shopify.mjs auth-check prints the command), set adminApi to true.';
 
 switch (verb) {
   case 'cli-check': {
@@ -350,6 +354,7 @@ switch (verb) {
       }
     } else {
       out.adminLogin = 'missing';
+      out.adminLoginNote = 'Optional. The login installs Shopify\'s CLI app on the store, so it needs someone allowed to install apps, once per store. Without it, set adminApi: false and the kit uses manual admin steps instead.';
       out.adminLoginFix = `! shopify store auth --store ${store} --scopes ${SCOPES}`;
     }
     const optOut = WIN
@@ -367,6 +372,7 @@ switch (verb) {
   }
 
   case 'query': {
+    if (cfg.adminApi === false) fail(NO_ADMIN);
     const what = pos[0] || fail('Usage: query <NAME|FILE.graphql> [--owner PRODUCT] [--handle H] [--type T] [--vars FILE.json]');
     let file = what;
     let vars = typeof flags.vars === 'string' ? flags.vars : null;
@@ -595,6 +601,7 @@ switch (verb) {
   }
 
   case 'mutate': {
+    if (cfg.adminApi === false) fail(NO_ADMIN);
     const key = normKey(pos[0]);
     const st = writableTask(key);
     const { abs, ok } = inTaskFolder(key, pos[1] || '');
