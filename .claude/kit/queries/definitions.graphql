@@ -1,0 +1,28 @@
+# Existing metafield definitions for one owner type, plus all metaobject definitions.
+# Validated against Admin API 2026-07. Needs read_products (or the owner type's read scope)
+# and read_metaobject_definitions.
+query KitDefinitions($ownerType: MetafieldOwnerType!) {
+  metafieldDefinitions(first: 250, ownerType: $ownerType) {
+    nodes {
+      id
+      namespace
+      key
+      name
+      description
+      type { name }
+      validations { name value }
+      pinnedPosition
+      metafieldsCount
+    }
+  }
+  metaobjectDefinitions(first: 250) {
+    nodes {
+      id
+      type
+      name
+      metaobjectsCount
+      capabilities { translatable { enabled } publishable { enabled } }
+      fieldDefinitions { key name type { name } required }
+    }
+  }
+}

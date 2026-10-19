@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "env": {
+    "OPT_OUT_INSTRUMENTATION": "true",
+    "DO_NOT_TRACK": "1"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(node .claude/kit/kit.mjs:*)",
+      "Bash(node .claude/kit/recon.mjs:*)",
+      "Bash(node .claude/kit/jira.mjs:*)",
+      "Bash(node .claude/kit/compare.mjs:*)",
+      "Bash(node .claude/kit/contract.mjs:*)",
+      "Bash(node .claude/kit/shopify.mjs cli-check:*)",
+      "Bash(node .claude/kit/shopify.mjs auth-check:*)",
+      "Bash(node .claude/kit/shopify.mjs themes:*)",
+      "Bash(node .claude/kit/shopify.mjs query:*)",
+      "Bash(node .claude/kit/shopify.mjs pull-live:*)",
+      "Bash(node .claude/kit/shopify.mjs check:*)",
+      "Bash(node .claude/kit/shopify.mjs preview:*)",
+      "Bash(node .claude/kit/shopify.mjs draft:*)",
+      "Bash(node .claude/kit/shopify.mjs push:*)",
+      "Bash(node .claude/hooks/guard.mjs --selftest)",
+      "Bash(git status:*)",
+      "Bash(git fetch:*)",
+      "Bash(git switch:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(git ls-remote:*)",
+      "Bash(git merge-base:*)",
+      "PowerShell(node .claude/kit/kit.mjs:*)",
+      "PowerShell(node .claude/kit/recon.mjs:*)",
+      "PowerShell(node .claude/kit/jira.mjs:*)",
+      "PowerShell(node .claude/kit/compare.mjs:*)",
+      "PowerShell(node .claude/kit/contract.mjs:*)",
+      "PowerShell(node .claude/kit/shopify.mjs cli-check:*)",
+      "PowerShell(node .claude/kit/shopify.mjs auth-check:*)",
+      "PowerShell(node .claude/kit/shopify.mjs themes:*)",
+      "PowerShell(node .claude/kit/shopify.mjs query:*)",
+      "PowerShell(node .claude/kit/shopify.mjs pull-live:*)",
+      "PowerShell(node .claude/kit/shopify.mjs check:*)",
+      "PowerShell(node .claude/kit/shopify.mjs preview:*)",
+      "PowerShell(node .claude/kit/shopify.mjs draft:*)",
+      "PowerShell(node .claude/kit/shopify.mjs push:*)",
+      "PowerShell(git status:*)",
+      "PowerShell(git fetch:*)",
+      "PowerShell(git switch:*)",
+      "PowerShell(git add:*)",
+      "PowerShell(git commit:*)",
+      "PowerShell(git diff:*)",
+      "PowerShell(git log:*)",
+      "PowerShell(git show:*)",
+      "PowerShell(git rev-parse:*)"
+    ],
+    "deny": [
+      "Read(./.claude/.env.local)",
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Read(./config.yml)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell|Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/guard.mjs"],
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  },
+  "enabledPlugins": {
+    "shopify-ai-toolkit@claude-plugins-official": true
+  }
+}

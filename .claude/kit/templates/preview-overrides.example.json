@@ -1,0 +1,20 @@
+{
+  "metadata": { "version": "0.1.0" },
+  "theme_changes": {
+    "templates/product.json": {
+      "merge": {
+        "sections": {
+          "main": {
+            "blocks": {
+              "kit_preview_usp_row": {
+                "type": "usp_row",
+                "settings": { "heading": "Why you'll love it", "icon_size": "24" }
+              }
+            },
+            "block_order": ["title", "price", "kit_preview_usp_row", "buy_buttons"]
+          }
+        }
+      }
+    }
+  }
+}

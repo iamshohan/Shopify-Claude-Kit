@@ -1,0 +1,8 @@
+query KitShop {
+  shop {
+    name
+    myshopifyDomain
+    primaryDomain { url }
+    currencyCode
+  }
+}
