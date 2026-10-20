@@ -42,4 +42,4 @@ install.mjs                 installs or updates the kit in a theme repo
 - **When the Shopify CLI or plugin updates,** run `/shopify-update` in any theme repo. Fix what it reports here, then bump `.claude/VERSION` and add a `CHANGELOG.md` entry.
 - **Version bumps:** patch for fixes, minor for new behaviour. Each task's state records the kit version it started with.
 
-Status: v0.2, before the first pilot ticket. See `CHANGELOG.md`.
+Status: v0.3, after the first pilot ticket (CHE-802). See `CHANGELOG.md`.

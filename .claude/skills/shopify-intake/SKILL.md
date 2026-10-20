@@ -36,13 +36,15 @@ user-invocable: false
 4. **Which theme.** The kit builds on a copy of the **live** theme. If the ticket targets another theme (e.g. a campaign theme), say that it's out of scope for kit v0.1, and stop.
 5. **A/B ports only.** Ask in one AskUserQuestion round, skipping anything the tickets already state:
    - Which variation won? (offer the variations named in the ticket)
-   - Where is the A/B code? Options:
+   - Where is the A/B code? If you already found a copy on this machine, the first option is "Use the copy at <path>" (Recommended): copy it into `.claude/logs/<KEY>/abtest/` yourself instead of waiting for the dev. Other options:
      - "I'll put the files in .claude/logs/<KEY>/abtest/"
      - "It's in shadow-drip-exps: src/<Client>/<TEST-KEY>/<variation>/"
-     - Other
    - Which testing tool runs it, and is it still running? This is needed for the go-live order at handoff.
+   - **If it still runs:** QA compares the draft with the live winner, and the tool must stay off the draft.
+     - Targeting by country or audience: is there a link or cookie that forces the variation (the tool's preview or QA link)? Without one, QA can't see the winner from outside the targeted markets. Record it: `kit.mjs set <KEY> abtest.reference=<link>`.
+     - Does the experiment exclude `preview_theme_id` URLs? If not, it rewrites the draft's new markup during QA. Ask the dev to exclude them, or record that QA must check for it.
 
-   Wait for the files. Prefer the built bundle (`build/*.js`, `build/*.css`), because that's what actually ran. Note whether only source code was provided.
+   Prefer the built bundle (`build/*.js`, `build/*.css`), because that's what actually ran. Note whether only source code was provided.
 
    Record everything; `done` refuses without it: `kit.mjs set <KEY> abtest.variation=<V> abtest.path=<path> abtest.tool=<tool> abtest.running=<yes|no|unknown>`.
 6. **Bug fixes only.** Make sure you have the steps to reproduce, the page URL, and expected vs actual. Ask for whatever is missing.
@@ -52,8 +54,8 @@ user-invocable: false
    - a summary of three lines at most
    - **numbered acceptance criteria quoted from the tickets, not paraphrased**; mark any you inferred with "(inferred)"
    - scope: pages and templates, locales and markets, devices
-   - what the tickets say should be editable
-   - what's unclear (list it only; questions are asked at clarify)
+   - **what the tickets say should be editable**: one table row per line about who may change what, quoted in full with its AC number. Don't narrow a line to the part a neighbouring AC mentions: "manage the mobile navigation without developer support" covers the whole navigation, including images, icons and the utility links. Write "none" if no line says so.
+   - what's unclear (list it only; questions are asked at clarify). Don't list as unclear what an editability line already settles.
 
 **Done when:** § Asked has the quoted criteria and the type and its facts are recorded. Then run `kit.mjs done <KEY> intake`.
 

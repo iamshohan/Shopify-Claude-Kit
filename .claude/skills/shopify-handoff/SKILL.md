@@ -8,7 +8,7 @@ user-invocable: false
 
 The kit prepares everything and merges nothing. Creating the PR, merging, posting to Jira and going live are the dev's steps.
 
-1. **Push the branch:** `git push -u origin <branch>`. Never push the base branch; the guard blocks it anyway.
+1. **Push the branch:** `git push -u origin <branch>` (already done on a GitHub-connected draft). Never push the base branch; the guard blocks it anyway.
 2. **Run summary:** `node .claude/kit/kit.mjs summary <KEY>`. It gives the time per stage, loops back, gate answers, QA verdict counts and store changes. It goes in the PR body and gives the team its numbers.
 3. **Write `report.md` § Handoff:**
    - **PR.** A title in the repo's commit style, and a body covering:
@@ -40,9 +40,14 @@ The kit prepares everything and merges nothing. Creating the PR, merging, postin
    - **QA test values** (in the summary's store changes): keep or remove? Each removal is a mutation the dev approves.
      - Order: `metafieldsDelete` first, then a definition the kit created with `deleteAllAssociatedMetafields: true`, metaobject definitions last.
      - Never delete anything the kit didn't create.
-5. Run `kit.mjs done <KEY> handoff`.
-6. Tell the dev:
+5. **Retro on the kit, not the ticket.** Run `kit.mjs retro <KEY>`. It lists what the record shows: loops back, stage exits the kit refused, guard blocks, open QA rows.
+   - For each, and for anything the dev corrected or you worked around, decide whether the kit caused it: an instruction that misled you, a missing verb, a check whose message didn't say what it wanted, a guard block on a harmless command.
+   - Record each one with `kit.mjs note <KEY> "<what happened> → <what would have prevented it>" --kind friction|mistake|kit-bug|missing|idea`. One line each, specific enough that the kit maintainer can act without the transcript: "Gate 1 offered 'icons in code' although AC 18 makes the menu merchant-editable → clarify should not offer options that contradict an editability AC".
+   - If the kit caused none of it: `kit.mjs note <KEY> --none`.
+6. Run `kit.mjs done <KEY> handoff`.
+7. Tell the dev:
    - The branch is pushed.
    - The PR text, admin steps and Jira comment are in `.claude/logs/<KEY>/report.md`.
    - The next steps are theirs: create the PR, merge, follow the go-live order.
+   - If you recorded kit notes: they're in `.claude/logs/<KEY>/kit-notes.md`, and `node .claude/kit/kit.mjs feedback` collects all tasks' notes into one file for the kit maintainer.
    - **Client or AC feedback later:** run `/implement <KEY>`, then `kit.mjs back <KEY> build --reason "<feedback>"`.

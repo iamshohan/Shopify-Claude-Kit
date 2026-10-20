@@ -33,12 +33,17 @@ Work through these checks in order. Report each one as ✓ or ✗ with the exact
    - `commitPattern`: from recon's commit subjects, e.g. `{key}__dev: <what changed>`
    - `adminApiVersion`: `2026-07` unless the dev says otherwise. Shopify supports each version for about a year.
    - `adminApi`: `true` if the Admin API login works (step 6), else `false`. See step 6.
+   - `draftRoute`: how the task's draft theme is made.
+     - `"github"`: recon shows "Update from Shopify" commits, so the store's themes are connected to this repo through Shopify's GitHub app. Each task's draft is then a theme the dev connects to the task branch (Online Store → Themes → Add theme → Connect from GitHub, about a minute per task). The draft always equals the branch, and customizer saves on it come back as commits.
+     - `"cli"`: the kit copies the live theme with the CLI and uploads the branch's files. Use this when the repo isn't connected, or the dev can't connect branches.
+
+     Recommend `"github"` when recon shows the sync commits. Confirm it with the dev: connecting needs the Themes permission and write access to the repo on GitHub.
 
    Write the file with the Write tool:
    ```json
    { "store": "", "storefrontUrl": "", "jiraBaseUrl": "", "ticketPrefixes": [], "baseBranch": "main",
      "protectedBranches": ["main"], "branchPattern": "{KEY}", "commitPattern": "{key}__dev: <what changed>",
-     "adminApiVersion": "2026-07", "adminApi": false }
+     "adminApiVersion": "2026-07", "adminApi": false, "draftRoute": "cli" }
    ```
 5. **Jira.** Run `node .claude/kit/jira.mjs --check`.
    - **`envLocalIgnoredByGit` is false (exit 2):** stop here. A token written into `.claude/.env.local` could be committed. The fix is to re-run the kit installer, which writes `.claude/.gitignore`, or to add `.claude/` to the repo's `.gitignore`. Then check again.

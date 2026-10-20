@@ -135,12 +135,13 @@ Back each one with docs, the store's plan, and the theme's code. Then write the 
    - It re-checks every Confirmed claim against its source and looks for an explanation that fits the evidence better.
    - Apply what it finds: downgrade labels it couldn't confirm, and change the answer if it found a better one.
    - Record its verdict and your changes in § Review.
-3. **Gate.** Show the dev the answer and the next step, then ask with AskUserQuestion:
+3. **Retro on the kit.** Run `kit.mjs retro <KEY>`. For each signal it lists, and anything you worked around, record what the kit caused: `kit.mjs note <KEY> "<what happened> → <what would have prevented it>" --kind <kind>`. If the kit caused none of it: `kit.mjs note <KEY> --none`. (The same step as in handoff.)
+4. **Gate.** Show the dev the answer and the next step, then ask with AskUserQuestion:
    - Accept
    - Dig further (what?)
    - Wrong question
 
    Record their words: `kit.mjs done <KEY> conclude --answer "<their words>"`. For "dig further" or "wrong question", run `kit.mjs back <KEY> gather` (or `frame`) `--reason "…"` instead.
-4. Tell the dev the next step in one line.
+5. Tell the dev the next step in one line.
 
-**Done when:** § Answer, § Could not determine, § Next step and § Review are filled, theme files are unchanged, and the dev has accepted.
+**Done when:** § Answer, § Could not determine, § Next step and § Review are filled, the retro is recorded, theme files are unchanged, and the dev has accepted.

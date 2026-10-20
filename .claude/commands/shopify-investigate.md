@@ -32,3 +32,5 @@ After a compaction or in a new session, run status first and continue from what 
 - **You write `investigation.md`.** Agents return reports, and you record what matters.
 - **Only these skills run here:** `shopify-investigate`, `shopify-plugin:shopify` for docs, and `claude-in-chrome` for the storefront. Don't load other investigate, QA or Jira skills, or Jira MCP tools; `jira.mjs` replaces them.
 - **Two failed attempts at the same thing → stop,** say what you tried and what you saw, and ask.
+- **Talk like /implement does:** lead with what needs the dev, at most 6 lines between gates, and point to `investigation.md` instead of quoting it.
+- **When the kit itself gets in your way**, record it then: `kit.mjs note <KEY> "<what happened> → <what would have prevented it>" --kind friction|mistake|kit-bug|missing|idea`.

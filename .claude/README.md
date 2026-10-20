@@ -1,4 +1,4 @@
-# Shopify Implementation Kit · v0.2.0
+# Shopify Implementation Kit · v0.3.0
 
 A Claude Code setup for Shopify theme repos. Give it a Jira ticket and it takes the work to a QA'd draft theme:
 
@@ -86,22 +86,23 @@ It never publishes a theme, never writes to the live theme, and never pushes or 
 | --- | --- | --- | --- |
 | 1 | intake | Reads the ticket and linked tickets and decides: A/B port, feature or bug fix. For A/B ports it asks which variation won, where the code is, and which tool runs the test. | answer; drop the A/B code in `.claude/logs/<KEY>/abtest/` |
 | 2 | analyze | Two agents in parallel. One reads the theme fresh: render path, closest existing pattern, constraints. The other turns the A/B code into a behaviour inventory. | — |
-| 3 | clarify | Decides what merchants control and where (metafield, metaobject, section/block setting, theme setting, locale key, code), then asks every open question at once. | **Gate 1:** answer |
-| 4 | plan | Writes the file-by-file plan, the store setup (validated mutations) and the QA criteria. | — |
-| 5 | approve | Shows the plan. | **Gate 2:** approve, change or reject |
+| 3 | clarify | Decides what merchants control and where (metafield, metaobject, section/block setting, theme setting, locale key, code), then asks every open question at once. Anything kept in code that a ticket says the client must be able to change is asked about on its own, and the confirm question names every value that stays in code. | **Gate 1:** answer |
+| 4 | plan | Writes the plan: a 25-line At a glance on top (file → what happens, what stays in code, deviations, store writes, risks), then the builder detail, the store setup (validated mutations) and the QA criteria. | — |
+| 5 | approve | Shows At a glance and what changed since Gate 1. | **Gate 2:** approve, change or reject |
 | 6 | build | Branches from a fresh base. The builder agent implements; `/code-review` plus a Shopify checklist reviews; then it commits. | — |
-| 7 | draft | Creates the planned definitions (you approve each mutation), copies the live theme to an unpublished theme named `<KEY>`, and pushes the branch's changed files to it. | approve mutations |
-| 8 | qa | Measures every criterion on the draft: the storefront in Chrome, settings via virtual previews, the customizer contract from the schemas plus editor screenshots, and regression against live. | resize the window if asked; do the "by hand" checks |
+| 7 | draft | Creates the planned definitions (you approve each mutation). Then either copies the live theme to an unpublished theme named `<KEY>` and pushes the branch's files to it, or, with `draftRoute: "github"`, adopts the theme you connect to the task branch. Either way it reads the files back and checks they match the commit. | approve mutations; connect the branch (GitHub route) |
+| 8 | qa | Measures every criterion on the draft: the storefront in Chrome, settings via virtual previews, the customizer contract from the schemas plus editor screenshots, and regression against live. | set the viewports it asks for (once, up front); do the "by hand" checks |
 | 9 | accept | Shows the result. Failures go back to the builder. | **Gate 3:** accept or send back |
-| 10 | handoff | Pushes the branch and writes the PR text (with a run summary), admin steps, go-live order and a Jira comment for you to post. | create the PR, merge, go live |
+| 10 | handoff | Pushes the branch and writes the PR text (with a run summary), admin steps, go-live order and a Jira comment for you to post. Ends with a retro on the kit itself (see Kit feedback). | create the PR, merge, go live |
 
 Everything for a task is in `.claude/logs/<KEY>/`:
 
 | File | Holds |
 | --- | --- |
 | `brief.md` | Why: what was asked (quoted), what the code looks like (stamped with the commit it was read at), what was decided and by whom. |
-| `plan.md` | What and how: the approved plan, amendments, and "as built". |
-| `report.md` | Proof and handoff: QA criteria with measured values and verdicts, PR text, admin steps, Jira comment. |
+| `plan.md` | What and how. Read **At a glance** first; everything below the line is detail for the builder and QA. Also amendments and "as built". |
+| `report.md` | Proof and handoff. **You must still do** on top; then QA criteria with measured values and verdicts, PR text, admin steps, Jira comment. |
+| `kit-notes.md` | Only when something went wrong with the kit itself (not the ticket): one line per problem, for the kit maintainer. |
 | `contract.md` | What the merchant will see in the customizer, generated from the schemas. |
 | `investigation.md` | Investigations only: the question, answer, labelled evidence, hypotheses, reproduction, review and next step. |
 | `state.json` | Machine state, so a run can resume. Managed by `kit.mjs`; don't edit it by hand. |
@@ -116,6 +117,13 @@ The logs are history, not a knowledge base. Every new task reads the code fresh,
 - **Another dev takes over:** copy `.claude/logs/<KEY>/` to their machine. The draft is named after the key, so they continue on the same draft.
 - **Dropping a task:** `kit.mjs abandon <KEY> --reason "…"` lists the draft theme and store data left to clean up.
 - **Numbers for reporting:** `kit.mjs summary <KEY>` gives the time per stage, loops, gate answers, QA verdicts and store changes. Handoff puts it in the PR.
+
+### Kit feedback
+
+The kit records its own problems so they can be fixed, without you writing anything:
+- During a run, the agent notes each time the kit got in its way: a misleading instruction, a missing verb, an unclear check, a guard block on a harmless command, or something you had to correct that the kit should have prevented. Each note is one line in `.claude/logs/<KEY>/kit-notes.md`, which is created only on the first note.
+- At the end of a task, `kit.mjs retro` lists what the record shows (loops back, refused stages, guard blocks, open QA rows), and the agent records what the kit caused, or "none". Handoff and conclude refuse to finish without it.
+- `node .claude/kit/kit.mjs feedback` collects every task's notes and signals into `.claude/logs/kit-feedback.md`. Send that file to the kit maintainer.
 
 Expect roughly 1.5–3 hours of wall time per A/B port, about half of it QA. That's an estimate from the review; the pilot will measure it.
 
@@ -139,8 +147,10 @@ Expect roughly 1.5–3 hours of wall time per A/B port, about half of it QA. Tha
 | `theme duplicate` | creating the draft as a copy of live; waits while it's processing |
 | `theme push --only` | uploading just the changed files; fails if Shopify rejects any |
 | `theme pull --live --only` | drift checks, and templates that exist only in the admin |
+| `theme pull --theme <draft> --only` | `verify` and every `push`: reading the files back to prove the draft matches the commit |
 | `theme preview --overrides` | settings combinations without touching files; reuses the preview id |
 | `theme check` | reporting only offenses the branch introduced |
+| (no CLI) `fetch` | one storefront page from the draft or live, keeping the preview cookie and checking `Shopify.theme`, because a plain request with `?preview_theme_id` is served live without an error |
 | `theme delete` | removing your draft, with approval |
 | `store auth list` | the granted scopes |
 | `store execute --version 2026-07` | Admin GraphQL: reading definitions and, for investigations, products, collections, metaobjects, menus, markets and languages (`shopify.mjs query <name>`); creating definitions and QA values, with approval |
@@ -163,6 +173,9 @@ Expect roughly 1.5–3 hours of wall time per A/B port, about half of it QA. Tha
 | "The theme library is full" | Remove old drafts: ones the kit made via `shopify.mjs delete-draft <KEY>`, others in the admin. Basic, Grow and Advanced plans allow 20 themes; Plus allows 100. |
 | push refuses: "Live has changed … since this branch's base" | Merge `origin/<base>` into the task branch, resolve, commit, push again. |
 | push refuses: "Shopify rejected files" | Fix the file it names (often a Liquid error), commit, push again. |
+| push or verify: "the draft doesn't match" | Push once more. A JSON file that differs again usually means Shopify dropped settings its schema didn't know at upload time; push the schema change first. |
+| The draft seems to show the old code | Check with `shopify.mjs fetch <KEY> <path> --find <text>`. A plain request with `?preview_theme_id` gets the live theme. |
+| GitHub route: `git push` is rejected | Someone saved in the connected theme's admin, so Shopify committed to the branch. `git pull --no-rebase origin <branch>`, then push. |
 | A `done` is refused | It lists what the stage is missing. Finish that and run it again. |
 | The guard blocks a harmless command that mentions "shopify" | Use the Grep tool for text searches, or rephrase. |
 | You need a CLI command the wrapper doesn't have | Run it yourself with `!`. The guard only watches Claude's commands. |
@@ -175,7 +188,7 @@ Maintainers:
 - After any guard or helper change, run `node .claude/hooks/guard.mjs --selftest` and `node .claude/kit/kit.mjs --selftest`.
 - After changing `kit/probe.js`, run `node .claude/kit/kit.mjs build-probe`.
 
-## Not in v0.2
+## Not in v0.3
 
 - Shopify app development (separate repos and risks; planned as its own kit)
 - fetching A/B code from shadow-drip automatically (you supply the path or files)

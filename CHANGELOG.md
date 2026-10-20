@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.3.0 — 2026-10-20
+
+From the first real ticket (CHE-802) and a developer-experience review of its logs.
+
+- **Hard-coded values can't slip through Gate 1.** CHE-802's ticket said the client manages the mobile menu without a developer, yet the utility icons were planned as code: intake narrowed the editability line to the categories, and Gate 1 showed "icons in code" as one row among twelve, under a confirm question marked "(Recommended)".
+  - Intake quotes every editability line in full, in a table. A line covers everything visible in what it names.
+  - `brief.md` § Control surface is split into "Merchant can change" and "Stays in code". A value in code that touches an editability AC must cite the separate question in which the dev agreed (Q#); `kit.mjs done clarify` refuses otherwise.
+  - The confirm question names every value that stays in code and is never marked "(Recommended)". Answers are stored verbatim, with "Applied as" kept apart.
+- **Plans read in two tiers.** `plan.md` opens with At a glance (at most 25 lines; "what happens" at most 15 words per file), listing what stays in code, deviations from the ticket, store writes and risks. The builder detail follows. `kit.mjs done plan` enforces the limits. Gate 2 shows only At a glance and what changed since Gate 1. Amendments mark the At a glance line they change.
+- **Reports start with "You must still do"**: every BLOCKED or NOT TESTED row as a step for the dev. QA refuses to finish without it, and checks that the report's title line is intact.
+- **Chat rules** in /implement and /shopify-investigate: lead with what needs the dev, at most 6 lines between gates, never repeat documents or answered questions, and no "(Recommended)" on approving your own work.
+- **Kit feedback.** `kit.mjs note` records problems with the kit itself in `.claude/logs/<KEY>/kit-notes.md` (created only on the first note). `kit.mjs retro` lists what the record shows (loops back, refused stage exits, guard blocks, open QA rows), and handoff and conclude refuse to finish without a retro. `kit.mjs feedback` collects all tasks into `.claude/logs/kit-feedback.md` for the kit maintainer. The guard logs its blocks, and `done` logs its refusals, for the retro.
+- **GitHub-connected drafts** (`draftRoute: "github"`). The dev connects the task branch in the admin (Add theme → Connect from GitHub; Shopify offers no CLI or API for it), and `shopify.mjs draft <KEY> --github` adopts it. Updates go through `git push`, and `verify` waits for the sync.
+- **The draft is proven, not assumed.**
+  - `push` uploads every file any branch commit touched, so a file reverted to its base content no longer keeps an earlier push's version. On CHE-802, `snippets/icon.liquid` stayed on the draft with six removed icons.
+  - It then reads the files back and refuses if any differ.
+  - `verify <KEY>` does the same check on its own.
+- **`shopify.mjs fetch <KEY> <path> [--find T] [--live]`** fetches one storefront page with the preview cookie and checks `Shopify.theme`. The guard blocks `curl`/`wget`/`Invoke-WebRequest` with `?preview_theme_id`, which is served the live theme without an error: on CHE-802 that looked like a broken draft and cost two pushes and a trip to the editor.
+- **`kit.mjs qa-row`** fills one row of report.md § Criteria, replacing hand-edited tables and heredocs.
+- **QA**
+  - Viewports are asked for once, up front, as Chrome device-toolbar presets.
+  - Clicks that time out in device-toolbar mode go through `element.click()`.
+  - "Measured" and "How" stay short.
+  - Preview overrides on section groups (`header-group.json`) are documented.
+- **A/B ports.**
+  - A copy of the A/B code found locally is offered as the default.
+  - Intake asks for the tool's force-variant link (geo-targeted tests are invisible from outside their markets) and whether the tool excludes draft previews.
+- **Smaller fixes.**
+  - Build matches existing local branches case-insensitively, not only remote ones.
+  - Code-review findings that restate a Gate 1 decision or a winner value are listed once as intentional.
+
 ## 0.2.0 — 2026-10-20
 
 - `/shopify-investigate <KEY or question>`: read-only feasibility checks, debugging and questions, in three stages (frame, gather, conclude) with a dev gate at the end.

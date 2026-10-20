@@ -2,12 +2,14 @@
 
 > Proof and handoff. Every criterion gets a measured value and one verdict: PASS, FAIL, NOT TESTED or BLOCKED.
 
+## You must still do
+
+## Summary
+
 ## Criteria
 
 | # | Criterion | Expected | Measured | How | Verdict |
 | --- | --- | --- | --- | --- | --- |
-
-## Summary
 
 ## Handoff
 

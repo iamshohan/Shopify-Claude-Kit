@@ -24,8 +24,12 @@ Never write "QA passed" while any row is FAIL, NOT TESTED or BLOCKED.
 1. Run `node .claude/kit/kit.mjs status <KEY>`. It gives the draft theme id, the preview URL, the editor URL and the feature prefix.
 2. Copy every row of `plan.md` § QA criteria into `report.md` § Criteria, filling the Expected column and leaving Measured empty. Do this before measuring anything, so that results can't shape the expectations.
 3. **Write each row's result into `report.md` as soon as you've measured it**, not at the end. A compaction then loses nothing.
+   Use `kit.mjs qa-row <KEY> <#> --measured "…" --how "…" --verdict PASS`. It edits one row safely; don't rewrite the table with heredocs or regex scripts.
 4. **Browser.** Load the `claude-in-chrome` skill, then create a new tab with the Chrome MCP. Keep that tab in front: background tabs freeze animations and timers.
-5. **Plan the order.** Work page by page, then viewport by viewport, and measure every criterion for that page and width before navigating again.
+5. **Viewports: ask once, up front.** `resize_window` can't change the viewport of a maximized window. Chrome's device toolbar (devtools responsive mode) can, but only the dev can turn it on, and it stays per tab. So list every viewport the criteria need, as device-toolbar presets (e.g. iPhone 12 Pro 390×844, iPhone SE 375×667), and ask the dev in one message, in the order you'll use them. Then measure everything for one viewport before asking for the next.
+   - In device-toolbar mode, real clicks from the Chrome MCP can time out. Trigger the theme's own control with `element.click()` in `javascript_tool` instead. Record that in How, and leave a by-hand row only for what needs a real tap.
+6. **Plan the order.** Work page by page, then viewport by viewport, and measure every criterion for that page and width before navigating again.
+7. **Plain HTML checks** (does the draft render X, which theme served it) don't need the browser: `node .claude/kit/shopify.mjs fetch <KEY> <path> --find <text>`. Never `curl` a `?preview_theme_id` URL; without the cookie it gets the live theme.
 
 ### On every page, before measuring
 
@@ -35,7 +39,7 @@ Never write "QA passed" while any row is FAIL, NOT TESTED or BLOCKED.
    ```
    If eval is refused on a page, inject `.claude/kit/probe.js` directly.
 2. **Right theme.** Run `__qa.env()`, plus `Shopify.theme.id`, which must equal the draft id. A URL alone doesn't prove it, because the preview cookie survives redirects. Read it once `document.readyState` is `complete`; earlier, `Shopify.theme` can still be unset, and null means "not loaded yet", not a wrong theme.
-3. **Right width.** After a resize, reload and read `window.innerWidth`. If the width is wrong, ask the dev to un-maximize or resize the browser window, then check again; `resize_window` does nothing on a maximized window. Never record a mobile result measured at desktop width.
+3. **Right width.** Read `window.innerWidth` after every reload. If it isn't the viewport you asked for, ask the dev; never record a mobile result measured at desktop width.
 4. **Change present.** `__qa.live('<prefix>')` must find the feature where it should render.
 
 | The criterion is about | Call |
@@ -53,12 +57,15 @@ Never write "QA passed" while any row is FAIL, NOT TESTED or BLOCKED.
 ### Checks, cheapest first
 
 1. **Storefront.** Cover each target page in the plan, at each viewport, in each locale in scope (locale paths such as `/de/…`), and in each data state (metafield set and unset on the agreed products).
+   - A/B ports: compare with the live winner through the force link in status (`abtest.reference`). Without one, a geo-targeted test is invisible from outside its markets: mark that row BLOCKED and say so, rather than comparing with control.
+   - Check that the experiment isn't running on the draft (its body class or init attribute, from the A/B inventory). If it is, stop and ask the dev: its code rewrites the new markup.
 2. **Settings behaviour.** Cover the defaults, each empty state, and up to two combinations. Use virtual previews, not the editor.
    1. Copy `.claude/kit/templates/preview-overrides.example.json` to `.claude/logs/<KEY>/previews/NN-<case>.json` and change only the file, section key, block ids and values.
       - Use the template the test product actually renders with: products often use an alternate template like `product.alternate.json`.
       - Take section keys from that template: pull it with `shopify.mjs pull-live <KEY> templates/<file>`, or read the branch's copy if the branch changed it. Keys differ per template; only `main` is common.
       - `merge` deep-merges objects but replaces arrays, so send the full `block_order`.
       - `merge` can't remove a value. To test an empty image or url setting, use `source` with the whole template.
+      - Section groups work the same way: header and footer settings live in `sections/header-group.json` (or `footer-group.json`), so override that file, not a template.
    2. Run `node .claude/kit/shopify.mjs preview <KEY> <file>`, open the URL it returns, pass the gates above, and measure.
    3. After two failed previews for one case, mark those rows NOT TESTED, quote the CLI error, and move on.
 3. **Customizer.** The theme editor is one cross-origin iframe: `read_page`, `find`, `get_page_text` and `javascript_tool` can't see inside it. Split the check in three.
@@ -91,7 +98,8 @@ Never write "QA passed" while any row is FAIL, NOT TESTED or BLOCKED.
 
 ### The report
 
-- **§ Criteria:** one row per criterion, with the columns `#`, criterion, expected, measured, how (the probe call, command or screenshot), and verdict.
+- **§ You must still do** (top of the report): one numbered line per BLOCKED or NOT TESTED row, saying where and how the dev checks it: "#22 Replace the FAQ icon in Content → Metaobjects → Mobile menu image, reload the draft, restore it." Add any ticket AC that isn't delivered. `kit.mjs done` refuses QA with open rows and an empty list.
+- **§ Criteria:** one row per criterion, with the columns `#`, criterion, expected, measured, how, and verdict. Keep Measured and How to about 15 words each: the probe call or command and the number that decided it. Longer evidence goes in a file under `.claude/logs/<KEY>/` that the cell names.
 - **§ Summary:**
   - "N criteria: x PASS, y FAIL, z NOT TESTED, w BLOCKED."
   - "Gates: theme ✓ <id>, viewport ✓ <widths>."
@@ -104,8 +112,12 @@ Never write "QA passed" while any row is FAIL, NOT TESTED or BLOCKED.
 
 ## Stage: accept (Gate 3)
 
-1. Show the dev the summary, then every FAIL, NOT TESTED and BLOCKED row, with the "dev checks by hand" list.
-2. AskUserQuestion: "QA result for <KEY>", with the options **Accept**, **Fix the failures**, and **I'll test more first**.
+1. Show the dev, and nothing more:
+   - one verdict line: "20 PASS, 0 FAIL, 5 for you to check"
+   - each FAIL with what was measured
+   - § You must still do, as written in the report
+   - anything noticed that the dev should decide about, at most three lines
+2. AskUserQuestion: "QA result for <KEY>". Options: **Accept, I'll do the N checks** (or **Accept** when nothing is open), **Fix the failures**, and **I'll test more first**. None is marked "(Recommended)".
 3. Then:
    - **Accept** → `kit.mjs done <KEY> accept --answer "<their words>"`.
    - **Fix the failures** → `kit.mjs back <KEY> build --reason "<the failing rows>"`. Then:

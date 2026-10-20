@@ -3,7 +3,7 @@
 // Shopify CLI directly, pushing to main, hand-editing task state, reading secrets), not a
 // security boundary: GitHub branch protection and store staff permissions are the real limits.
 // Self-test: node .claude/hooks/guard.mjs --selftest
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, appendFileSync, mkdirSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { dirname, join, resolve, relative, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -25,7 +25,9 @@ const SECRET_FILE = /(^|[\s'"=\\/])(\.env(\.[\w.-]+)?|config\.yml)(?=$|[\s'"`;&|
 const STATE_FILE = /logs[\\/][^\\/\s'"]+[\\/]state\.json/i;
 const MERCHANT_JSON = /^(templates\/.+\.json|sections\/[^/]+\.json|config\/settings_data\.json)$/i;
 // Wrapper verbs that run without asking. Anything else, including verbs added later, asks the dev.
-const SAFE_VERBS = new Set(['cli-check', 'auth-check', 'themes', 'query', 'pull-live', 'check', 'draft', 'push', 'preview', 'help', '--help']);
+const SAFE_VERBS = new Set(['cli-check', 'auth-check', 'themes', 'query', 'pull-live', 'check', 'draft', 'push', 'preview', 'fetch', 'verify', 'help', '--help']);
+// Without the cookie the redirect sets, ?preview_theme_id silently serves the live theme.
+const FETCHERS = /^(curl|wget|Invoke-WebRequest|Invoke-RestMethod|iwr|irm)(\.exe)?$/i;
 const NPM_BUILTINS = new Set(['install', 'i', 'ci', 'add', 'remove', 'rm', 'uninstall', 'update', 'up', 'upgrade', 'init', 'create',
   'outdated', 'ls', 'list', 'view', 'info', 'audit', 'link', 'config', 'cache', 'why', 'pack', 'prune', 'dedupe', 'help', 'version', '-v', '--version']);
 
@@ -193,6 +195,10 @@ function decideCommand(raw, ctx, depth = 0) {
     return { decision: 'deny', reason: 'Task state goes through node .claude/kit/kit.mjs: status --json to read it; set, done, back to change it.' };
   }
   if (/Start-Process\b[^\n]*\bgit\b[^\n]*\bpush\b/i.test(cmd)) return { decision: 'deny', reason: 'Run git push directly so the guard can check it.' };
+  // Only when a fetcher is the program run: prose that mentions curl (commit messages, heredoc text) stays allowed.
+  if (segs.some((s) => { const { w, i } = program(stripRedirects(s)); return FETCHERS.test(w[i] || '') && /preview_theme_id/i.test(s); })) {
+    return { decision: 'deny', reason: 'A plain request with ?preview_theme_id can be served the live theme without any error. Use node .claude/kit/shopify.mjs fetch <KEY> <path> [--find TEXT]: it keeps the preview cookie and checks which theme rendered the page.' };
+  }
 
   // Walk the segments in order: "git switch main && git commit" commits on main.
   let branch = ctx.branch();
@@ -273,6 +279,17 @@ export function decide(input, ctx = defaultCtx) {
   return null;
 }
 
+/** Blocks feed kit.mjs retro: a block on a harmless command is a guard bug worth reporting. */
+function logBlock(input, result) {
+  if (result?.decision !== 'deny') return;
+  try {
+    const ti = input.tool_input || {};
+    const entry = { at: new Date().toISOString(), tool: input.tool_name, reason: result.reason.slice(0, 200), command: String(ti.command || ti.file_path || '').slice(0, 200) };
+    mkdirSync(join(ROOT, '.claude', 'logs'), { recursive: true });
+    appendFileSync(join(ROOT, '.claude', 'logs', '_guard.jsonl'), `${JSON.stringify(entry)}\n`);
+  } catch { /* logging never changes the decision */ }
+}
+
 function emit(result) {
   if (!result) process.exit(0);
   process.stdout.write(JSON.stringify({
@@ -291,6 +308,10 @@ function selftest() {
   const cases = [
     // allowed
     [bash(`node .claude/kit/shopify.mjs push ${K}`), null],
+    [bash(`node .claude/kit/shopify.mjs fetch ${K} cart --find mnav`), null],
+    [bash(`node .claude/kit/shopify.mjs verify ${K}`), null],
+    [bash('curl -s https://example.com/cart.js'), null],
+    [bash("cat > notes.md <<'EOF'\n| Draft looks old | A `curl` with `?preview_theme_id` gets live. |\nEOF"), null],
     [bash('node .claude/kit/shopify.mjs themes --name kit/'), null],
     [bash(`node "D:/repo/.claude/kit/shopify.mjs" check ${K}`), null],
     [bash('cd D:/work/shopify/my-theme && git status'), null],
@@ -359,6 +380,8 @@ function selftest() {
     [bash(`git checkout main && git merge ${K}`), 'deny'],
     [bash(`git merge ${K}`), 'deny', ctx('master')],
     [bash('gh pr merge 21 --squash'), 'deny'],
+    [bash('curl -sL "https://x.myshopify.com/?preview_theme_id=1" -o d.html'), 'deny'],
+    [ps('Invoke-WebRequest "https://x.com/cart?preview_theme_id=1"'), 'deny'],
     // denied: secrets and state through the shell
     [bash('cat .claude/.env.local'), 'deny'],
     [ps('Get-Content .env'), 'deny'],
@@ -410,7 +433,9 @@ else {
     let input;
     try { input = JSON.parse(raw); } catch { process.exit(0); }
     try {
-      emit(decide(input));
+      const result = decide(input);
+      logBlock(input, result);
+      emit(result);
     } catch (e) {
       // Fail closed only where a wrong allow could reach the store or a protected branch.
       const text = JSON.stringify(input.tool_input || {});

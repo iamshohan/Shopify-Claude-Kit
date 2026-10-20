@@ -16,7 +16,7 @@ You are running the Shopify Implementation Kit for one Jira ticket. The work mov
 4. Run `node .claude/kit/kit.mjs status <KEY>`. If it says "not started", run `node .claude/kit/kit.mjs start <KEY>`.
 5. The status names the current stage and the skill that owns it. **Load that skill with the Skill tool and do only that stage.**
 6. When the stage's "Done when" holds, run `node .claude/kit/kit.mjs done <KEY> <stage>`. Gate stages also need `--answer "<the dev's words>"`. The script refuses if the stage's output is missing. Read its message, fix the gap, and run it again.
-7. Run status again and continue with the next stage the same way. Tell the dev in one line each time the stage changes.
+7. Run status again and continue with the next stage the same way. Tell the dev in one line each time the stage changes, e.g. `✓ plan → approve · 2 things need you`.
 
 Also:
 
@@ -47,4 +47,11 @@ Also:
 - **Only the kit's skills run inside /implement:** the stage skill that status names, `shopify-plugin:shopify` for docs, `code-review` at build, and `claude-in-chrome` at QA. Don't load other QA, dev, investigate or Jira skills or Jira MCP tools, even when a hook or a skill description suggests them. `jira.mjs` and `shopify-qa` replace them.
 - **Two failed attempts at the same thing → stop**, say what you tried and what you saw, and ask the dev.
 - **Scope is the ticket.** Note other problems in the report instead of fixing them.
+- **How you talk to the dev.** The documents hold the detail; chat carries what the dev has to act on.
+  - Open with what needs the dev, or "Nothing needed from you".
+  - A message between gates is at most 6 lines. Point to the document section instead of quoting it.
+  - Never repeat the ticket's criteria, a table that is already in a document, or anything the dev already answered.
+  - Report only what is new. A finding that turned out wrong gets one line: "Earlier I said X; it was Y because Z."
+  - Put "(Recommended)" only on real alternatives, never on approving or confirming your own work.
+- **When the kit itself gets in your way**, record it as soon as it happens: an instruction that misled you, a missing verb, a check that wanted something unclear, a guard block on a harmless command, a correction from the dev that the kit should have prevented. Use `kit.mjs note <KEY> "<what happened> → <what would have prevented it>" --kind friction|mistake|kit-bug|missing|idea`. These are for the kit's maintainer, not the dev, so don't mention them in chat.
 - **Investigation first?** A key whose investigation is finished continues here as an implementation; status says so, and intake reads `investigation.md`. A ticket that only asks a question or a feasibility check belongs in `/shopify-investigate`.

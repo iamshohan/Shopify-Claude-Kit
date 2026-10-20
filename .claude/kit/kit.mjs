@@ -17,8 +17,15 @@ const HELP = `Usage: node .claude/kit/kit.mjs <verb> ...
                                          finish the current stage; gate stages need --answer with the dev's words
   back <KEY> <stage> --reason "TEXT"     reopen an earlier stage (plan changes, QA failures, client feedback)
   set <KEY> name=value [name=value ...]  record a fact: {SETTABLE}
+  qa-row <KEY> <#> [--measured T] [--how T] [--verdict PASS|FAIL|NOT TESTED|BLOCKED] [--expected T]
+                                         fill one row of report.md § Criteria (no hand-edited tables, no heredocs)
   summary <KEY>                          time per stage, loops, gate answers, QA verdicts, store changes (for the PR)
   abandon <KEY> --reason "TEXT"          stop a task and list what to clean up (draft theme, store changes)
+Kit feedback (problems with the kit itself, not the ticket)
+  note <KEY> "TEXT" [--kind K]           record one; K: friction, mistake, kit-bug, missing, idea. Creates kit-notes.md on first use
+  retro <KEY>                            what went wrong in this run, from the record: loops back, refused stages, guard blocks
+  note <KEY> --none                      after retro: nothing the kit caused
+  feedback                               every task's notes and signals in .claude/logs/kit-feedback.md, for the kit maintainer
   optout                                 create the Shopify plugin's telemetry opt-out file for this machine
   build-probe                            maintainers: regenerate kit/probe.inject.js after changing kit/probe.js
   --selftest                             test the pure helpers`;
@@ -35,6 +42,7 @@ const SETTABLE = {
   'abtest.path': String,
   'abtest.tool': String,
   'abtest.running': oneOf('yes', 'no', 'unknown'),
+  'abtest.reference': String,
   featurePrefix: String,
   buildOutputs: list,
   'qa.paths': (v) => list(v).map(storefrontPath),
@@ -73,12 +81,76 @@ const filled = (key, file, heading, within, min = 20) => added(key, file, headin
 const tableRows = (key, file, heading, within) => added(key, file, heading, within).filter((l) => l.startsWith('|') && !/^\|[\s:|-]+\|?$/.test(l));
 const stageIndex = (name, st) => stagesFor(st).findIndex((s) => s.name === name);
 const ref = (r) => git(['rev-parse', '--verify', '--quiet', r], { allowFail: true });
+/** Cells of a markdown table row; "\|" stays inside its cell. */
+const cells = (row) => row.replace(/^\|/, '').replace(/\|\s*$/, '').split(/(?<!\\)\|/).map((c) => c.trim());
+const words = (s) => s.split(/\s+/).filter(Boolean).length;
+const saysNone = (key, file, heading, within) => /^(none|n\/a|—)\b/i.test(added(key, file, heading, within).join(' ').replace(/^[-*]\s*/, ''));
+const NO_RECOMMENDED = /\(Recommended\)/i;
+
+/** Gate 1's hard-coded list: each entry that touches an editability AC must have been asked on its own. */
+function staysInCodeProblems(key) {
+  const within = '## Decided';
+  const brief = read(join(LOGS, key, 'brief.md'));
+  if (!/^#### Stays in code/m.test(brief)) return ['brief.md predates kit 0.3: copy § Decided → Control surface (both tables) from .claude/kit/templates/brief.md and fill it'];
+  const rows = tableRows(key, 'brief.md', '#### Stays in code', within);
+  if (!rows.length && !saysNone(key, 'brief.md', '#### Stays in code', within)) return ['fill brief.md § Control surface → Stays in code (one row per value the merchant can\'t change, or "none")'];
+  return rows.flatMap((r) => {
+    const [value, ac = '', why = '', agreed = ''] = cells(r);
+    if (!ac) return [`Stays in code → "${value}": name the editability AC it touches, or "none"`];
+    if (!why) return [`Stays in code → "${value}": say why it stays in code`];
+    if (!/^none\b/i.test(ac) && !/Q\s*\d+/i.test(agreed)) return [`Stays in code → "${value}" touches ${ac}. Ask the dev about it as its own question and cite it (Q#) in "Dev agreed", or make it editable`];
+    return [];
+  });
+}
+
+/** At a glance has to stay readable at a glance. */
+function glanceProblems(key) {
+  const lines = added(key, 'plan.md', '## At a glance');
+  const rows = tableRows(key, 'plan.md', '## At a glance');
+  const long = rows.map(cells).filter((c) => words(c[c.length - 1] || '') > 15).map((c) => c[0]);
+  return [
+    !rows.length && 'fill plan.md § At a glance: one row per file (or file group), "What happens" in 15 words at most',
+    long.length && `plan.md § At a glance: "What happens" is over 15 words for ${long.join(', ')}. Shorten it; the detail goes in § Files (builder detail)`,
+    lines.length > 25 && `plan.md § At a glance has ${lines.length} lines; keep it to 25 (group files such as locales into one row)`,
+    lines.some((l) => l.length > 260) && 'plan.md § At a glance has a line over 260 characters; split or shorten it',
+  ];
+}
+
+/** What the record shows went wrong in a run. The guard log has no task key, so it is matched by time. */
+function retroSignals(key, st) {
+  const events = st.history || [];
+  const refused = {};
+  for (const e of events.filter((x) => x.event === 'refused')) (refused[e.stage] ||= []).push(...(e.missing || []));
+  const from = st.createdAt;
+  const to = st.stage === 'done' || st.stage === 'abandoned' ? st.updatedAt : now();
+  const guardBlocks = read(join(LOGS, '_guard.jsonl')).split(/\r?\n/).filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } })
+    .filter((g) => g && g.at >= from && g.at <= to).map((g) => `${g.at.slice(0, 16)} ${g.reason.slice(0, 110)} ← ${g.command.slice(0, 90)}`);
+  const verdicts = tableRows(key, 'report.md', '## Criteria').map((l) => (l.match(/\|\s*\**(FAIL|NOT TESTED|BLOCKED)\b/) || [])[1]).filter(Boolean);
+  return {
+    loopsBack: events.filter((e) => e.event === 'back').map((e) => `${e.from} → ${e.to}: ${e.reason}`),
+    refusedStages: Object.entries(refused).map(([s, m]) => `${s} ×${events.filter((e) => e.event === 'refused' && e.stage === s).length}: ${[...new Set(m)].slice(0, 3).join(' / ')}`),
+    guardBlocks,
+    qaNotPassed: verdicts.length ? Object.entries(countOf(verdicts)).map(([v, n]) => `${n} ${v}`).join(', ') : 'none',
+    gateAnswers: Object.fromEntries(Object.entries(st.gates || {}).map(([g, v]) => [g, v.answer])),
+    notesSoFar: events.filter((e) => e.event === 'note' && !e.none).length,
+  };
+}
+
+const countOf = (xs) => xs.reduce((acc, x) => ({ ...acc, [x]: (acc[x] || 0) + 1 }), {});
+
+/** Retro done at the end of a task: signals shown, then notes or "none". */
+function retroDone(st) {
+  const shown = (st.history || []).map((e) => e.event).lastIndexOf('retro');
+  return shown !== -1 && (st.history || []).slice(shown + 1).some((e) => e.event === 'note');
+}
 
 // Each check proves the stage's output exists, so a stage can't be marked done on intent alone.
 const EXIT_CHECKS = {
   intake: (key, st) => [
     !st.type && 'record the work type: kit.mjs set <KEY> type=abtest|feature|bugfix',
     !filled(key, 'brief.md', '### Acceptance criteria', '## Asked') && 'quote the acceptance criteria in brief.md § Asked → Acceptance criteria',
+    !tableRows(key, 'brief.md', '### What the tickets say should be editable', '## Asked').length && !saysNone(key, 'brief.md', '### What the tickets say should be editable', '## Asked')
+      && 'fill brief.md § Asked → What the tickets say should be editable: every line about who changes what, quoted in full (or "none")',
     st.type === 'abtest' && !st.abtest?.variation && 'record the winning variation: kit.mjs set <KEY> abtest.variation=<V>',
     st.type === 'abtest' && !st.abtest?.path && 'record where the A/B code is: kit.mjs set <KEY> abtest.path=<path>',
     st.type === 'abtest' && !st.abtest?.tool && 'record the testing tool (needed for the go-live order): kit.mjs set <KEY> abtest.tool=<tool>',
@@ -92,10 +164,14 @@ const EXIT_CHECKS = {
   clarify: (key) => [
     !tableRows(key, 'brief.md', '### Control surface', '## Decided').length && !/no dynamic|none/i.test(added(key, 'brief.md', '### Control surface', '## Decided').join(' '))
       && 'fill brief.md § Decided → Control surface (one row per value, or say "none")',
+    ...staysInCodeProblems(key),
     !filled(key, 'brief.md', '### Questions and answers', '## Decided', 10) && 'record the questions and the dev\'s answers in brief.md § Decided',
+    tableRows(key, 'brief.md', '### Questions and answers', '## Decided').some((r) => NO_RECOMMENDED.test(cells(r)[2] || ''))
+      && 'brief.md § Questions and answers: record the dev\'s choice without the "(Recommended)" tag; how you apply it goes in "Applied as"',
   ],
   plan: (key) => [
-    !tableRows(key, 'plan.md', '## Files').length && 'fill plan.md § Files (one table row per file)',
+    ...glanceProblems(key),
+    !tableRows(key, 'plan.md', '## Files').length && 'fill plan.md § Files (builder detail): one table row per file',
     tableRows(key, 'plan.md', '## QA criteria').length < 3 && 'write at least 3 QA criteria rows in plan.md § QA criteria',
   ],
   build: (key, st) => {
@@ -110,21 +186,32 @@ const EXIT_CHECKS = {
   },
   draft: (key, st) => {
     if (!st.draft?.themeId) return ['create the draft: shopify.mjs draft <KEY>'];
-    if (st.draft.route === 'github') return [!branchPushed(st) && 'a GitHub-connected draft updates from the branch: git push -u origin <branch>'];
-    return [st.draft.lastPushedCommit !== ref(`refs/heads/${st.branch}`) && 'push the current commit: shopify.mjs push <KEY>'];
+    const head = ref(`refs/heads/${st.branch}`);
+    if (st.draft.route === 'github') {
+      return [
+        !branchPushed(st) && 'a GitHub-connected draft updates from the branch: git push -u origin <branch>',
+        branchPushed(st) && st.draft.verifiedCommit !== head && 'check that Shopify synced the branch: shopify.mjs verify <KEY>',
+      ];
+    }
+    return [st.draft.verifiedCommit !== head && st.draft.lastPushedCommit !== head && 'push the current commit: shopify.mjs push <KEY>'];
   },
   qa: (key) => {
     const rows = tableRows(key, 'report.md', '## Criteria').filter((l) => /\|\s*\**(PASS|FAIL|NOT TESTED|BLOCKED)\b/.test(l));
     const planned = tableRows(key, 'plan.md', '## QA criteria').length;
+    const report = read(join(LOGS, key, 'report.md'));
+    const open = rows.filter((l) => /\|\s*\**(BLOCKED|NOT TESTED)\b/.test(l)).length;
     return [
+      !report.startsWith(`# ${key} · Report`) && `report.md's first line must be "# ${key} · Report"; an edit overwrote it`,
       rows.length === 0 && 'write report.md § Criteria with a verdict on every row',
       rows.length < planned && `report.md has ${rows.length} rows with a verdict but the plan has ${planned} QA criteria`,
       !filled(key, 'report.md', '## Summary') && 'write report.md § Summary',
+      open && !filled(key, 'report.md', '## You must still do', undefined, 10) && `${open} rows are BLOCKED or NOT TESTED: list what the dev must do for each in report.md § You must still do`,
     ];
   },
   handoff: (key, st) => [
     !filled(key, 'report.md', '## Handoff', undefined, 80) && 'write report.md § Handoff',
     !branchPushed(st) && `push the task branch: git push -u origin ${st.branch}`,
+    !retroDone(st) && 'run kit.mjs retro <KEY>, then record what the kit made harder (kit.mjs note <KEY> "...") or kit.mjs note <KEY> --none',
   ],
   // Investigation stages.
   frame: (key, st) => [
@@ -150,6 +237,7 @@ const EXIT_CHECKS = {
       !filled(key, 'investigation.md', '## Next step') && 'write investigation.md § Next step',
       !filled(key, 'investigation.md', '## Review') && 'run the evidence-checker agent and record its result in investigation.md § Review',
       changed.length && `theme files changed since the investigation started (${changed.join(', ')}). Investigations are read-only: undo your own edits; edits the dev made are theirs to keep, so ask`,
+      !retroDone(st) && 'run kit.mjs retro <KEY>, then record what the kit made harder (kit.mjs note <KEY> "...") or kit.mjs note <KEY> --none',
     ];
   },
 };
@@ -207,7 +295,8 @@ function summaryLines(key, st, cfg) {
     if (st.draft.previewUrl) lines.push(`Preview: ${st.draft.previewUrl}`);
     if (st.draft.editorUrl) lines.push(`Editor: ${st.draft.editorUrl}`);
   }
-  if (st.type === 'abtest') lines.push(`A/B: variation ${st.abtest?.variation || '?'} · code ${st.abtest?.path || '?'} · tool ${st.abtest?.tool || '?'} · running ${st.abtest?.running || '?'}`);
+  if (st.type === 'abtest') lines.push(`A/B: variation ${st.abtest?.variation || '?'} · code ${st.abtest?.path || '?'} · tool ${st.abtest?.tool || '?'} · running ${st.abtest?.running || '?'}${st.abtest?.reference ? ` · force link ${st.abtest.reference}` : ''}`);
+  if (cfg?.draftRoute === 'github' && !st.draft?.themeId) lines.push('Draft route: GitHub-connected (draftRoute in shopify-kit.json). The dev connects the task branch; the kit adopts it with shopify.mjs draft <KEY> --github.');
   if (st.mutations?.length) lines.push(`Store mutations run: ${st.mutations.length} (ids: kit.mjs status ${key} --json)`);
   lines.push(`Logs: .claude/logs/${key}/ (brief.md, plan.md, report.md)`);
   if (st.kitVersion !== KIT_VERSION) lines.push(`Note: started with kit ${st.kitVersion}, this is kit ${KIT_VERSION}.`);
@@ -263,6 +352,10 @@ function selftest() {
   eq('ignore miss', ignore('sections/header.liquid'), false);
   eq('stages implement', stagesFor({}).map((x) => x.name).slice(0, 2), ['intake', 'analyze']);
   eq('stages investigation', stagesFor({ kind: 'investigation' }).map((x) => x.name), ['frame', 'gather', 'conclude']);
+  eq('cells', cells('| 3 | a \\| b | PASS |'), ['3', 'a \\| b', 'PASS']);
+  eq('cells empty last', cells('| Icons | AC 18 | winner SVGs | |'), ['Icons', 'AC 18', 'winner SVGs', '']);
+  eq('words', words(' Renders rows;  image looked up '), 5);
+  eq('retroDone needs a note after retro', [retroDone({ history: [{ event: 'note' }, { event: 'retro' }] }), retroDone({ history: [{ event: 'retro' }, { event: 'note', none: true }] })], [false, true]);
   const failed = checks.filter((c) => !c[1]);
   for (const [name, , got, want] of failed) print(`FAIL ${name}: got ${JSON.stringify(got)}, want ${JSON.stringify(want)}`);
   print(failed.length ? `${failed.length} of ${checks.length} failed` : `all ${checks.length} passed`);
@@ -351,7 +444,12 @@ switch (verb) {
     const answer = typeof flags.answer === 'string' ? flags.answer.trim() : '';
     if (def.gate && !answer) fail(`"${stage}" is a gate (${def.gate}). Ask the dev, then record their words: --answer "..."`);
     const missing = (EXIT_CHECKS[stage]?.(key, st) || []).filter(Boolean);
-    if (missing.length) fail(`"${stage}" isn't finished:\n${missing.map((m) => `- ${m.replace('<KEY>', key)}`).join('\n')}`);
+    if (missing.length) {
+      // Kept for the retro: repeated refusals at one stage point at a skill that doesn't say what the check wants.
+      st.history.push({ at: now(), event: 'refused', stage, missing: missing.map((m) => m.slice(0, 160)) });
+      writeState(key, st);
+      fail(`"${stage}" isn't finished:\n${missing.map((m) => `- ${m.replaceAll('<KEY>', key)}`).join('\n')}`);
+    }
     if (def.gate) st.gates[stage] = { answer, at: now() };
     st.history.push({ at: now(), event: 'done', stage, answer: answer || undefined, note: flags.note || undefined });
     const next = stages[stageIndex(stage, st) + 1];
@@ -403,6 +501,94 @@ switch (verb) {
   case 'summary': {
     const key = normKey(rawKey);
     print(runSummary(key, readState(key)));
+    break;
+  }
+
+  case 'qa-row': {
+    const key = normKey(rawKey);
+    readState(key);
+    const n = rest[0];
+    if (!/^\d+$/.test(n || '')) fail('Usage: qa-row <KEY> <#> [--measured T] [--how T] [--verdict V] [--expected T]');
+    if (flags.verdict && !['PASS', 'FAIL', 'NOT TESTED', 'BLOCKED'].includes(flags.verdict)) fail('--verdict is one of: PASS, FAIL, NOT TESTED, BLOCKED');
+    const p = join(LOGS, key, 'report.md');
+    const lines = read(p).split(/\r?\n/);
+    const start = lines.findIndex((l) => /^## Criteria\b/.test(l.trim()));
+    const header = lines.findIndex((l, i) => i > start && l.trim().startsWith('|'));
+    if (start === -1 || header === -1) fail('report.md has no § Criteria table yet. Copy the plan\'s QA criteria into it first.');
+    const names = cells(lines[header]).map((c) => c.toLowerCase());
+    const row = lines.findIndex((l, i) => i > header && l.trim().startsWith('|') && cells(l)[0].replace(/\*/g, '') === n);
+    if (row === -1) fail(`No row #${n} in report.md § Criteria.`);
+    const c = cells(lines[row]);
+    const set = (name, value) => {
+      const i = names.findIndex((h) => h.startsWith(name));
+      if (i === -1) fail(`The § Criteria table has no "${name}" column.`);
+      c[i] = String(value).replace(/\r?\n/g, ' ').replace(/(?<!\\)\|/g, '\\|');
+    };
+    for (const f of ['measured', 'how', 'verdict', 'expected']) if (typeof flags[f] === 'string') set(f, flags[f]);
+    lines[row] = `| ${c.join(' | ')} |`;
+    writeFileSync(p, lines.join('\n'));
+    print(`row ${n}: ${c[names.findIndex((h) => h.startsWith('verdict'))] || '(no verdict yet)'}`);
+    break;
+  }
+
+  case 'note': {
+    const key = normKey(rawKey);
+    const st = readState(key);
+    if (flags.none) {
+      if (!(st.history || []).some((e) => e.event === 'retro')) fail(`Run kit.mjs retro ${key} first and look at what it lists.`);
+      st.history.push({ at: now(), event: 'note', none: true });
+      writeState(key, st);
+      print('Recorded: nothing the kit caused.');
+      break;
+    }
+    const text = rest.join(' ').trim();
+    if (!text) fail('Usage: kit.mjs note <KEY> "what happened, what you expected, what would have helped" [--kind friction|mistake|kit-bug|missing|idea]');
+    const kind = typeof flags.kind === 'string' ? oneOf('friction', 'mistake', 'kit-bug', 'missing', 'idea')(flags.kind) : 'friction';
+    const p = join(LOGS, key, 'kit-notes.md');
+    if (!existsSync(p)) {
+      writeFileSync(p, `# ${key} · Kit notes\n\n> Problems with the kit itself, not the ticket: for the kit maintainer. kit.mjs feedback collects these from every task.\n\n| When | Stage | Kind | Note |\n| --- | --- | --- | --- |\n`);
+    }
+    writeFileSync(p, `${read(p).trimEnd()}\n| ${now().slice(0, 16)} | ${st.stage} | ${kind} | ${text.replace(/\r?\n/g, ' ').replace(/\|/g, '\\|')} |\n`);
+    st.history.push({ at: now(), event: 'note', kind });
+    writeState(key, st);
+    print(`Noted in .claude/logs/${key}/kit-notes.md`);
+    break;
+  }
+
+  case 'retro': {
+    const key = normKey(rawKey);
+    const st = readState(key);
+    const signals = retroSignals(key, st);
+    st.history.push({ at: now(), event: 'retro' });
+    writeState(key, st);
+    print({
+      ...signals,
+      ask: 'For each signal, decide whether the kit caused it (an instruction that misled, a missing verb, a check that wanted something unclear, a guard block on a harmless command) or the ticket did. '
+        + 'Also count what the dev had to correct and anything you worked around. Record each kit cause: kit.mjs note <KEY> "<what happened> → <what would have prevented it>" --kind <kind>. '
+        + 'Nothing kit-caused: kit.mjs note <KEY> --none.',
+    });
+    break;
+  }
+
+  case 'feedback': {
+    const keys = existsSync(LOGS) ? readdirSync(LOGS).filter((d) => existsSync(join(LOGS, d, 'state.json'))) : [];
+    const parts = [];
+    for (const k of keys) {
+      const st = readState(k);
+      const s = retroSignals(k, st);
+      const notes = read(join(LOGS, k, 'kit-notes.md')).split(/\r?\n/).filter((l) => /^\| \d{4}-/.test(l));
+      if (!notes.length && !s.loopsBack.length && !s.refusedStages.length && !s.guardBlocks.length) continue;
+      parts.push([
+        `## ${k} · ${st.kind === 'investigation' ? 'investigation' : st.type || '-'} · kit ${st.kitVersion} · ${st.stage} · ${st.updatedAt.slice(0, 10)}`,
+        ...(notes.length ? ['', '| When | Stage | Kind | Note |', '| --- | --- | --- | --- |', ...notes] : []),
+        ...(s.loopsBack.length ? ['', '**Loops back:**', ...s.loopsBack.map((x) => `- ${x}`)] : []),
+        ...(s.refusedStages.length ? ['', '**Refused stage exits:**', ...s.refusedStages.map((x) => `- ${x}`)] : []),
+        ...(s.guardBlocks.length ? ['', '**Guard blocks:**', ...s.guardBlocks.map((x) => `- ${x}`)] : []),
+      ].join('\n'));
+    }
+    const out = join(LOGS, 'kit-feedback.md');
+    writeFileSync(out, `# Kit feedback · ${now().slice(0, 10)}\n\n> From ${parts.length} of ${keys.length} tasks in this repo. Give this file to whoever maintains the kit.\n\n${parts.join('\n\n')}\n`);
+    print(`${parts.length} tasks with notes or signals → .claude/logs/kit-feedback.md`);
     break;
   }
 

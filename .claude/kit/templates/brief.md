@@ -20,6 +20,9 @@
 
 ### What the tickets say should be editable
 
+| AC # | Quoted line | Covers (everything visible in what it names) |
+| --- | --- | --- |
+
 ### Unclear in the tickets
 
 ## Found
@@ -40,10 +43,17 @@
 
 ### Control surface
 
-| Value | Lives in | Type, options, default | Empty state | Why |
+#### Merchant can change
+
+| Value | Where the merchant changes it | Type, options, default | Empty state | Why |
 | --- | --- | --- | --- | --- |
+
+#### Stays in code (the merchant can't change it)
+
+| Value | Editability AC it touches (AC #, or none) | Why it stays in code | Dev agreed (Q #) |
+| --- | --- | --- | --- |
 
 ### Questions and answers
 
-| # | Question | Answer (the dev's words) | Date |
-| --- | --- | --- | --- |
+| # | Question | The dev's choice (verbatim) | Applied as | Date |
+| --- | --- | --- | --- | --- |
