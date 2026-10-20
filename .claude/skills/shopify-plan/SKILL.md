@@ -73,7 +73,7 @@ Fill each heading in `plan.md`:
     | PAGE, ARTICLE, BLOG | `write_content` |
     | CUSTOMER | `write_customers` |
 
-    The kit's default login covers the first two rows. For the others, give the dev the `! shopify store auth --store <store> --scopes …` command with the extra scope added. Re-running it replaces the grant.
+    The kit's default login covers the first two rows. For the others, give the dev the `! shopify store auth --store <store> --scopes …` command with the extra scope added. The CLI merges it with the scopes already granted.
   - **QA test data.** Which products. Ask the dev to name them; never pick live products yourself.
   - **Merchant steps after merge:** placement, entries, Translate & Adapt.
 - **Conventions to follow,** from § Found. For example: "CSS via `stylesheet_tag` in the snippet, like `snippets/product-badges.liquid`".

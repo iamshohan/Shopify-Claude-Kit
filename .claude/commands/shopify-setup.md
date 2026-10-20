@@ -60,7 +60,7 @@ Work through these checks in order. Report each one as ✓ or ✗ with the exact
      | Read-only: the kit reads store data; the dev creates definitions in the admin | the same command with only the `read_…` scopes | `adminApi: true` |
      | None: nothing is installed. Definitions are made by hand in the admin, and the kit reads admin pages in Chrome. | none | `adminApi: false` |
 
-     - With the login in place, `adminScopesFix` and `investigateScopesFix` list missing scopes. Re-running the command replaces the grant.
+     - With the login in place, `adminScopesFix` and `investigateScopesFix` list missing scopes. Re-running the command adds scopes: the CLI merges them with the ones already granted. Removing a scope means uninstalling the app in Settings → Apps and logging in again.
      - Without it, everything theme-related works the same. Store data gets slower and less exact.
 
    The login command can be typed in Claude Code with the `!` prefix (the output lands in the chat), or run in any terminal without the `!`.
