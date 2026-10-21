@@ -52,7 +52,7 @@ export function fail(message, code = 1) {
   process.exit(code);
 }
 
-const BOOLEAN_FLAGS = new Set(['dry-run', 'baseline', 'json', 'help', 'force', 'no-comments', 'selftest', 'investigate', 'live', 'github', 'none', 'all']);
+const BOOLEAN_FLAGS = new Set(['dry-run', 'baseline', 'json', 'help', 'force', 'no-comments', 'selftest', 'investigate', 'live', 'github', 'none', 'all', 'adopt']);
 
 export function parseArgs(argv) {
   const out = { _: [], flags: {} };

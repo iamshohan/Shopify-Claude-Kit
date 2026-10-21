@@ -27,7 +27,8 @@ Read-only
                                          checked; saves the HTML. Never curl ?preview_theme_id: without the cookie it serves live
   verify <KEY> [--wait SECONDS]          pull the branch's files back from the draft and compare them with HEAD
 This task's draft theme
-  draft <KEY> [--dry-run]                reuse or create the draft: a copy of the live theme named <KEY>
+  draft <KEY> [--dry-run] [--adopt]      reuse or create the draft: a copy of the live theme named <KEY>
+                                         (refuses an existing theme with that name unless the dev says --adopt)
   draft <KEY> --github [--theme ID]      adopt the theme the dev connected to the task branch (Add theme → Connect from GitHub)
   push <KEY> [--dry-run]                 upload every theme file the branch's commits touched to the draft, then verify
   preview <KEY> <overrides.json>         virtual preview of the draft with JSON overrides; prints the URL
@@ -593,6 +594,10 @@ switch (verb) {
       break;
     }
     if (same) {
+      // Often a teammate's draft for the same ticket: pushing into it would overwrite their work, so only on request.
+      if (!flags.adopt) {
+        fail(`An unpublished theme named ${key} already exists (id ${same.id}): probably a teammate's draft for this ticket, made by hand or by another session.\nAsk the dev. Only if it's free to reuse: shopify.mjs draft ${key} --adopt. Otherwise stop here; the kit names its draft after the key, so it can't make a second one.`, 3);
+      }
       // Someone else may have made it (a teammate, or by hand), so the kit never offers to delete it on its own.
       record(same, 'adopted an existing theme with this task\'s name', 'manual');
       print({ adopted: true, ...st.draft, note: `An unpublished theme named ${key} existed already (a teammate's draft, an earlier session, or made by hand). The kit will push to it. Pushing replaces the changed files, so check with whoever made it first.` });
