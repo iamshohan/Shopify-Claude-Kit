@@ -11,7 +11,7 @@ Work through these checks in order. Report each one as ✓ or ✗ with the exact
    - Run `node .claude/hooks/guard.mjs --selftest`. It must print "all N passed".
    - Then prove the hook is live in this Claude Code: run `shopify version` with the Bash tool. **It must be blocked** with a message about `.claude/kit/shopify.mjs`.
 
-   If it runs instead, stop. The hook isn't active: Claude Code may be too old for the hook format in `.claude/settings.json` (update it), or the folder isn't trusted yet. The kit isn't safe to use until this is ✓.
+   If it runs instead, stop. The hook isn't active: Claude Code may be too old for the hook format in `.claude/settings.json` (it needs 2.1.295 or newer for `onFailure`; check with `claude --version`), or the folder isn't trusted yet. The kit isn't safe to use until this is ✓.
 2. **Tools.** Run `node --version` (needs 20 or newer) and `git --version`.
 
    Then run `node .claude/kit/shopify.mjs cli-check --force` (about a minute). It confirms that the installed Shopify CLI and plugin still offer every command, flag and output field the kit uses. Any problem it lists means: run `/shopify-update` before going on.
@@ -28,7 +28,7 @@ Work through these checks in order. Report each one as ✓ or ✗ with the exact
    - `jiraBaseUrl`: e.g. `https://driperium.atlassian.net`
    - `ticketPrefixes`: e.g. `["ABC"]`
    - `baseBranch`: the branch the live theme follows (recon `defaultBranch`, and the branch with "Update from Shopify" commits)
-   - `protectedBranches`: the base branch, plus any branch a CI workflow deploys from (recon `deploy.workflows`)
+   - `protectedBranches`: the base branch, plus any branch a CI workflow deploys from (recon `deploy.workflows`) and any branch a published theme is connected to through Shopify's GitHub app (pushing to it changes that theme). Then check each one on GitHub: `gh api repos/<owner>/<repo>/branches/<branch> --jq .protected`. `false` is a ✗: the guard is then the only thing between the agent and that branch. The fix is a branch protection rule requiring PRs, set by a repo admin. Without `gh`, ask the dev to check Settings → Branches.
    - `branchPattern`: from recon's recent branches, e.g. `{KEY}` → `ABC-123`, or `{key}__dev`
    - `commitPattern`: from recon's commit subjects, e.g. `{key}__dev: <what changed>`
    - `adminApiVersion`: `2026-07` unless the dev says otherwise. Shopify supports each version for about a year.
@@ -39,7 +39,7 @@ Work through these checks in order. Report each one as ✓ or ✗ with the exact
 
      Recommend `"github"` when recon shows the sync commits. Confirm it with the dev: connecting needs the Themes permission and write access to the repo on GitHub.
 
-   Write the file with the Write tool:
+   Write the file with the Write tool. The guard asks the dev first and lists each setting that changes, because these settings decide which store the kit acts on, which branches it protects and where the Jira token goes:
    ```json
    { "store": "", "storefrontUrl": "", "jiraBaseUrl": "", "ticketPrefixes": [], "baseBranch": "main",
      "protectedBranches": ["main"], "branchPattern": "{KEY}", "commitPattern": "{key}__dev: <what changed>",

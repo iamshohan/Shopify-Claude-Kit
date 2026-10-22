@@ -17,12 +17,14 @@
       "Bash(node .claude/kit/shopify.mjs query:*)",
       "Bash(node .claude/kit/shopify.mjs pull-live:*)",
       "Bash(node .claude/kit/shopify.mjs check:*)",
+      "Bash(node .claude/kit/shopify.mjs fetch:*)",
+      "Bash(node .claude/kit/shopify.mjs verify:*)",
       "Bash(node .claude/kit/shopify.mjs preview:*)",
       "Bash(node .claude/kit/shopify.mjs draft:*)",
       "Bash(node .claude/kit/shopify.mjs push:*)",
       "Bash(node .claude/hooks/guard.mjs --selftest)",
       "Bash(git status:*)",
-      "Bash(git fetch:*)",
+      "Bash(git fetch origin:*)",
       "Bash(git switch:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
@@ -30,7 +32,7 @@
       "Bash(git log:*)",
       "Bash(git show:*)",
       "Bash(git rev-parse:*)",
-      "Bash(git ls-remote:*)",
+      "Bash(git ls-remote --heads origin:*)",
       "Bash(git merge-base:*)",
       "PowerShell(node .claude/kit/kit.mjs:*)",
       "PowerShell(node .claude/kit/recon.mjs:*)",
@@ -43,18 +45,22 @@
       "PowerShell(node .claude/kit/shopify.mjs query:*)",
       "PowerShell(node .claude/kit/shopify.mjs pull-live:*)",
       "PowerShell(node .claude/kit/shopify.mjs check:*)",
+      "PowerShell(node .claude/kit/shopify.mjs fetch:*)",
+      "PowerShell(node .claude/kit/shopify.mjs verify:*)",
       "PowerShell(node .claude/kit/shopify.mjs preview:*)",
       "PowerShell(node .claude/kit/shopify.mjs draft:*)",
       "PowerShell(node .claude/kit/shopify.mjs push:*)",
       "PowerShell(git status:*)",
-      "PowerShell(git fetch:*)",
+      "PowerShell(git fetch origin:*)",
       "PowerShell(git switch:*)",
       "PowerShell(git add:*)",
       "PowerShell(git commit:*)",
       "PowerShell(git diff:*)",
       "PowerShell(git log:*)",
       "PowerShell(git show:*)",
-      "PowerShell(git rev-parse:*)"
+      "PowerShell(git rev-parse:*)",
+      "PowerShell(git ls-remote --heads origin:*)",
+      "PowerShell(git merge-base:*)"
     ],
     "deny": [
       "Read(./.claude/.env.local)",
@@ -62,7 +68,14 @@
       "Read(./.env.*)",
       "Read(**/.env)",
       "Read(**/.env.*)",
-      "Read(./config.yml)"
+      "Read(./config.yml)",
+      "Read(~/.claude/.env)",
+      "Read(~/AppData/Roaming/shopify-cli-*/**)",
+      "Read(~/.config/shopify-cli-*/**)",
+      "Read(~/Library/Preferences/shopify-cli-*/**)",
+      "Edit(~/AppData/Roaming/shopify-cli-*/**)",
+      "Edit(~/.config/shopify-cli-*/**)",
+      "Edit(~/Library/Preferences/shopify-cli-*/**)"
     ]
   },
   "hooks": {
@@ -74,7 +87,8 @@
             "type": "command",
             "command": "node",
             "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/guard.mjs"],
-            "timeout": 10
+            "timeout": 10,
+            "onFailure": "block"
           }
         ]
       }

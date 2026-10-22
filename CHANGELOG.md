@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.3.1 — 2026-10-23
+
+Security hardening from a review of the kit's controls (findings F1, F3, F4, F6, F7, F8). Each item was reproduced first, and each fix has guard self-test cases (99 → 139).
+
+- **Mutations: only the kit's own, and only what the dev saw.**
+  - The wrapper runs only definition creates, `metafieldsSet`, metaobject entry creates, and the cleanup deletes. A delete must name an id this task created. One operation per file, no fragments, and aliases are checked by their real name. `productDelete` and everything else are refused.
+  - The guard parses a `mutate`/`delete-draft` command with the wrapper's own argument parser. Before, `x--dry-run.graphql` or `--dry-run-x` skipped the prompt, a second `.graphql` argument changed which file the prompt showed, and `node .claude/kit/./shopify.mjs` or `cd .claude/kit && node shopify.mjs` weren't recognised.
+  - The guard records a fingerprint of what it showed, in `.claude/logs/<KEY>/guard-seal.json`. The wrapper runs only a matching file, once, within 15 minutes. A file swapped after the prompt (`cp x.graphql ok.graphql && …mutate`) or a call the guard never saw is refused. `mutate` must run on its own, and the prompt shows the whole file instead of the first 1,500 characters.
+- **Data can't leave through allow-listed git.** The allow rules cover only `git fetch origin` and `git ls-remote --heads origin`. The guard asks for other remotes or URLs, `--upload-pack`, and `git -c`.
+- **The Jira token goes only to Atlassian.** A `jiraBaseUrl` from `shopify-kit.json` must be https on `atlassian.net`; any other host must come from the dev's own `.env.local`.
+- **`shopify-kit.json` asks before it changes**, and the prompt names each setting and what it controls (store, protected branches, Jira URL…). `/shopify-setup` now checks that the base branch, and any branch a published theme is connected to, are protected on GitHub.
+- **Credential stores outside the repo** are denied: the Shopify CLI's `shopify-cli-*` folders (Windows, macOS, Linux paths) and `~/.claude/.env`.
+- **A failing guard blocks the call** (`onFailure: "block"`, Claude Code 2.1.295+), and unreadable hook input is blocked rather than allowed. A lone `&` now separates commands, so a chained call can't hide behind it.
+- **What stays as it was, documented.** The agent's Chrome stays logged in as the dev (README → Safety rails → Browser states what that allows). The Admin login keeps asking for both commands' scopes at once, so a client approves the CLI app once per store. Investigations read how discounts are set up, never the codes.
+- **The team guide is about a third shorter** (3,240 → 2,000 words). It now spells out the full Admin API login command, with every scope, for the person who installs the CLI app. The section on how the kit uses Shopify's tools is gone; `shopify.mjs --help` covers it.
+- **Smaller fixes.**
+  - Values passed to the CLI's `--only` must be theme paths.
+  - The CLI is never started from a `shopify.cmd` in the repo root.
+  - `shopify.mjs fetch` and `verify` are on the allow list; they prompted on every call before.
+
 ## 0.3.0 — 2026-10-20
 
 From the first real ticket (CHE-802) and a developer-experience review of its logs.

@@ -1,20 +1,15 @@
 # Shopify-Claude-Kit
 
-The **Shopify Implementation Kit**: a Claude Code setup that takes a Jira ticket in a Shopify theme repo to a QA'd draft theme. It covers winning A/B tests, features and bug fixes. `/shopify-investigate` adds read-only feasibility checks, debugging and questions. The team guide (stages, safety rails, troubleshooting) ships inside the kit: [`.claude/README.md`](.claude/README.md).
+The **Shopify Implementation Kit**: Claude Code commands that take a Jira ticket in a Shopify theme repo to a QA'd draft theme (`/implement`), or answer a question about the store read-only (`/shopify-investigate`). The team guide ships inside the kit: [`.claude/README.md`](.claude/README.md).
 
 ## Install or update in a theme repo
 
 ```
 git clone https://github.com/DripDevelopment/Shopify-Claude-Kit.git
-node Shopify-Claude-Kit/install.mjs <path-to-theme-repo>            # add --dry-run to see what it would do
+node Shopify-Claude-Kit/install.mjs <path-to-theme-repo>      # --dry-run shows what it would do
 ```
 
-- It copies the kit into `<theme-repo>/.claude/`.
-- It leaves the repo's own files alone: `shopify-kit.json`, `.env.local`, `settings.local.json`, `cli-check.json` and `logs/`. If the repo has its own `settings.json`, the kit's version is written beside it as `settings.kit.json` for you to merge.
-- It writes `.claude/.gitignore`, so the kit stays out of the theme repo's git.
-- Running it again after a `git pull` updates the kit and removes files a newer version dropped.
-
-Then open Claude Code in the theme repo and run `/shopify-setup` (once per repo, per person).
+It copies the kit into `<theme-repo>/.claude/`. It keeps the repo's own config, credentials and logs, removes files a newer kit dropped, and keeps the kit out of the theme repo's git. Then run `/shopify-setup` in Claude Code, once per repo and person.
 
 ## Layout
 
@@ -34,12 +29,11 @@ install.mjs                 installs or updates the kit in a theme repo
 
 ## Maintaining the kit
 
-- **Change it here, never in a theme repo's copy.** Teams pick up changes with `git pull` + `install.mjs`.
-- **Before committing:**
-  - Run `node .claude/hooks/guard.mjs --selftest` and `node .claude/kit/kit.mjs --selftest`. Both must pass.
-  - If you changed `kit/probe.js`, run `node .claude/kit/kit.mjs build-probe`.
-- **Changes to `hooks/guard.mjs` or `kit/shopify.mjs` are safety changes.** Review them in a PR, and add a self-test case for every new rule or bypass.
-- **When the Shopify CLI or plugin updates,** run `/shopify-update` in any theme repo. Fix what it reports here, then bump `.claude/VERSION` and add a `CHANGELOG.md` entry.
-- **Version bumps:** patch for fixes, minor for new behaviour. Each task's state records the kit version it started with.
+- **Change it here, never in a theme repo's copy.** Teams pick up changes with `git pull` and the installer.
+- **Before committing,** `node .claude/hooks/guard.mjs --selftest` and `node .claude/kit/kit.mjs --selftest` must both pass. After changing `kit/probe.js`, also run `node .claude/kit/kit.mjs build-probe`.
+- **`hooks/guard.mjs` and `kit/shopify.mjs` are safety code.** Review changes to them in a PR, with a self-test case for every new rule or bypass.
+- **After a Shopify CLI or plugin update,** run `/shopify-update` in a theme repo and fix here what it reports.
+- **Every release:** bump `.claude/VERSION` (patch for fixes, minor for new behaviour) and add a `CHANGELOG.md` entry.
+- **The Admin API scopes** live in `kit/shopify.mjs` and are written out in the team guide's login command. Change both.
 
-Status: v0.3, after the first pilot ticket (CHE-802). See `CHANGELOG.md`.
+Status: v0.3.1. See `CHANGELOG.md`.

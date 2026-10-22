@@ -3,10 +3,12 @@
 // Shopify CLI directly, pushing to main, hand-editing task state, reading secrets), not a
 // security boundary: GitHub branch protection and store staff permissions are the real limits.
 // Self-test: node .claude/hooks/guard.mjs --selftest
-import { readFileSync, existsSync, appendFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, existsSync, appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { dirname, join, resolve, relative, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
+// The wrapper's own argv parser and mutation check: the guard must read a command exactly as the wrapper will run it.
+import { parseArgs, mutationProblems, sealDigest, SEAL_FILE } from '../kit/lib.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -21,8 +23,18 @@ const CLI_WORD = new RegExp(`(^|[\\s;&|(\`'"=])shopify(\\.cmd|\\.ps1|\\.exe)?['"
 const CLI_PATH = new RegExp(`[\\\\/]shopify(\\.cmd|\\.ps1|\\.exe)?['"]?\\s+(${CLI_TOPICS})\\b`, 'i');
 const CLI_PKG = /@shopify\/(cli|theme|app|create-app)\b|SHOPIFY_FLAG_|SHOPIFY_CLI_THEME_TOKEN|SHOPIFY_CLI_PARTNERS_TOKEN/i;
 const THEMEKIT = /^theme(\.exe)?\s+(deploy|watch|open|replace|upload|remove|download|get|new|configure|publish|update)\b/;
-const SECRET_FILE = /(^|[\s'"=\\/])(\.env(\.[\w.-]+)?|config\.yml)(?=$|[\s'"`;&|)])/;
+// .env files, Theme Kit's config.yml, and the Shopify CLI's session folders (shopify-cli-kit-nodejs/…), whose tokens can publish themes.
+const SECRET_FILE = /(^|[\s'"=\\/])(\.env(\.[\w.-]+)?|config\.yml)(?=$|[\s'"`;&|)])|shopify-cli-[\w-]+[\\/]/;
 const STATE_FILE = /logs[\\/][^\\/\s'"]+[\\/]state\.json/i;
+const SEAL = new RegExp(SEAL_FILE.replace('.', '\\.'), 'i');
+const CONFIG_REL = '.claude/shopify-kit.json';
+// What each setting controls, named in the prompt when it changes.
+const CONFIG_KEYS = {
+  store: 'the store every kit command acts on', storefrontUrl: 'the site fetch and compare request', jiraBaseUrl: 'where jira.mjs sends the Jira token',
+  baseBranch: 'a branch the guard protects', protectedBranches: 'the branches the guard protects', adminApi: 'whether the kit uses the Admin API',
+  draftRoute: 'how the draft theme is made',
+};
+const STORE_VERBS = new Set(['mutate', 'delete-draft']);
 const MERCHANT_JSON = /^(templates\/.+\.json|sections\/[^/]+\.json|config\/settings_data\.json)$/i;
 // Wrapper verbs that run without asking. Anything else, including verbs added later, asks the dev.
 const SAFE_VERBS = new Set(['cli-check', 'auth-check', 'themes', 'query', 'pull-live', 'check', 'draft', 'push', 'preview', 'fetch', 'verify', 'help', '--help']);
@@ -66,7 +78,7 @@ function stripMessageBodies(cmd) {
   return out.join('\n');
 }
 
-/** Split on && || ; | and newlines, but not inside quotes. */
+/** Split on && || ; | & and newlines, but not inside quotes or redirects (2>&1, &>file). */
 function segments(cmd) {
   const out = [];
   let cur = '';
@@ -78,6 +90,8 @@ function segments(cmd) {
     const two = cmd.slice(i, i + 2);
     if (two === '&&' || two === '||') { out.push(cur); cur = ''; i++; continue; }
     if (c === ';' || c === '|' || c === '\n' || c === '\r') { out.push(cur); cur = ''; continue; }
+    // A lone & runs the left side in the background (bash) or is PowerShell's call operator: both start a new command.
+    if (c === '&' && !/[<>]/.test(cmd[i - 1] || '') && cmd[i + 1] !== '>') { out.push(cur); cur = ''; continue; }
     cur += c;
   }
   out.push(cur);
@@ -102,14 +116,14 @@ function program(segment) {
   return { w, i };
 }
 
-/** git's subcommand, skipping global options such as -C <dir> or -c key=value. */
+/** git's subcommand, skipping global options such as -C <dir> or -c key=value (returned as globals). */
 function gitCommand(segment) {
   const { w, i: start } = program(stripRedirects(segment));
   let i = start;
   if (!/^git(\.exe)?$/i.test(w[i] || '')) return null;
   i++;
   while (i < w.length && w[i].startsWith('-')) i += ['-C', '-c', '--git-dir', '--work-tree', '--namespace'].includes(w[i]) ? 2 : 1;
-  return { sub: w[i] || '', args: w.slice(i + 1) };
+  return { sub: w[i] || '', args: w.slice(i + 1), globals: w.slice(start + 1, i) };
 }
 
 /** The command string inside bash -c "...", cmd /c ..., powershell -Command "...". */
@@ -147,28 +161,75 @@ function scriptCallsCli(name, scripts, depth = 0) {
   return null;
 }
 
-function readKitFile(file) {
-  try { return readFileSync(resolve(ROOT, file), 'utf8').slice(0, 1500); } catch { return '(file not found)'; }
+/** A wrapper call in one segment, with its arguments parsed the way the wrapper parses them. */
+function wrapperCall(segment) {
+  const { w, i } = program(stripRedirects(segment));
+  if (!/^node(\.exe)?$/i.test(w[i] || '') || !/(^|[\\/])shopify\.mjs$/i.test(w[i + 1] || '')) return null;
+  return parseArgs(w.slice(i + 2));
 }
 
-function wrapperAsk(cmd) {
-  for (const kit of cmd.matchAll(/\.claude[\\/]kit[\\/]shopify\.mjs["']?\s+([\w-]+)([^\n;&|]*)/gi)) {
-    const [, verb, rest] = kit;
-    if (SAFE_VERBS.has(verb) || /--dry-run/.test(rest)) continue;
-    const w = words(rest);
-    if (verb === 'mutate') {
-      const query = w.find((x) => /\.graphql$/i.test(x));
-      const vars = w.find((x) => /\.json$/i.test(x));
-      return { decision: 'ask', reason: `Run this Admin GraphQL mutation on the store?\n${query || '(no file)'}\n---\n${query ? readKitFile(query) : ''}${vars ? `\n--- variables ${vars}\n${readKitFile(vars)}` : ''}` };
+function wrapperDecision(segs, ctx) {
+  for (const seg of segs) {
+    const call = wrapperCall(seg);
+    if (!call) {
+      // node -e, node options, another script or runtime: the guard can't read the arguments.
+      const { w, i } = program(seg);
+      if (/^(node|bun|deno|tsx|npx)(\.exe|\.cmd)?$/i.test(w[i] || '') && /shopify\.mjs/i.test(seg) && /\b(mutate|delete-draft)\b/.test(seg)) {
+        return { decision: 'ask', reason: `This runs a store-changing kit verb in a way the guard can't read, and the wrapper will refuse it. Run it as node .claude/kit/shopify.mjs <verb> … instead. (${seg.slice(0, 300)})` };
+      }
+      continue;
     }
+    const verb = call._[0];
+    if (!verb || SAFE_VERBS.has(verb)) continue;
+    if (!STORE_VERBS.has(verb)) return { decision: 'ask', reason: `The kit command "${verb}" isn't on the read-only list. Allow it? (${seg.trim()})` };
+    // The wrapper reads the same flag the same way, so this is a real dry run.
+    if (call.flags['dry-run']) continue;
+    // Anything else in the command could change the file between this prompt and the run.
+    if (segs.length > 1 || /[$`]/.test(seg)) return { decision: 'deny', reason: `Run ${verb} as its own command, with literal values: then what the dev approves is exactly what runs.` };
+    const key = String(call._[1] || '').toUpperCase();
+    if (!/^[A-Z][A-Z0-9]+-\d+$/.test(key)) return { decision: 'ask', reason: `"${call._[1] ?? ''}" isn't a Jira key; the wrapper will refuse it. (${seg.trim()})` };
     if (verb === 'delete-draft') {
-      let draft = {};
-      try { draft = JSON.parse(readFileSync(join(ROOT, '.claude', 'logs', String(w[0] || '').toUpperCase(), 'state.json'), 'utf8')).draft || {}; } catch { /* shown as unknown */ }
-      return { decision: 'ask', reason: `Delete theme ${draft.themeId ?? '(unknown id)'} "${draft.name ?? '(unknown name)'}" (route ${draft.route ?? '?'}) from the store? This can't be undone.` };
+      const draft = ctx.state(key)?.draft || {};
+      return {
+        decision: 'ask',
+        reason: `Delete theme ${draft.themeId ?? '(unknown id)'} "${draft.name ?? '(unknown name)'}" (route ${draft.route ?? '?'}) from the store? This can't be undone.`,
+        seal: { key, verb, themeId: draft.themeId ?? null },
+      };
     }
-    return { decision: 'ask', reason: `The kit command "${verb}" isn't on the read-only list. Allow it? (${kit[0].trim()})` };
+    const file = call._[2] || '';
+    const vars = typeof call.flags.vars === 'string' ? call.flags.vars : null;
+    if (!/\.graphql$/i.test(file) || (vars && !/\.json$/i.test(vars))) {
+      return { decision: 'deny', reason: 'Usage: shopify.mjs mutate <KEY> <file.graphql> [--vars <file.json>], both files in the task\'s mutations folder.' };
+    }
+    const text = ctx.read(file);
+    const varsText = vars ? ctx.read(vars) : '';
+    if (text === null || varsText === null) return { decision: 'deny', reason: `No such file: ${text === null ? file : vars}` };
+    const problems = mutationProblems(text, varsText, (ctx.state(key)?.mutations || []).flatMap((m) => m.ids || []));
+    if (problems.length) return { decision: 'deny', reason: `The kit won't run this mutation:\n- ${problems.join('\n- ')}` };
+    const shown = `${text}${vars ? `\n--- variables ${vars}\n${varsText}` : ''}`;
+    if (shown.length > 8000) return { decision: 'deny', reason: 'This mutation and its variables are over 8,000 characters, too long to review in one prompt. Split it into smaller files.' };
+    return { decision: 'ask', reason: `Run this Admin GraphQL mutation on the store?\n${file}\n---\n${shown}`, seal: { key, verb, sha: sealDigest(text, varsText) } };
   }
   return null;
+}
+
+/** The prompt for a change to shopify-kit.json: which settings change, and what each controls. */
+function configChange(ti, ctx) {
+  const before = ctx.read(CONFIG_REL);
+  let after = null;
+  if (typeof ti.content === 'string') after = ti.content;
+  else if (before !== null && typeof ti.old_string === 'string') {
+    after = ti.replace_all ? before.split(ti.old_string).join(ti.new_string) : before.replace(ti.old_string, () => ti.new_string);
+  }
+  let lines = null;
+  try {
+    const a = JSON.parse(before ?? '{}');
+    const b = JSON.parse(after);
+    const short = (v) => (v === undefined ? '(unset)' : JSON.stringify(v).slice(0, 80));
+    lines = [...new Set([...Object.keys(a), ...Object.keys(b)])].filter((k) => JSON.stringify(a[k]) !== JSON.stringify(b[k]))
+      .map((k) => `- ${k}: ${short(a[k])} → ${short(b[k])}${CONFIG_KEYS[k] ? ` (${CONFIG_KEYS[k]})` : ''}`);
+  } catch { /* unreadable: say so */ }
+  return `This changes the kit's settings for this repo (${CONFIG_REL}):\n${lines ? lines.join('\n') || '- no setting changes' : '- the guard couldn\'t tell which settings change'}\nAllow it?`;
 }
 
 function decideCommand(raw, ctx, depth = 0) {
@@ -190,7 +251,8 @@ function decideCommand(raw, ctx, depth = 0) {
   if (segs.some((s) => { const { w, i } = program(s); return THEMEKIT.test(w.slice(i).join(' ')); })) {
     return { decision: 'deny', reason: 'Theme Kit (the "theme" command) can deploy to live themes. Use node .claude/kit/shopify.mjs, or ask the dev to run it.' };
   }
-  if (SECRET_FILE.test(scanned)) return { decision: 'deny', reason: 'Credential files (.env*, .claude/.env.local, Theme Kit config.yml) are never read or written by Claude. jira.mjs --check reports whether Jira credentials are set.' };
+  if (SECRET_FILE.test(scanned)) return { decision: 'deny', reason: 'Credential files (.env*, .claude/.env.local, Theme Kit config.yml, the Shopify CLI\'s shopify-cli-* folders) are never read or written by Claude. jira.mjs --check reports whether Jira credentials are set; shopify.mjs auth-check reports the Shopify logins.' };
+  if (SEAL.test(scanned)) return { decision: 'deny', reason: `Only the guard writes ${SEAL_FILE}: it records what the dev was shown for a mutate or delete-draft.` };
   if (STATE_FILE.test(scanned) && !/\.claude[\\/]kit[\\/]kit\.mjs/.test(scanned)) {
     return { decision: 'deny', reason: 'Task state goes through node .claude/kit/kit.mjs: status --json to read it; set, done, back to change it.' };
   }
@@ -232,13 +294,23 @@ function decideCommand(raw, ctx, depth = 0) {
     return { decision: 'deny', reason: 'Merging is the dev\'s step after handoff, not the agent\'s.' };
   }
 
-  const ask = wrapperAsk(cmd);
-  if (ask) return ask;
+  const kit = wrapperDecision(segs, ctx);
+  if (kit) return kit;
+
+  if (/shopify-kit\.json/i.test(scanned) && (/>\s*["']?[^\s;&|]*shopify-kit\.json/i.test(scanned) || /\b(writeFileSync|Set-Content|Out-File|Add-Content|tee|cp|mv|Copy-Item|Move-Item|rm|Remove-Item|del)\b|\bsed\s+-i/i.test(scanned))) {
+    return { decision: 'ask', reason: `This command may change ${CONFIG_REL}, which sets the store the kit acts on, the branches the guard protects and where the Jira token goes. Allow it? (${cmd.slice(0, 300)})` };
+  }
 
   for (const seg of segs) {
     const g = gitCommand(seg);
     if (!g) continue;
     const a = g.args;
+    // Another remote or an option that runs a program: either can carry data off the machine.
+    const remote = a.find((x) => !x.startsWith('-'));
+    if (['fetch', 'pull', 'ls-remote'].includes(g.sub) && ((remote && remote !== 'origin') || a.some((x) => /^--(upload-pack|exec)\b/.test(x)))) {
+      return { decision: 'ask', reason: `This talks to "${remote ?? a.join(' ')}", not origin: ${seg}` };
+    }
+    if (g.globals.some((x) => /^(-c|--config-env|--exec-path)/.test(x))) return { decision: 'ask', reason: `git -c can make git run a program. Allow it? ${seg}` };
     const destructive = (g.sub === 'reset' && a.includes('--hard'))
       || (g.sub === 'clean' && a.some((x) => x === '--force' || /^-[a-z]*f/i.test(x)))
       || (g.sub === 'checkout' && (a.includes('--') || a.includes('.') || a.includes('-B') || a.some((x) => !x.startsWith('-') && ctx.isPath(x))))
@@ -251,7 +323,8 @@ function decideCommand(raw, ctx, depth = 0) {
   return null;
 }
 
-function decideFile(filePath, cwd) {
+function decideFile(ti, cwd, ctx) {
+  const filePath = String(ti.file_path || ti.notebook_path || '');
   if (!filePath) return null;
   // Git Bash style /c/Users/... paths
   const native = filePath.replace(/^\/([a-zA-Z])\//, (_, d) => `${d.toUpperCase()}:/`);
@@ -259,6 +332,8 @@ function decideFile(filePath, cwd) {
   const rel = relative(ROOT, abs).replaceAll('\\', '/');
   if (!rel || rel.startsWith('..') || isAbsolute(rel)) return null;
   if (/^\.claude\/logs\/[^/]+\/state\.json$/i.test(rel)) return { decision: 'deny', reason: 'Task state changes go through node .claude/kit/kit.mjs (start, done, back, set).' };
+  if (SEAL.test(rel)) return { decision: 'deny', reason: `Only the guard writes ${SEAL_FILE}.` };
+  if (rel.toLowerCase() === CONFIG_REL) return { decision: 'ask', reason: configChange(ti, ctx) };
   if (/^(\.claude\/\.env\.local|\.env(\.[^/]*)?|config\.yml)$/i.test(rel)) return { decision: 'deny', reason: 'Credential files are written by the dev, never by Claude.' };
   if (/^\.claude\/(settings\.json|CLAUDE\.md|VERSION|hooks\/|kit\/|commands\/|agents\/|skills\/)/i.test(rel)) {
     return { decision: 'ask', reason: `This edits the kit itself (${rel}). Kit changes belong in the master copy so every repo gets them.` };
@@ -269,14 +344,26 @@ function decideFile(filePath, cwd) {
   return null;
 }
 
-const defaultCtx = { protected: protectedBranches, branch: currentBranch, scripts: packageScripts, isPath: (p) => existsSync(join(ROOT, p)) };
+const defaultCtx = {
+  protected: protectedBranches, branch: currentBranch, scripts: packageScripts, isPath: (p) => existsSync(join(ROOT, p)),
+  read: (p) => { try { return readFileSync(resolve(ROOT, p), 'utf8'); } catch { return null; } },
+  state: (key) => { try { return JSON.parse(readFileSync(join(ROOT, '.claude', 'logs', key, 'state.json'), 'utf8')); } catch { return null; } },
+};
 
 export function decide(input, ctx = defaultCtx) {
   const tool = input.tool_name;
   const ti = input.tool_input || {};
   if (tool === 'Bash' || tool === 'PowerShell') return decideCommand(String(ti.command || ''), ctx);
-  if (['Edit', 'Write', 'MultiEdit', 'NotebookEdit'].includes(tool)) return decideFile(String(ti.file_path || ti.notebook_path || ''), input.cwd);
+  if (['Edit', 'Write', 'MultiEdit', 'NotebookEdit'].includes(tool)) return decideFile(ti, input.cwd, ctx);
   return null;
+}
+
+/** What the dev is about to be shown, for the wrapper to compare with what it runs. */
+function writeSeal({ key, ...seal }) {
+  try {
+    mkdirSync(join(ROOT, '.claude', 'logs', key), { recursive: true });
+    writeFileSync(join(ROOT, '.claude', 'logs', key, SEAL_FILE), JSON.stringify({ ...seal, at: new Date().toISOString() }));
+  } catch { /* no seal: the wrapper refuses, which is the safe side */ }
 }
 
 /** Blocks feed kit.mjs retro: a block on a harmless command is a guard bug worth reporting. */
@@ -300,7 +387,28 @@ function emit(result) {
 
 function selftest() {
   const K = 'ABC-123'; // any non-protected task key/branch name works here
-  const ctx = (branch = K, scripts = {}) => ({ protected: () => ['main', 'master'], branch: () => branch, scripts: () => scripts, isPath: (p) => /[/\\]/.test(p) && /\.\w+$/.test(p) });
+  const M = `.claude/logs/${K}/mutations`;
+  const DEF = 'mutation Def($d: MetafieldDefinitionInput!) { metafieldDefinitionCreate(definition: $d) { createdDefinition { id } userErrors { message } } }';
+  const FILES = {
+    [`${M}/ok.graphql`]: DEF,
+    [`${M}/ok.vars.json`]: '{"d":{"name":"Badge","namespace":"custom","key":"badge","type":"single_line_text_field","ownerType":"PRODUCT"}}',
+    [`${M}/x--dry-run.graphql`]: DEF,
+    [`${M}/product-delete.graphql`]: 'mutation { productDelete(input: {id: "gid://shopify/Product/1"}) { deletedProductId } }',
+    [`${M}/alias.graphql`]: 'mutation { ok: metafieldsSet(metafields: []) { userErrors { message } } fine: productDelete(input: {id: "gid://shopify/Product/1"}) { deletedProductId } }',
+    [`${M}/two-ops.graphql`]: `${DEF}\nmutation B { productDelete(input: {id: "gid://shopify/Product/1"}) { deletedProductId } }`,
+    [`${M}/in-string.graphql`]: 'mutation { metafieldsSet(metafields: [{value: "\\" } productDelete"}]) { userErrors { message } } productDelete(input: {id: "gid://shopify/Product/1"}) { deletedProductId } }',
+    [`${M}/fragment.graphql`]: 'mutation { ...F } fragment F on Mutation { productDelete(input: {id: "gid://shopify/Product/1"}) { deletedProductId } }',
+    [`${M}/del-own.graphql`]: 'mutation { metafieldDefinitionDelete(id: "gid://shopify/MetafieldDefinition/7", deleteAllAssociatedMetafields: true) { deletedDefinitionId } }',
+    [`${M}/del-other.graphql`]: 'mutation { metafieldDefinitionDelete(id: "gid://shopify/MetafieldDefinition/8", deleteAllAssociatedMetafields: true) { deletedDefinitionId } }',
+    [`${M}/del-by-comment.graphql`]: '# gid://shopify/MetafieldDefinition/7\nmutation { metafieldDefinitionDelete(identifier: {ownerType: PRODUCT, namespace: "custom", key: "x"}) { deletedDefinitionId } }',
+    [CONFIG_REL]: '{"store":"a.myshopify.com","baseBranch":"main"}',
+  };
+  const STATE = { mutations: [{ ids: ['gid://shopify/MetafieldDefinition/7'] }], draft: { themeId: 5, name: K, route: 'cli' } };
+  const ctx = (branch = K, scripts = {}) => ({
+    protected: () => ['main', 'master'], branch: () => branch, scripts: () => scripts, isPath: (p) => /[/\\]/.test(p) && /\.\w+$/.test(p),
+    read: (p) => FILES[p.replaceAll('\\', '/')] ?? null, state: (key) => (key === K ? STATE : null),
+  });
+  const kit = (args) => `node .claude/kit/shopify.mjs ${args}`;
   const bash = (command) => ({ tool_name: 'Bash', tool_input: { command } });
   const ps = (command) => ({ tool_name: 'PowerShell', tool_input: { command } });
   const file = (tool, p) => ({ tool_name: tool, tool_input: { file_path: join(ROOT, p) }, cwd: ROOT });
@@ -335,7 +443,11 @@ function selftest() {
     [bash(`node .claude/kit/shopify.mjs mutate ${K} x.graphql --dry-run`), null],
     [file('Edit', 'sections/usp-row.liquid'), null],
     [file('Write', `.claude/logs/${K}/brief.md`), null],
-    [file('Write', '.claude/shopify-kit.json'), null],
+    [bash(`git fetch origin`), null],
+    [bash('git ls-remote --heads origin'), null],
+    [bash(`git pull --no-rebase origin ${K}`), null],
+    [bash('cat .claude/shopify-kit.json'), null],
+    [bash(`node .claude/kit/shopify.mjs delete-draft ${K} --dry-run`), null],
     // denied: Shopify CLI outside the wrapper
     [bash('shopify theme push --live'), 'deny'],
     [bash('shopify theme publish --theme 123'), 'deny'],
@@ -393,10 +505,45 @@ function selftest() {
     [file('Edit', '.claude/.env.local'), 'deny'],
     [file('Write', '.env'), 'deny'],
     [file('Write', 'config.yml'), 'deny'],
+    [bash('cat "$APPDATA/shopify-cli-kit-nodejs/Config/config.json"'), 'deny'],
+    [ps('Get-Content ~/.config/shopify-cli-store-nodejs/config.json'), 'deny'],
+    [bash('cat ~/.claude/.env'), 'deny'],
+    // denied: the guard's seal
+    [file('Write', `.claude/logs/${K}/guard-seal.json`), 'deny'],
+    [bash(`echo '{}' > .claude/logs/${K}/guard-seal.json`), 'deny'],
+    // denied: mutations the wrapper won't run, or that could change between the prompt and the run
+    [bash(kit(`mutate ${K} ${M}/real.gql ${M}/ok.graphql`)), 'deny'],
+    [bash(kit(`mutate ${K} ${M}/product-delete.graphql`)), 'deny'],
+    [bash(kit(`mutate ${K} ${M}/alias.graphql`)), 'deny'],
+    [bash(kit(`mutate ${K} ${M}/two-ops.graphql`)), 'deny'],
+    [bash(kit(`mutate ${K} ${M}/in-string.graphql`)), 'deny'],
+    [bash(kit(`mutate ${K} ${M}/fragment.graphql`)), 'deny'],
+    [bash(kit(`mutate ${K} ${M}/del-other.graphql`)), 'deny'],
+    [bash(kit(`mutate ${K} ${M}/del-by-comment.graphql`)), 'deny'],
+    [bash(kit(`mutate ${K} ${M}/missing.graphql`)), 'deny'],
+    [bash(`${kit(`mutate ${K} a.graphql --dry-run`)} && ${kit(`mutate ${K} ${M}/ok.graphql`)}`), 'deny'],
+    [bash(`cp other.graphql ${M}/ok.graphql && ${kit(`mutate ${K} ${M}/ok.graphql`)}`), 'deny'],
+    [bash(`cd .claude/kit && node shopify.mjs mutate ${K} ${M}/ok.graphql`), 'deny'],
+    [bash(`true & ${kit(`mutate ${K} ${M}/ok.graphql`)}`), 'deny'],
+    [bash(kit(`mutate ${K} $F`)), 'deny'],
     // ask
-    [bash(`node .claude/kit/shopify.mjs mutate ${K} .claude/logs/${K}/mutations/01-def.graphql --vars .claude/logs/${K}/mutations/01-def.vars.json`), 'ask'],
-    [bash(`node .claude/kit/shopify.mjs mutate ${K} a.graphql --dry-run && node .claude/kit/shopify.mjs mutate ${K} b.graphql`), 'ask'],
+    [bash(kit(`mutate ${K} ${M}/ok.graphql --vars ${M}/ok.vars.json`)), 'ask'],
+    [bash(`${kit(`mutate ${K} ${M}/ok.graphql`)} 2>&1`), 'ask'],
+    [bash(kit(`mutate ${K} ${M}/x--dry-run.graphql`)), 'ask'],
+    [bash(kit(`mutate ${K} ${M}/del-own.graphql`)), 'ask'],
+    [bash(`node .claude/kit/./shopify.mjs mutate ${K} ${M}/ok.graphql`), 'ask'],
+    [bash(`bash -c "${kit(`mutate ${K} ${M}/ok.graphql`)}"`), 'ask'],
+    [bash(`node -e "require('child_process').execSync('node .claude/kit/shopify.mjs mutate ${K} x.graphql')"`), 'ask'],
     [bash(`node .claude/kit/shopify.mjs delete-draft ${K}`), 'ask'],
+    [bash(`node .claude/kit/shopify.mjs delete-draft ${K} --dry-run-x`), 'ask'],
+    [bash('git fetch https://example.invalid/some-text'), 'ask'],
+    [bash('git ls-remote https://example.invalid/x'), 'ask'],
+    [ps('git fetch https://example.invalid/x'), 'ask'],
+    [bash('git fetch origin --upload-pack=x'), 'ask'],
+    [bash('git -c core.sshCommand=x fetch origin'), 'ask'],
+    [file('Write', CONFIG_REL), 'ask'],
+    [bash(`echo '{}' > ${CONFIG_REL}`), 'ask'],
+    [bash(`node -e "require('fs').writeFileSync('${CONFIG_REL}','{}')"`), 'ask'],
     [bash(`node .claude/kit/shopify.mjs future-verb ${K}`), 'ask'],
     [bash('git reset --hard origin/main'), 'ask'],
     [bash('git clean -fd'), 'ask'],
@@ -420,6 +567,14 @@ function selftest() {
       console.log(`FAIL  expected ${expected ?? 'allow'}, got ${got ?? 'allow'}: ${input.tool_name} ${JSON.stringify(input.tool_input.command || input.tool_input.file_path)}`);
     }
   }
+  // The seal carries what the dev was shown, in the form the wrapper compares.
+  const checks = [
+    [decide(bash(kit(`mutate ${K} ${M}/ok.graphql --vars ${M}/ok.vars.json`)), ctx()).seal?.sha === sealDigest(FILES[`${M}/ok.graphql`], FILES[`${M}/ok.vars.json`]), 'mutate seal holds the digest of file + variables'],
+    [decide(bash(kit(`delete-draft ${K}`)), ctx()).seal?.themeId === 5, 'delete-draft seal holds the theme id shown'],
+    [/store:.*→.*b\.myshopify\.com.*the store every kit command acts on/.test(decide({ tool_name: 'Write', tool_input: { file_path: join(ROOT, CONFIG_REL), content: '{"store":"b.myshopify.com","baseBranch":"main"}' }, cwd: ROOT }, ctx()).reason), 'config prompt names the changed setting'],
+  ];
+  for (const [ok, what] of checks) if (!ok) { failed++; console.log(`FAIL  ${what}`); }
+  cases.push(...checks);
   console.log(failed ? `${failed} of ${cases.length} failed` : `all ${cases.length} passed`);
   process.exit(failed ? 1 : 0);
 }
@@ -431,10 +586,15 @@ else {
   process.stdin.on('data', (c) => { raw += c; });
   process.stdin.on('end', () => {
     let input;
-    try { input = JSON.parse(raw); } catch { process.exit(0); }
+    try { input = JSON.parse(raw); } catch {
+      // Exit 2 blocks the call: input the guard can't read is input it can't vouch for.
+      process.stderr.write('Kit guard: unreadable hook input; blocked to be safe.\n');
+      process.exit(2);
+    }
     try {
       const result = decide(input);
       logBlock(input, result);
+      if (result?.seal) writeSeal(result.seal);
       emit(result);
     } catch (e) {
       // Fail closed only where a wrong allow could reach the store or a protected branch.

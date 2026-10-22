@@ -8,7 +8,7 @@ import { tmpdir, homedir } from 'node:os';
 import {
   ROOT, LOGS, KIT_DIR, THEME_DIRS, MERCHANT_JSON, WIN, print, fail, parseArgs, normKey, now, run, git,
   currentBranch, parseCliJson, diagnosticJson, readConfig, readState, writeState, secret, inTaskFolder, ignoreMatcher,
-  storefrontGet, renderedTheme, storefrontPath,
+  storefrontGet, renderedTheme, storefrontPath, isThemePath, mutationProblems, sealDigest, SEAL_FILE,
 } from './lib.mjs';
 
 const HELP = `Usage: node .claude/kit/shopify.mjs <verb> ...
@@ -35,11 +35,13 @@ This task's draft theme
 Investigations (kit.mjs start <KEY> --investigate) can't use draft, push, preview, mutate or delete-draft.
 The guard asks the dev before these run
   mutate <KEY> <FILE.graphql> [--vars FILE.json] [--dry-run]
-                                         Admin GraphQL mutation, recorded in the task state
+                                         Admin GraphQL mutation (only the kit's definition, value and cleanup mutations),
+                                         run once, exactly as the guard showed it to the dev; recorded in the task state
   delete-draft <KEY> [--dry-run]         delete this task's draft theme`;
 
 // /implement needs these. /shopify-investigate also reads menus, markets, languages, translations,
-// pages and blogs, discounts, files and sales channels. One login requests both.
+// pages and blogs, discounts, files and sales channels. One login requests both: a client approves the app once.
+// .claude/README.md (Admin API login) spells the command out; change both.
 const IMPLEMENT_SCOPES = 'read_products,write_products,read_metaobject_definitions,write_metaobject_definitions,read_metaobjects,write_metaobjects';
 const INVESTIGATE_SCOPES = 'read_online_store_navigation,read_markets,read_locales,read_translations,read_content,read_discounts,read_files,read_publications';
 const SCOPES = `${IMPLEMENT_SCOPES},${INVESTIGATE_SCOPES}`;
@@ -113,6 +115,21 @@ function fullCliCheck(store) {
     }
   }
   return { problems, notes, pluginVersion: plugin?.version || null };
+}
+
+/**
+ * mutate and delete-draft run only what the guard showed the dev, once. A call the guard never
+ * saw (a script, a chained command it refused) has no seal, and a file changed since has another digest.
+ */
+function consumeSeal(key, expected) {
+  const path = join(LOGS, key, SEAL_FILE);
+  let seal = null;
+  try { seal = JSON.parse(readFileSync(path, 'utf8')); } catch { /* none */ }
+  rmSync(path, { force: true });
+  const fresh = seal && Date.now() - Date.parse(seal.at) < 15 * 60 * 1000;
+  if (!fresh || !Object.entries(expected).every(([k, v]) => seal[k] === v)) {
+    fail(`The dev wasn't shown this exact ${expected.verb}${seal ? ': it changed after the prompt, or the prompt is over 15 minutes old' : ''}. Run the command again on its own, so the guard shows the dev what will run.`);
+  }
 }
 
 /** Task state for a verb that writes to the store; investigations are read-only. */
@@ -229,7 +246,10 @@ function branchFiles(st) {
   for (const f of [...new Set(touched.split('\n').filter(Boolean))].sort()) {
     if (existsSync(join(ROOT, f))) files.push(f); else gone.push(f);
   }
-  for (const out of st.buildOutputs || []) if (existsSync(join(ROOT, out)) && !files.includes(out)) files.push(out);
+  for (const out of st.buildOutputs || []) {
+    if (!isThemePath(out)) fail(`buildOutputs holds "${out}", which isn't a theme file path (assets/…, snippets/…). Fix it: kit.mjs set ${st.key} buildOutputs=<path,path>`);
+    if (existsSync(join(ROOT, out)) && !files.includes(out)) files.push(out);
+  }
   return { files, gone };
 }
 
@@ -490,6 +510,8 @@ switch (verb) {
     readState(key);
     const files = pos.slice(1);
     if (!files.length) fail('Name the files or globs to pull, e.g. pull-live ABC-123 "templates/product*.json"');
+    const odd = files.filter((f) => !isThemePath(f));
+    if (odd.length) fail(`Not theme paths: ${odd.join(', ')}. Name them from the theme root with forward slashes, e.g. sections/header.liquid or "templates/product*.json".`);
     const dest = join(LOGS, key, 'live');
     mkdirSync(dest, { recursive: true });
     // --force: the CLI refuses a non-theme folder that already has files (the second pull of a task).
@@ -759,16 +781,20 @@ switch (verb) {
     const key = normKey(pos[0]);
     const st = writableTask(key);
     const { abs, ok } = inTaskFolder(key, pos[1] || '');
-    if (!pos[1] || !ok) fail(`Put the mutation in .claude/logs/${key}/mutations/ and pass its path.`);
+    if (!pos[1] || !ok || !/\.graphql$/i.test(abs)) fail(`Put the mutation in .claude/logs/${key}/mutations/ as a .graphql file and pass its path.`);
     const text = gqlFile(abs);
     if (!hasMutation(text)) fail('No mutation in this file. Read-only queries go through: shopify.mjs query <file>');
     let vars = null;
     if (typeof flags.vars === 'string') {
       const v = inTaskFolder(key, flags.vars);
-      if (!v.ok || !existsSync(v.abs)) fail(`Put the variables file in .claude/logs/${key}/mutations/ too.`);
+      if (!v.ok || !/\.json$/i.test(v.abs) || !existsSync(v.abs)) fail(`Put the variables in a .json file in .claude/logs/${key}/mutations/ too.`);
       vars = v.abs;
     }
-    if (flags['dry-run']) { print({ dryRun: true, store: cfg.store, mutation: text, variables: vars ? readFileSync(vars, 'utf8') : null }); break; }
+    const varsText = vars ? readFileSync(vars, 'utf8') : '';
+    const problems = mutationProblems(text, varsText, st.mutations.flatMap((m) => m.ids || []));
+    if (problems.length) fail(`The kit won't run this mutation:\n- ${problems.join('\n- ')}`);
+    if (flags['dry-run']) { print({ dryRun: true, store: cfg.store, mutation: text, variables: vars ? varsText : null }); break; }
+    consumeSeal(key, { verb: 'mutate', sha: sealDigest(text, varsText) });
     const data = storeExecute(cfg.store, abs, vars, { mutate: true });
     const userErrors = collect(data, (k, v) => k === 'userErrors' && Array.isArray(v) && v.length).flat();
     const ids = [...new Set(collect(data, (k, v) => typeof v === 'string' && /^gid:\/\/shopify\//.test(v)))];
@@ -786,6 +812,7 @@ switch (verb) {
     const target = listThemes(cfg.store).find((t) => t.id === st.draft.themeId);
     assertOwnDraft(key, st, target);
     if (flags['dry-run']) { print({ dryRun: true, wouldDelete: target }); break; }
+    consumeSeal(key, { verb: 'delete-draft', themeId: target.id });
     const r = cli(['theme', 'delete', '--store', cfg.store, '--theme', String(target.id), '--force']);
     if (r.code !== 0) failCli(cfg.store, r, 'Deleting the draft');
     st.draft.deletedAt = now();

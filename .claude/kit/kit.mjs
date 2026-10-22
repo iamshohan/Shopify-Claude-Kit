@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Task state for /implement and /shopify-investigate. One folder per ticket: .claude/logs/<KEY>/.
+// Records where a ticket is in the pipeline. Task state for /implement and /shopify-investigate. One folder per ticket: .claude/logs/<KEY>/.
 import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';

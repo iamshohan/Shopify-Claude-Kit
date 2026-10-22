@@ -69,9 +69,22 @@ function urls(v, acc = new Set()) {
 
 function creds() {
   const cfg = readConfig({ required: false });
-  let base = (secret('JIRA_BASE_URL') || cfg?.jiraBaseUrl || '').trim().replace(/\/+$/, '');
+  const own = secret('JIRA_BASE_URL');
+  let base = (own || cfg?.jiraBaseUrl || '').trim().replace(/\/+$/, '');
   if (base && !/^https?:\/\//.test(base)) base = 'https://' + base;
-  return { base, user: secret('JIRA_USER'), token: secret('JIRA_API_TOKEN'), source: secretSource(['JIRA_USER', 'JIRA_API_TOKEN']) };
+  return { base, baseProblem: base ? hostProblem(base, Boolean(own)) : null, user: secret('JIRA_USER'), token: secret('JIRA_API_TOKEN'), source: secretSource(['JIRA_USER', 'JIRA_API_TOKEN']) };
+}
+
+/**
+ * The token goes wherever the base URL points. jiraBaseUrl lives in a repo file the agent can edit,
+ * so from there only an atlassian.net site gets it; another host must come from the dev's own .env.local.
+ */
+function hostProblem(base, own) {
+  let url;
+  try { url = new URL(base); } catch { return `"${base}" isn't a URL.`; }
+  if (url.protocol !== 'https:') return `${base} isn't https, so the token isn't sent.`;
+  if (!own && !url.hostname.endsWith('.atlassian.net')) return `jiraBaseUrl in .claude/shopify-kit.json points at ${url.hostname}, not an atlassian.net site, so the token isn't sent. For a self-hosted Jira, put JIRA_BASE_URL in .claude/.env.local.`;
+  return null;
 }
 
 async function get(c, path) {
@@ -93,7 +106,7 @@ if (argv.includes('--check')) {
   const inRepo = git(['rev-parse', '--is-inside-work-tree'], { allowFail: true }) === 'true';
   const ignored = !inRepo || git(['check-ignore', '.claude/.env.local'], { allowFail: true }) !== '';
   print({
-    baseUrl: c.base || null, credentials: c.source || 'missing', user: c.user || null,
+    baseUrl: c.base || null, baseUrlProblem: c.baseProblem, credentials: c.source || 'missing', user: c.user || null,
     envLocalIgnoredByGit: ignored,
     fix: !ignored
       ? 'STOP: .claude/.env.local is not git-ignored here, so a token in it could be committed. Re-run the kit installer (it writes .claude/.gitignore) or add .claude/ to the repo\'s .gitignore first.'
@@ -104,6 +117,7 @@ if (argv.includes('--check')) {
 
 const key = normKey(argv.find((a) => !a.startsWith('--')));
 if (!c.base) fail('No Jira URL. Set jiraBaseUrl in .claude/shopify-kit.json (run /shopify-setup).');
+if (c.baseProblem) fail(c.baseProblem);
 if (!c.user || !c.token) fail('No Jira credentials. Create .claude/.env.local with JIRA_USER and JIRA_API_TOKEN (see .claude/README.md), or paste the ticket text instead.');
 
 const issue = await get(c, `/rest/api/3/issue/${encodeURIComponent(key)}?expand=names`);

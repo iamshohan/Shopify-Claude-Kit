@@ -1,5 +1,6 @@
 // Shared helpers for the kit scripts. Zero dependencies, so the kit runs in any theme repo.
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,6 +16,8 @@ export const KIT_VERSION = readFileSync(join(CLAUDE_DIR, 'VERSION'), 'utf8').tri
 export const WIN = process.platform === 'win32';
 
 export const THEME_DIRS = ['assets', 'blocks', 'config', 'layout', 'locales', 'sections', 'snippets', 'templates'];
+/** The CLI's --only takes the next argument even when it starts with -, so only theme paths reach it. */
+export const isThemePath = (p) => new RegExp(`^(${THEME_DIRS.join('|')})/.`).test(p) && !p.split('/').includes('..');
 // Files Shopify rewrites when someone saves in the admin (and syncs into git on GitHub-connected themes).
 export const MERCHANT_JSON = /^(templates\/.+\.json|sections\/[^/]+\.json|config\/settings_data\.json)$/;
 
@@ -89,7 +92,8 @@ export function run(cmd, args = [], { cwd = ROOT, env = {}, input, timeout = 600
   if (shell && WIN) {
     for (const a of args) if (/["%^&|<>!\r\n]/.test(a)) throw new Error(`Refusing to pass ${JSON.stringify(a)} through cmd.exe.`);
     const line = [cmd, ...args].map((a) => (a === '' || /[\s*?]/.test(a) ? `"${a}"` : a)).join(' ');
-    res = spawnSync(line, { ...opts, shell: true });
+    // Otherwise cmd.exe runs a shopify.cmd from the repo root before the one on PATH.
+    res = spawnSync(line, { ...opts, env: { ...opts.env, NoDefaultCurrentDirectoryInExePath: '1' }, shell: true });
   } else {
     res = spawnSync(cmd, args, opts);
   }
@@ -280,6 +284,97 @@ export function renderedTheme(html) {
   if (!m) return null;
   try { const t = JSON.parse(m[1]); return { id: t.id, name: t.name, role: t.role }; } catch { return null; }
 }
+
+// The mutations the kit runs: definitions and QA values at the draft stage, their cleanup at handoff.
+const KIT_MUTATIONS = ['metafieldDefinitionCreate', 'metaobjectDefinitionCreate', 'metafieldsSet', 'metaobjectCreate', 'metaobjectUpsert',
+  'metafieldsDelete', 'metafieldDefinitionDelete', 'metaobjectDefinitionDelete', 'metaobjectDelete'];
+// These delete by id, and the id must be one this task created.
+const DELETES_BY_ID = ['metafieldDefinitionDelete', 'metaobjectDefinitionDelete', 'metaobjectDelete'];
+
+/** Tokens with comments dropped and strings blanked, so neither can hide a field; code keeps strings (they hold ids). */
+function gqlScan(text) {
+  const tokens = [];
+  let code = '';
+  const word = /[A-Za-z_]\w*|-?\d[\w.+-]*/y;
+  let i = 0;
+  while (i < text.length) {
+    const start = i;
+    if (text[i] === '#') { while (i < text.length && text[i] !== '\n') i++; continue; }
+    if (text.startsWith('"""', i)) {
+      i += 3;
+      while (i < text.length && !text.startsWith('"""', i)) i += text.startsWith('\\"""', i) ? 4 : 1;
+      i += 3;
+      tokens.push('""');
+    } else if (text[i] === '"') {
+      i++;
+      while (i < text.length && text[i] !== '"' && text[i] !== '\n') i += text[i] === '\\' ? 2 : 1;
+      i++;
+      tokens.push('""');
+    } else if (text.startsWith('...', i)) {
+      tokens.push('...');
+      i += 3;
+    } else {
+      word.lastIndex = i;
+      const m = word.exec(text);
+      if (m) { tokens.push(m[0]); i += m[0].length; } else { if (!/[\s,]/.test(text[i])) tokens.push(text[i]); i++; }
+    }
+    code += text.slice(start, i);
+  }
+  return { tokens, code };
+}
+
+/** Why the kit won't run this mutation file; empty if it may. The wrapper and the guard both check it. */
+export function mutationProblems(text, varsText = '', createdIds = []) {
+  const { tokens: t, code } = gqlScan(text);
+  const isName = (x) => /^[A-Za-z_]\w*$/.test(x || '');
+  let i = 0;
+  const skip = (open, close) => { let depth = 0; do { if (t[i] === open) depth++; else if (t[i] === close) depth--; i++; } while (depth > 0 && i < t.length); };
+  const skipDirectives = () => { while (t[i] === '@') { i += 2; if (t[i] === '(') skip('(', ')'); } };
+  const unparsed = () => [`Couldn't parse the file near "${t[i] ?? 'the end'}", so the kit won't run it.`];
+  const ops = [];
+  while (i < t.length) {
+    if (t[i] === 'fragment') return ['Fragments aren\'t allowed in a mutation file: write the fields out.'];
+    let type = 'query';
+    if (['query', 'mutation', 'subscription'].includes(t[i])) {
+      type = t[i++];
+      if (isName(t[i])) i++;
+      if (t[i] === '(') skip('(', ')');
+      skipDirectives();
+    }
+    if (t[i] !== '{') return unparsed();
+    i++;
+    const fields = [];
+    while (i < t.length && t[i] !== '}') {
+      if (t[i] === '...') return ['Fragment spreads aren\'t allowed at the top of a mutation.'];
+      if (!isName(t[i])) return unparsed();
+      let field = t[i++];
+      // An alias names the result, not the mutation: check the real name.
+      if (t[i] === ':') { field = t[++i]; if (!isName(field)) return unparsed(); i++; }
+      fields.push(field);
+      if (t[i] === '(') skip('(', ')');
+      skipDirectives();
+      if (t[i] === '{') skip('{', '}');
+    }
+    if (t[i] !== '}') return unparsed();
+    i++;
+    ops.push({ type, fields });
+  }
+  if (ops.length !== 1) return [`A mutation file holds exactly one operation; this one has ${ops.length}.`];
+  const [{ type, fields }] = ops;
+  if (type !== 'mutation' || !fields.length) return ['This file has no mutation.'];
+  const problems = fields.filter((f) => !KIT_MUTATIONS.includes(f))
+    .map((f) => `"${f}" isn't a mutation the kit runs. It runs ${KIT_MUTATIONS.join(', ')}; the dev does anything else in the admin.`);
+  if (fields.some((f) => DELETES_BY_ID.includes(f))) {
+    const ids = [...`${code}\n${varsText}`.matchAll(/gid:\/\/shopify\/(?:MetafieldDefinition|MetaobjectDefinition|Metaobject)\/\d+/g)].map((m) => m[0]);
+    if (!ids.length) problems.push('A delete names the id it deletes (an identifier isn\'t enough), in the file or its variables.');
+    for (const id of new Set(ids)) if (!createdIds.includes(id)) problems.push(`${id} wasn't created by this task, so the kit won't delete it.`);
+  }
+  return problems;
+}
+
+// The guard records what it showed the dev in this file; the wrapper runs only that, once.
+export const SEAL_FILE = 'guard-seal.json';
+export const sealDigest = (text, varsText = '') => createHash('sha256').update(`${text}\0${varsText}`).digest('hex');
 
 /** Absolute path, and true only if it sits inside this task's log folder. */
 export function inTaskFolder(key, file) {
