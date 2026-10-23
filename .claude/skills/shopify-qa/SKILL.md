@@ -82,7 +82,7 @@ Never write "QA passed" while any row is FAIL, NOT TESTED or BLOCKED.
       1. Get the section's id from the **draft** storefront HTML, e.g. `shopify-section-template--<n>__<key>`. Ids differ per theme copy, so never take them from live.
       2. Navigate to `<editorUrl>?previewPath=<page>&section=template--<n>__<key>`.
       3. Wait 10 seconds and take a screenshot. Repeat until the settings panel shows the section, for up to 60 seconds; the editor took 8–40 s to load in tests. Zoom on the top right. It must show the draft's name with the **Draft** badge, and a greyed-out **Save** button. A login or 2FA page means BLOCKED; stop.
-      4. Read the settings panel from the screenshot. `scroll` returns its own screenshot.
+      4. Read the settings panel from the screenshot.
       5. Record each contract line you can see in contract.md's "Seen in editor" column: the label is present and the value is right. The panel shows stored values, which on a fresh placement are the defaults. Cite the screenshot in the How column.
       6. For a section with presets, open the right group's "Add section", take a screenshot, check the entry is there (or absent) as `enabled_on`/`disabled_on` says, then press **Escape**. Never click an entry, and never type into the search box.
       7. Before leaving, zoom on Save again. If it's enabled, something changed: don't navigate away; ask the dev to discard the changes.

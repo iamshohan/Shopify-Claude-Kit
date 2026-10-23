@@ -15,17 +15,7 @@ Your prompt gives you the task key, the work type, the target pages or templates
 
 ## Steps
 
-1. Run `node .claude/kit/recon.mjs` once. It prints repo facts as JSON:
-   - the theme, and which files git tracks
-   - deploy signals and the build pipeline
-   - minified assets
-   - cart and event usage counts, custom-element tags
-   - CSS approach
-   - metafield namespaces used in code
-   - `.context.*` market files, experiment tools
-   - branch and commit samples
-
-   Note the commit it reports.
+1. Run `node .claude/kit/recon.mjs` once, and note the commit it reports.
 2. **Render path.** For each target page, follow template → sections → snippets/blocks.
    - If recon shows JSON templates aren't tracked in git, the live layout exists only in the admin. Fetch it with `node .claude/kit/shopify.mjs pull-live <KEY> "templates/<name>*.json"` and read it from `.claude/logs/<KEY>/live/`.
 3. **Find the touched markup.** Grep for the selectors and classes from your prompt to find where that markup is rendered.

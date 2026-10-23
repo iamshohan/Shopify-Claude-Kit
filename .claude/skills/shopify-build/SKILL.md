@@ -18,7 +18,7 @@ user-invocable: false
         - **"New branch <KEY>-kit"** → create it as below
 
         Never create a second branch whose name differs only by case.
-     2. Otherwise run `git switch --no-track -c <branch> origin/<baseBranch>`, with the name from status. `--no-track` keeps the task branch from tracking the base branch.
+     2. Otherwise run `git switch --no-track -c <branch> origin/<baseBranch>`, with the name from status.
      3. Record the branch and base: `kit.mjs set <KEY> branch=<branch> base=<sha>`. Get the sha from `git rev-parse origin/<baseBranch>`, or from the merge-base when reusing a branch.
      4. While the tree is untouched, record the theme-check baseline: `node .claude/kit/shopify.mjs check <KEY> --baseline` (about a minute; run it with a 10-minute timeout).
 2. **Implement.** Spawn `theme-builder` with the key and `mode: build`. In a fix loop, use `mode: fix` and paste the failing QA rows or review findings into the prompt. Wait for its "As built" report.

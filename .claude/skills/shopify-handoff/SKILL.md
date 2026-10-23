@@ -10,7 +10,7 @@ The kit prepares everything and merges nothing. Creating the PR, merging, postin
 
 1. **Push the branch:** `git push -u origin <branch>` (already done on a GitHub-connected draft).
    - **Test run** (status says TEST RUN): skip the push. Write everything below as usual so the run can be judged, and start the PR title with "TEST RUN, not for merge". At cleanup, offer to delete the `<KEY>-kit-test` draft and the local branch.
-2. **Run summary:** `node .claude/kit/kit.mjs summary <KEY>`. It gives the time per stage, loops back, gate answers, QA verdict counts and store changes. It goes in the PR body and gives the team its numbers.
+2. **Run summary:** `node .claude/kit/kit.mjs summary <KEY>`. It goes in the PR body.
 3. **Write `report.md` § Handoff:**
    - **PR.** A title in the repo's commit style, and a body covering:
      - what changed and why
