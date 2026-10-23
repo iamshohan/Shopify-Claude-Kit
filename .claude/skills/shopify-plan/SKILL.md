@@ -59,11 +59,17 @@ If there are genuinely no open questions, still ask the confirm question in step
 Fill each heading in `plan.md`. Write **At a glance** last, from the finished detail:
 
 - **At a glance** (at most 25 lines, checked by `kit.mjs done`). The dev reads only this at Gate 2.
-  - **Table:** one row per file, or per group of files ("locales/*.schema.json ×5"). "What happens" is at most 15 words and describes the effect, not the anchor: "Winner layout when the mobile menu is set; old markup unchanged otherwise."
+  - **Needs your attention** comes first. It lists where this change can affect what already exists, most impact first, in at most 6 points. Most of a plan is new code only the feature uses; these points are what the dev actually has to weigh. Each point, in about 30 words: what's touched, what could go wrong for what already uses it, and how the plan contains it or what to watch.
+    - **Store writes:** what gets created or set on the shared store, and whether it shows on live before the merge.
+    - **Merchant-owned JSON** (`templates/*.json`, section groups, `settings_data.json`): the merge overwrites admin edits made on live since the base.
+    - **Shared code:** the layout, theme settings, and snippets, sections and assets used beyond this feature. After writing § Files, run `node .claude/kit/kit.mjs reach <KEY>`: it lists these files and how far each reaches, and `done plan` refuses until each one is named here.
+    - **Behaviour that changes for what exists today:** a removed fallback, a changed default, markup that other code or an app reads.
+    - **Apps, the A/B tool or third-party scripts** the change touches, and anything else the dev must act on or watch.
+
+    Example: "`snippets/icon.liquid` (rendered from 14 files): three icons added, the existing ones untouched → regression check on home, product and cart." When nothing qualifies, write "none: only new files the feature owns".
+  - **What changes:** one row per file, or per group of files ("locales/*.schema.json ×5"), with the files from Needs your attention first. "What happens" is at most 15 words and describes the effect, not the anchor: "Winner layout when the mobile menu is set; old markup unchanged otherwise."
   - **Merchant can change** and **Stays in code:** one line each, from § Decided. Put "(vs AC n)" after any value in code that an editability line reaches.
   - **Differs from the ticket or the A/B test:** each deviation and who decided it ("no description field, AC 17: dev, Q3"), or "none".
-  - **Store writes:** what gets created on the shared store and whether it is visible on live before the merge. Add anything the merge overwrites, such as seeded `sections/*-group.json` settings.
-  - **Risks to know:** at most three, only those the dev has to act on or watch.
   - **QA:** number of criteria, viewports, and how many checks the dev will have to do by hand.
 - **Approach.** 3–5 lines: what gets built, and the one or two key decisions.
 - **Files (builder detail).** One table row per file:

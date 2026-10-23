@@ -4,14 +4,16 @@
 
 ## At a glance
 
+### Needs your attention
+
+### What changes
+
 | File | What happens |
 | --- | --- |
 
 - **Merchant can change:**
 - **Stays in code:**
 - **Differs from the ticket or the A/B test:**
-- **Store writes:**
-- **Risks to know:**
 - **QA:**
 
 ---

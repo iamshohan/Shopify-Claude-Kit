@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.0 — 2026-10-23
+
+- **Plans open with what needs your attention.** Most of a plan is new code that only the feature uses. What the dev has to weigh at Gate 2 is where the change can affect what already exists, so At a glance now starts with **Needs your attention**: at most 6 points, most impact first, each saying what's touched, what could go wrong and how the plan contains it. It covers store writes, merchant-owned JSON, shared code, changed behaviour and apps. It replaces the "Store writes" and "Risks to know" lines. The file table follows, with those files first.
+- **`kit.mjs reach <KEY>`** lists the files in plan.md § Files that reach beyond the feature: merchant-owned JSON, the layout, theme settings, and snippets, sections and assets used elsewhere, each with how far it reaches. `done plan` refuses until each one, and any store write, is named in Needs your attention. On cherries it flags `snippets/icon.liquid` ("rendered from 62 files"), the file CHE-802's draft left stale.
+
+- **Test runs.** `/implement <KEY> --test` (`kit.mjs start <KEY> --test`) runs every stage on a real ticket without touching the real work.
+  - The branch and the draft theme are named `<KEY>-kit-test`.
+  - The guard blocks pushing any `*-kit-test` branch, or any branch a test task recorded.
+  - The draft is always a CLI copy of live, because the GitHub route needs a push.
+  - Handoff skips the push and marks the PR text "TEST RUN, not for merge".
+  - A real task and a test run of the same key can't share a logs folder.
+
 ## 0.3.1 — 2026-10-23
 
 Security hardening from a review of the kit's controls (findings F1, F3, F4, F6, F7, F8). Each item was reproduced first, and each fix has guard self-test cases (99 → 139).

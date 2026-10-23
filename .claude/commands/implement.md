@@ -1,6 +1,6 @@
 ---
 description: Implement a Jira ticket in this Shopify theme (a winning A/B test, a feature, or a bug fix) from ticket to a QA'd draft theme. Resumable. Run it again with the same key to continue.
-argument-hint: <TICKET-KEY> [stage]
+argument-hint: <TICKET-KEY> [stage] [--test]
 disable-model-invocation: true
 ---
 
@@ -13,7 +13,7 @@ You are running the Shopify Implementation Kit for one Jira ticket. The work mov
 1. No key given → run `node .claude/kit/kit.mjs list`, ask the dev which task to continue or which key to start, and stop until they answer.
 2. `.claude/shopify-kit.json` missing → tell the dev to run `/shopify-setup` first, and stop.
 3. Once per session, run `node .claude/kit/shopify.mjs cli-check`. It's fast unless the Shopify CLI or plugin changed. If it reports problems (exit 2), tell the dev to run `/shopify-update`, and stop: the kit may no longer match the CLI.
-4. Run `node .claude/kit/kit.mjs status <KEY>`. If it says "not started", run `node .claude/kit/kit.mjs start <KEY>`.
+4. Run `node .claude/kit/kit.mjs status <KEY>`. If it says "not started", run `node .claude/kit/kit.mjs start <KEY>`. Add `--test` when the arguments include `--test` or the dev calls it a test run. A test run goes through every stage, but its branch and draft are named `<KEY>-kit-test` and nothing is pushed to git.
 5. The status names the current stage and the skill that owns it. **Load that skill with the Skill tool and do only that stage.**
 6. When the stage's "Done when" holds, run `node .claude/kit/kit.mjs done <KEY> <stage>`. Gate stages also need `--answer "<the dev's words>"`. The script refuses if the stage's output is missing. Read its message, fix the gap, and run it again.
 7. Run status again and continue with the next stage the same way. Tell the dev in one line each time the stage changes, e.g. `✓ plan → approve · 2 things need you`.

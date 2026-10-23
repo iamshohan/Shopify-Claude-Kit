@@ -1,4 +1,4 @@
-# Shopify Implementation Kit · v0.3.1
+# Shopify Implementation Kit · v0.4.0
 
 A Claude Code setup for Shopify theme repos.
 
@@ -59,6 +59,7 @@ That file is yours alone: git ignores it, and Claude can't read it.
 ```
 /implement ABC-123                      start or continue a ticket
 /implement ABC-123 qa                   jump to a stage whose earlier stages are done
+/implement ABC-123 --test               a test run of the kit: every stage, nothing pushed to git
 /implement                              list tasks in this repo
 /shopify-investigate ABC-123            investigate a ticket
 /shopify-investigate why do German menus link to English pages?    a question without a ticket (key INV-…)
@@ -71,7 +72,7 @@ That file is yours alone: git ignores it, and Claude can't read it.
 | 1 | intake | Reads the ticket and linked tickets; decides A/B port, feature or bug fix. | answer; for A/B ports, put the code in `.claude/logs/<KEY>/abtest/` |
 | 2 | analyze | One agent reads the theme fresh; another turns the A/B code into a list of behaviours. | — |
 | 3 | clarify | Decides what merchants control and where, and asks every open question at once. A value kept in code that the ticket says the client must be able to change gets its own question. | **Gate 1:** answer |
-| 4 | plan | At a glance (25 lines) on top, then the builder detail, store setup and QA criteria. | — |
+| 4 | plan | At a glance (25 lines) on top: first what **needs your attention** (anything that can affect what already exists: store writes, merchant JSON, shared code, changed behaviour), then file by file. Below it the builder detail, store setup and QA criteria. | — |
 | 5 | approve | Shows At a glance and what changed since Gate 1. | **Gate 2:** approve, change or reject |
 | 6 | build | Creates the task branch from a fresh base. The builder agent implements; `/code-review` and a Shopify checklist review; then it commits. | — |
 | 7 | draft | Creates the planned definitions. Pushes to an unpublished theme named `<KEY>`, or adopts the theme you connect to the branch (`draftRoute: "github"`), and proves the draft matches the commit. | approve mutations; connect the branch (GitHub route) |
@@ -109,6 +110,10 @@ The logs are history, not a knowledge base: every task reads the code fresh.
 - **Feedback after handoff:** `/implement <KEY>`, then `kit.mjs back <KEY> build --reason "…"`. Keep the draft until review ends.
 - **Scope change midway:** go `back` to the stage it affects. The plan records it under Amendments.
 - **Another dev takes over:** copy `.claude/logs/<KEY>/` to their machine. The draft is named after the key, so they continue on it.
+- **Test runs** (`/implement <KEY> --test`): for trying the kit on a ticket someone else owns.
+  - The branch and the draft theme are named `<KEY>-kit-test`, so they're easy to match later and can't clash with the real ones. The guard blocks pushing the branch, and the draft is a CLI copy of live.
+  - Handoff writes the report, marked "TEST RUN", and pushes nothing.
+  - Afterwards, move `.claude/logs/<KEY>/` aside if you'll work the ticket for real on the same machine.
 - **Dropping a task:** `kit.mjs abandon <KEY> --reason "…"` lists the draft and store data left to clean up.
 - **Reporting:** `kit.mjs summary <KEY>`: time per stage, loops, verdicts and store changes.
 - **Kit problems:** the agent notes them in `kit-notes.md` as they happen, and runs a retro at the end. `node .claude/kit/kit.mjs feedback` collects every task's notes into `.claude/logs/kit-feedback.md`; send that to the kit maintainer.
@@ -145,6 +150,6 @@ The logs are history, not a knowledge base: every task reads the code fresh.
 | The guard blocks a harmless command that mentions "shopify" | use the Grep tool, or rephrase |
 | You need a CLI command the wrapper doesn't have | run it yourself with `!`; the guard only watches Claude |
 
-## Not in v0.3
+## Not in v0.4
 
 Shopify app development, fetching A/B code from shadow-drip, target themes other than live, posting to Jira or creating PRs, unattended runs, and a short lane for small changes.

@@ -36,4 +36,4 @@ install.mjs                 installs or updates the kit in a theme repo
 - **Every release:** bump `.claude/VERSION` (patch for fixes, minor for new behaviour) and add a `CHANGELOG.md` entry.
 - **The Admin API scopes** live in `kit/shopify.mjs` and are written out in the team guide's login command. Change both.
 
-Status: v0.3.1. See `CHANGELOG.md`.
+Status: v0.4.0. See `CHANGELOG.md`.

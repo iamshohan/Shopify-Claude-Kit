@@ -8,7 +8,7 @@ import { tmpdir, homedir } from 'node:os';
 import {
   ROOT, LOGS, KIT_DIR, THEME_DIRS, MERCHANT_JSON, WIN, print, fail, parseArgs, normKey, now, run, git,
   currentBranch, parseCliJson, diagnosticJson, readConfig, readState, writeState, secret, inTaskFolder, ignoreMatcher,
-  storefrontGet, renderedTheme, storefrontPath, isThemePath, mutationProblems, sealDigest, SEAL_FILE,
+  storefrontGet, renderedTheme, storefrontPath, isThemePath, mutationProblems, sealDigest, SEAL_FILE, draftNameFor,
 } from './lib.mjs';
 
 const HELP = `Usage: node .claude/kit/shopify.mjs <verb> ...
@@ -217,7 +217,8 @@ function assertOwnDraft(key, st, theme) {
   if (!theme) fail(`Theme ${st.draft?.themeId} no longer exists in the store. Run: shopify.mjs draft ${key}`);
   if (theme.role !== 'unpublished') fail(`Theme ${theme.id} is "${theme.role}", not unpublished. The kit only writes to unpublished drafts.`);
   // kit/<KEY>/… is the name drafts had before kit 0.2.0.
-  if (st.draft.route === 'cli' && theme.name.toUpperCase() !== key && !theme.name.startsWith(`kit/${key}/`)) fail(`Theme ${theme.id} is named "${theme.name}", not ${key}. Refusing to write to it.`);
+  const expected = draftNameFor(key, st);
+  if (st.draft.route === 'cli' && theme.name.toUpperCase() !== expected.toUpperCase() && !theme.name.startsWith(`kit/${key}/`)) fail(`Theme ${theme.id} is named "${theme.name}", not ${expected}. Refusing to write to it.`);
   // A typed-in id could be a teammate's copy; a dev-made draft must carry the ticket key in its name.
   if (st.draft.route !== 'cli' && !theme.name.toUpperCase().includes(key)) {
     fail(`Theme ${theme.id} is named "${theme.name}", which doesn't contain ${key}. Ask the dev to rename their draft to include ${key}, then record it again.`);
@@ -571,9 +572,9 @@ switch (verb) {
       print({ reused: true, ...st.draft });
       break;
     }
-    const name = key;
+    const name = draftNameFor(key, st);
     const live = themes.find((t) => t.role === 'live') || fail('No live theme found in the store.');
-    const same = themes.find((t) => t.name.toUpperCase() === key && t.role === 'unpublished');
+    const same = themes.find((t) => t.name.toUpperCase() === name.toUpperCase() && t.role === 'unpublished');
     const others = themes.filter((t) => t.role !== 'live' && t !== same && t.name.toUpperCase().includes(key));
     const record = (theme, source, route = 'cli') => {
       const handle = storeHandle(cfg.store);
@@ -585,6 +586,7 @@ switch (verb) {
       };
       writeState(key, st);
     };
+    if (flags.github && st.test) fail(`${key} is a test run, and its branch is never pushed, so it can't have a GitHub-connected draft. Run: shopify.mjs draft ${key} (a CLI copy of live named ${name}).`);
     if (flags.github) {
       // Connecting a branch is admin-only (no CLI or API); the dev does it once, the kit adopts the result.
       const branch = st.branch || fail('No task branch recorded yet; the build stage creates it.');
@@ -618,11 +620,11 @@ switch (verb) {
     if (same) {
       // Often a teammate's draft for the same ticket: pushing into it would overwrite their work, so only on request.
       if (!flags.adopt) {
-        fail(`An unpublished theme named ${key} already exists (id ${same.id}): probably a teammate's draft for this ticket, made by hand or by another session.\nAsk the dev. Only if it's free to reuse: shopify.mjs draft ${key} --adopt. Otherwise stop here; the kit names its draft after the key, so it can't make a second one.`, 3);
+        fail(`An unpublished theme named ${name} already exists (id ${same.id}): probably a teammate's draft for this ticket, made by hand or by another session.\nAsk the dev. Only if it's free to reuse: shopify.mjs draft ${key} --adopt. Otherwise stop here; the kit names its draft after the key, so it can't make a second one.`, 3);
       }
       // Someone else may have made it (a teammate, or by hand), so the kit never offers to delete it on its own.
       record(same, 'adopted an existing theme with this task\'s name', 'manual');
-      print({ adopted: true, ...st.draft, note: `An unpublished theme named ${key} existed already (a teammate's draft, an earlier session, or made by hand). The kit will push to it. Pushing replaces the changed files, so check with whoever made it first.` });
+      print({ adopted: true, ...st.draft, note: `An unpublished theme named ${name} existed already (a teammate's draft, an earlier session, or made by hand). The kit will push to it. Pushing replaces the changed files, so check with whoever made it first.` });
       break;
     }
     const command = `shopify theme duplicate --store ${cfg.store} --theme ${live.id} --name ${name} --force --json --no-input`;

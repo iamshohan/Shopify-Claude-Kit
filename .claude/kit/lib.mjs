@@ -55,7 +55,7 @@ export function fail(message, code = 1) {
   process.exit(code);
 }
 
-const BOOLEAN_FLAGS = new Set(['dry-run', 'baseline', 'json', 'help', 'force', 'no-comments', 'selftest', 'investigate', 'live', 'github', 'none', 'all', 'adopt']);
+const BOOLEAN_FLAGS = new Set(['dry-run', 'baseline', 'json', 'help', 'force', 'no-comments', 'selftest', 'investigate', 'live', 'github', 'none', 'all', 'adopt', 'test']);
 
 export function parseArgs(argv) {
   const out = { _: [], flags: {} };
@@ -190,10 +190,17 @@ export function protectedBranches(cfg) {
   return [...new Set(['main', 'master', cfg?.baseBranch, ...(cfg?.protectedBranches || [])].filter(Boolean))];
 }
 
-export function branchFor(cfg, key) {
+// A test run (kit.mjs start <KEY> --test) names its branch and draft with this suffix, and the guard never lets that branch be pushed.
+export const TEST_SUFFIX = '-kit-test';
+
+export function branchFor(cfg, key, st) {
+  if (st?.test) return `${key}${TEST_SUFFIX}`;
   const pattern = cfg?.branchPattern || '{KEY}';
   return pattern.replace('{KEY}', key).replace('{key}', key.toLowerCase());
 }
+
+/** The draft theme's name: the key, so a teammate sees whose ticket it is; a test run's is set apart. */
+export const draftNameFor = (key, st) => (st?.test ? `${key}${TEST_SUFFIX}` : key);
 
 export function owner() {
   return {

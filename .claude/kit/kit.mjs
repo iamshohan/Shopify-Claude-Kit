@@ -4,14 +4,15 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync } from 
 import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import {
-  ROOT, KIT_DIR, LOGS, KIT_VERSION, STAGES, stagesFor, THEME_DIRS, print, fail, parseArgs, normKey, now, run, git, currentBranch,
-  readConfig, readState, writeState, owner, branchFor, protectedBranches, storefrontPath, parseCliJson, diagnosticJson, ignoreMatcher,
+  ROOT, KIT_DIR, LOGS, KIT_VERSION, STAGES, stagesFor, THEME_DIRS, MERCHANT_JSON, print, fail, parseArgs, normKey, now, run, git, currentBranch,
+  readConfig, readState, writeState, owner, branchFor, protectedBranches, storefrontPath, parseCliJson, diagnosticJson, ignoreMatcher, TEST_SUFFIX,
 } from './lib.mjs';
 
 const HELP = `Usage: node .claude/kit/kit.mjs <verb> ...
   list                                   all tasks in this repo and their stage
   start <KEY>                            create .claude/logs/<KEY>/ (state + brief.md, plan.md, report.md); turns a finished investigation into an implementation
   start <KEY> --investigate              start a read-only investigation instead (state + investigation.md)
+  start <KEY> --test                     a test run of the kit: branch and draft named <KEY>-kit-test, the branch is never pushed
   status <KEY> [--json]                  current stage, the skill to load, gates, branch, draft
   done <KEY> <stage> [--answer "TEXT"] [--note "TEXT"]
                                          finish the current stage; gate stages need --answer with the dev's words
@@ -19,6 +20,8 @@ const HELP = `Usage: node .claude/kit/kit.mjs <verb> ...
   set <KEY> name=value [name=value ...]  record a fact: {SETTABLE}
   qa-row <KEY> <#> [--measured T] [--how T] [--verdict PASS|FAIL|NOT TESTED|BLOCKED] [--expected T]
                                          fill one row of report.md § Criteria (no hand-edited tables, no heredocs)
+  reach <KEY>                            files in plan.md § Files that reach beyond the feature (merchant JSON, layout,
+                                         snippets, sections and assets used elsewhere); each goes in Needs your attention
   summary <KEY>                          time per stage, loops, gate answers, QA verdicts, store changes (for the PR)
   abandon <KEY> --reason "TEXT"          stop a task and list what to clean up (draft theme, store changes)
 Kit feedback (problems with the kit itself, not the ticket)
@@ -103,12 +106,68 @@ function staysInCodeProblems(key) {
   });
 }
 
-/** At a glance has to stay readable at a glance. */
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * How far a file the plan changes reaches beyond the feature, or null. A mistake in one of these shows up
+ * in things that already exist, so Gate 2 names each one first. texts: theme path → content, as the code is now.
+ */
+function reachOf(path, texts) {
+  const name = path.split('/').pop();
+  const id = escapeRe(name.replace(/\.liquid$/, ''));
+  const others = [...texts].filter(([p]) => p !== path);
+  const count = (re) => others.filter(([, t]) => re.test(t)).length;
+  if (MERCHANT_JSON.test(path)) return 'merchant-owned: admin edits land here, and the merge overwrites any made on live since the base';
+  if (path.startsWith('layout/')) return 'renders on every page';
+  if (path === 'config/settings_schema.json') return 'theme settings for the whole store';
+  if (path.startsWith('snippets/')) {
+    const n = count(new RegExp(`\\b(render|include)\\s+['"]${id}['"]`));
+    return n > 1 ? `rendered from ${n} files` : null;
+  }
+  if (path.startsWith('sections/') || path.startsWith('blocks/')) {
+    const used = new RegExp(`"type"\\s*:\\s*"${id}"|\\bsections?\\s+['"]${id}['"]`);
+    if (others.some(([p, t]) => (p.startsWith('layout/') || /^sections\/[^/]+\.json$/.test(p)) && used.test(t))) return 'in the layout or a section group, so on every page';
+    const n = count(used);
+    return n > 1 ? `used in ${n} templates or sections` : null;
+  }
+  if (path.startsWith('assets/')) {
+    if (others.some(([p, t]) => p.startsWith('layout/') && t.includes(name))) return 'loaded on every page (layout)';
+    const n = count(new RegExp(`['"]${escapeRe(name)}['"]`));
+    return n > 1 ? `loaded by ${n} files` : null;
+  }
+  return null;
+}
+
+/** Existing files in plan.md § Files that reach beyond the feature. */
+function reach(key) {
+  const paths = [...new Set(tableRows(key, 'plan.md', '## Files').map((r) => cells(r)[0].replace(/`/g, '').trim().split(/\s+/)[0]))]
+    .filter((p) => p && !/[*?]/.test(p) && existsSync(join(ROOT, p)));
+  if (!paths.length) return [];
+  const texts = new Map();
+  const walk = (dir) => {
+    for (const e of readdirSync(join(ROOT, dir), { withFileTypes: true })) {
+      if (e.isDirectory()) walk(`${dir}/${e.name}`);
+      else if (/\.(liquid|json)$/.test(e.name)) texts.set(`${dir}/${e.name}`, read(join(ROOT, dir, e.name)));
+    }
+  };
+  for (const d of THEME_DIRS) if (existsSync(join(ROOT, d))) walk(d);
+  return paths.map((file) => ({ file, reach: reachOf(file, texts) })).filter((x) => x.reach);
+}
+
+/** At a glance has to stay readable at a glance, and open with what can affect what already exists. */
 function glanceProblems(key) {
   const lines = added(key, 'plan.md', '## At a glance');
   const rows = tableRows(key, 'plan.md', '## At a glance');
   const long = rows.map(cells).filter((c) => words(c[c.length - 1] || '') > 15).map((c) => c[0]);
+  const attention = added(key, 'plan.md', '### Needs your attention', '## At a glance');
+  const said = attention.join('\n').toLowerCase();
+  const unnamed = reach(key).filter((x) => !said.includes(x.file.toLowerCase()) && !said.includes(x.file.split('/').pop().toLowerCase()));
+  const storeWrites = ['### Definitions', '### QA test data'].some((h) => filled(key, 'plan.md', h, '## Store setup', 10) && !saysNone(key, 'plan.md', h, '## Store setup'));
   return [
+    !attention.length && 'fill plan.md § At a glance → ### Needs your attention: what this change can affect beyond the new feature, most impact first, or "none: only new files the feature owns"',
+    unnamed.length && `Needs your attention doesn't name ${unnamed.map((x) => `${x.file} (${x.reach})`).join('; ')}. For each, say what could change for what already uses it, and how the plan contains it`,
+    storeWrites && !/\bstore\b|definition|metaobject|metafield/.test(said) && 'Needs your attention: name the store writes (definitions, QA values) and whether they show on live before the merge',
+    attention.filter((l) => /^[-*]\s/.test(l)).length > 6 && 'Needs your attention has more than 6 points. Keep the ones the dev must weigh; the rest belong in § Files',
     !rows.length && 'fill plan.md § At a glance: one row per file (or file group), "What happens" in 15 words at most',
     long.length && `plan.md § At a glance: "What happens" is over 15 words for ${long.join(', ')}. Shorten it; the detail goes in § Files (builder detail)`,
     lines.length > 25 && `plan.md § At a glance has ${lines.length} lines; keep it to 25 (group files such as locales into one row)`,
@@ -210,7 +269,7 @@ const EXIT_CHECKS = {
   },
   handoff: (key, st) => [
     !filled(key, 'report.md', '## Handoff', undefined, 80) && 'write report.md § Handoff',
-    !branchPushed(st) && `push the task branch: git push -u origin ${st.branch}`,
+    !st.test && !branchPushed(st) && `push the task branch: git push -u origin ${st.branch}`,
     !retroDone(st) && 'run kit.mjs retro <KEY>, then record what the kit made harder (kit.mjs note <KEY> "...") or kit.mjs note <KEY> --none',
   ],
   // Investigation stages.
@@ -286,7 +345,8 @@ function summaryLines(key, st, cfg) {
     return lines.join('\n');
   }
   if (st.investigation) lines.push(`Investigated first (${st.investigation.type}): intake reads .claude/logs/${key}/investigation.md.`);
-  lines.push(`Branch: ${st.branch || `${branchFor(cfg, key)} (not created yet)`} · base: ${st.base ? st.base.slice(0, 7) : '—'} · protected: ${protectedBranches(cfg).join(', ')}`);
+  if (st.test) lines.push(`TEST RUN of the kit: the branch and the draft are named ${key}${TEST_SUFFIX}, and the branch is never pushed (the guard blocks it). The draft is a CLI copy of live, whatever draftRoute says. Handoff writes the report but pushes nothing.`);
+  lines.push(`Branch: ${st.branch || `${branchFor(cfg, key, st)} (not created yet)`} · base: ${st.base ? st.base.slice(0, 7) : '—'} · protected: ${protectedBranches(cfg).join(', ')}`);
   if (cfg?.adminApi === false) lines.push('Admin API: off in this repo. Definitions and QA values are admin steps for the dev; read store data from admin pages in Chrome (look only).');
   if (cfg?.commitPattern) lines.push(`Commit messages: ${cfg.commitPattern.replace('{KEY}', key).replace('{key}', key.toLowerCase())}`);
   if (st.stage === 'build') lines.push(`Stage with: git add -- ${existingThemeDirs().join(' ')}`);
@@ -296,7 +356,7 @@ function summaryLines(key, st, cfg) {
     if (st.draft.editorUrl) lines.push(`Editor: ${st.draft.editorUrl}`);
   }
   if (st.type === 'abtest') lines.push(`A/B: variation ${st.abtest?.variation || '?'} · code ${st.abtest?.path || '?'} · tool ${st.abtest?.tool || '?'} · running ${st.abtest?.running || '?'}${st.abtest?.reference ? ` · force link ${st.abtest.reference}` : ''}`);
-  if (cfg?.draftRoute === 'github' && !st.draft?.themeId) lines.push('Draft route: GitHub-connected (draftRoute in shopify-kit.json). The dev connects the task branch; the kit adopts it with shopify.mjs draft <KEY> --github.');
+  if (cfg?.draftRoute === 'github' && !st.test && !st.draft?.themeId) lines.push('Draft route: GitHub-connected (draftRoute in shopify-kit.json). The dev connects the task branch; the kit adopts it with shopify.mjs draft <KEY> --github.');
   if (st.mutations?.length) lines.push(`Store mutations run: ${st.mutations.length} (ids: kit.mjs status ${key} --json)`);
   lines.push(`Logs: .claude/logs/${key}/ (brief.md, plan.md, report.md)`);
   if (st.kitVersion !== KIT_VERSION) lines.push(`Note: started with kit ${st.kitVersion}, this is kit ${KIT_VERSION}.`);
@@ -355,6 +415,18 @@ function selftest() {
   eq('cells', cells('| 3 | a \\| b | PASS |'), ['3', 'a \\| b', 'PASS']);
   eq('cells empty last', cells('| Icons | AC 18 | winner SVGs | |'), ['Icons', 'AC 18', 'winner SVGs', '']);
   eq('words', words(' Renders rows;  image looked up '), 5);
+  const theme = new Map([
+    ['layout/theme.liquid', "{{ 'base.css' | asset_url | stylesheet_tag }}\n{% sections 'header-group' %}"],
+    ['sections/header-group.json', '{"sections":{"h":{"type":"header"}}}'],
+    ['sections/a.liquid', "{% render 'icon' %}"], ['sections/b.liquid', "{% render 'icon', name: 'cart' %}\n{% render 'mnav-list' %}"],
+    ['snippets/icon.liquid', ''], ['snippets/mnav-list.liquid', ''], ['sections/header.liquid', ''], ['sections/mnav.liquid', ''],
+  ]);
+  eq('reach shared snippet', reachOf('snippets/icon.liquid', theme), 'rendered from 2 files');
+  eq('reach own snippet', reachOf('snippets/mnav-list.liquid', theme), null);
+  eq('reach layout asset', reachOf('assets/base.css', theme), 'loaded on every page (layout)');
+  eq('reach section group member', reachOf('sections/header.liquid', theme), 'in the layout or a section group, so on every page');
+  eq('reach unused section', reachOf('sections/mnav.liquid', theme), null);
+  eq('reach merchant JSON', reachOf('sections/header-group.json', theme).startsWith('merchant-owned'), true);
   eq('retroDone needs a note after retro', [retroDone({ history: [{ event: 'note' }, { event: 'retro' }] }), retroDone({ history: [{ event: 'retro' }, { event: 'note', none: true }] })], [false, true]);
   const failed = checks.filter((c) => !c[1]);
   for (const [name, , got, want] of failed) print(`FAIL ${name}: got ${JSON.stringify(got)}, want ${JSON.stringify(want)}`);
@@ -374,7 +446,7 @@ switch (verb) {
       const st = readState(k);
       const draft = st.draft?.themeId && !st.draft.deletedAt ? ` · draft ${st.draft.name || st.draft.themeId} still exists` : '';
       const type = kindOf(st) === 'investigation' ? `investigation:${st.type || '-'}` : st.type || '-';
-      print(`${k}\t${type}\t${st.stage}\t${st.updatedAt.slice(0, 10)}\t${st.owner?.name || ''}${draft}`);
+      print(`${k}\t${type}${st.test ? ' (test run)' : ''}\t${st.stage}\t${st.updatedAt.slice(0, 10)}\t${st.owner?.name || ''}${draft}`);
     }
     break;
   }
@@ -391,6 +463,11 @@ switch (verb) {
       mkdirSync(join(LOGS, key), { recursive: true });
       for (const f of files) if (!existsSync(join(LOGS, key, f))) writeFileSync(join(LOGS, key, f), tpl(key, f));
     };
+    if (flags.test && flags.investigate) fail('Investigations are read-only already; --test is for /implement.');
+    // A real task's logs, branch and draft must not be mixed with a test run's, in either direction.
+    if (flags.test && existing && kindOf(existing) !== 'investigation' && !existing.test) {
+      fail(`${key} already has a real task here (stage ${existing.stage}). A test run needs its own folder: move .claude/logs/${key}/ aside first.`);
+    }
     if (flags.investigate) {
       if (existing && kindOf(existing) !== 'investigation') fail(`${key} is an implementation task (stage ${existing.stage}). Investigate inside it, or start a separate key such as INV-${new Date().toISOString().slice(5, 16).replace(/\D/g, '')}.`);
       if (!existing) {
@@ -408,7 +485,7 @@ switch (verb) {
       if (!['done', 'abandoned'].includes(existing.stage)) fail(`${key} is an investigation in progress (stage ${existing.stage}). Finish it with /shopify-investigate ${key}, or abandon it, before implementing.`);
       // The finished investigation becomes the implementation's starting context; intake reads its file.
       const { readonly, ...rest } = existing;
-      const st = { ...rest, ...implementFields, mutations: existing.mutations || [], investigation: { type: existing.type, stage: existing.stage, endedAt: existing.updatedAt } };
+      const st = { ...rest, ...implementFields, test: Boolean(flags.test), mutations: existing.mutations || [], investigation: { type: existing.type, stage: existing.stage, endedAt: existing.updatedAt } };
       st.history.push({ at: now(), event: 'convert', from: 'investigation' });
       writeTemplates(TEMPLATES);
       writeState(key, st);
@@ -416,7 +493,7 @@ switch (verb) {
       writeTemplates(TEMPLATES);
       writeState(key, {
         schemaVersion: 1, kitVersion: KIT_VERSION, key, tickets: [key], createdAt: now(), owner: owner(),
-        history: [{ at: now(), event: 'start' }], ...implementFields, mutations: [],
+        history: [{ at: now(), event: 'start' }], ...implementFields, test: Boolean(flags.test), mutations: [],
       });
     }
     print(summaryLines(key, readState(key), cfg));
@@ -495,6 +572,14 @@ switch (verb) {
     st.history.push({ at: now(), event: 'set', values: rest });
     writeState(key, st);
     print(`Recorded: ${rest.join(' ')}`);
+    break;
+  }
+
+  case 'reach': {
+    const key = normKey(rawKey);
+    readState(key);
+    const found = reach(key);
+    print(found.length ? found : 'Nothing in plan.md § Files reaches beyond the feature (or § Files is still empty).');
     break;
   }
 

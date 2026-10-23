@@ -11,6 +11,7 @@ user-invocable: false
 1. **Branch.** Theme changes go on the task branch.
    - Run `git status --porcelain`. If it shows uncommitted changes to theme files, ask the dev what to do with them. Never stash or discard anything without asking.
    - **The branch exists in status** (fix loops, resume): `git switch <branch>`.
+   - **Test run** (status says TEST RUN): create the branch with the name from status (`<KEY>-kit-test`) as in step 2 below, even when a teammate's branch for the key exists. Never push it.
    - **No branch yet:**
      1. Run `git fetch origin`, then `git branch --list` and `git ls-remote --heads origin`. Look for a local or remote branch matching the key, ignoring case (e.g. `abc-123` for ABC-123). If one exists, ask the dev:
         - **"Reuse it"** → `git switch <it>`, and the base is `git merge-base origin/<baseBranch> HEAD`
@@ -68,7 +69,7 @@ user-invocable: false
    4. **Create-only:** never update or delete an existing definition.
    5. QA test values go only on the products the dev named (`qa.products`), through the same `mutate` path.
    6. A scope error gives you the exact `! shopify store auth …` command. Pass it to the dev, then retry.
-2. **Draft theme.** The route comes from `draftRoute` in `.claude/shopify-kit.json`. Ask the dev only if it isn't set and recon shows "Update from Shopify" commits.
+2. **Draft theme.** The route comes from `draftRoute` in `.claude/shopify-kit.json`. Ask the dev only if it isn't set and recon shows "Update from Shopify" commits. A **test run** always takes the CLI route below, whatever `draftRoute` says, because the GitHub route needs a push. Its draft is named `<KEY>-kit-test`.
 
    **`draftRoute: "github"`** (the store's themes are connected to this repo). The draft is a theme connected to the task branch, so it always equals the branch, and customizer saves on it come back as commits.
    1. `git push -u origin <branch>`.

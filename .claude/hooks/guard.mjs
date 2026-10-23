@@ -3,12 +3,12 @@
 // Shopify CLI directly, pushing to main, hand-editing task state, reading secrets), not a
 // security boundary: GitHub branch protection and store staff permissions are the real limits.
 // Self-test: node .claude/hooks/guard.mjs --selftest
-import { readFileSync, existsSync, appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { readFileSync, existsSync, appendFileSync, mkdirSync, writeFileSync, readdirSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { dirname, join, resolve, relative, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 // The wrapper's own argv parser and mutation check: the guard must read a command exactly as the wrapper will run it.
-import { parseArgs, mutationProblems, sealDigest, SEAL_FILE } from '../kit/lib.mjs';
+import { parseArgs, mutationProblems, sealDigest, SEAL_FILE, TEST_SUFFIX } from '../kit/lib.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -135,7 +135,7 @@ function innerCommand(segment) {
   return (q === '"' || q === "'") && rest.endsWith(q) ? rest.slice(1, -1) : rest;
 }
 
-function checkPush(args, prot) {
+function checkPush(args, prot, testBranches = []) {
   const flags = args.filter((a) => a.startsWith('-'));
   const pos = args.filter((a) => !a.startsWith('-'));
   const allowed = 'Allowed form: git push -u origin <task-branch>.';
@@ -146,6 +146,7 @@ function checkPush(args, prot) {
   const ref = pos[1].replace(/^refs\/heads\//, '');
   if (ref.toUpperCase() === 'HEAD' || /[:+*^~]/.test(ref)) return `Push the branch by name, not a refspec like HEAD:main or +branch. ${allowed}`;
   if (prot.some((p) => p.toLowerCase() === ref.toLowerCase())) return `"${ref}" is protected. It changes only through a reviewed PR that the dev merges.`;
+  if (ref.toLowerCase().endsWith(TEST_SUFFIX) || testBranches.includes(ref.toLowerCase())) return `"${ref}" belongs to a test run of the kit, which is never pushed. The draft gets the files through shopify.mjs push; handoff skips the push.`;
   return null;
 }
 
@@ -282,7 +283,7 @@ function decideCommand(raw, ctx, depth = 0) {
       }
     }
     if (g.sub === 'push') {
-      const why = checkPush(g.args, prot);
+      const why = checkPush(g.args, prot, ctx.testBranches());
       if (why) return { decision: 'deny', reason: why };
     }
     if (['commit', 'merge', 'rebase', 'cherry-pick', 'revert', 'am'].includes(g.sub) && prot.some((p) => p.toLowerCase() === String(branch).toLowerCase())) {
@@ -348,6 +349,12 @@ const defaultCtx = {
   protected: protectedBranches, branch: currentBranch, scripts: packageScripts, isPath: (p) => existsSync(join(ROOT, p)),
   read: (p) => { try { return readFileSync(resolve(ROOT, p), 'utf8'); } catch { return null; } },
   state: (key) => { try { return JSON.parse(readFileSync(join(ROOT, '.claude', 'logs', key, 'state.json'), 'utf8')); } catch { return null; } },
+  // Branches of test runs, whatever they were named.
+  testBranches: () => {
+    try {
+      return readdirSync(join(ROOT, '.claude', 'logs')).map((k) => defaultCtx.state(k)).filter((s) => s?.test && s.branch).map((s) => s.branch.toLowerCase());
+    } catch { return []; }
+  },
 };
 
 export function decide(input, ctx = defaultCtx) {
@@ -407,6 +414,7 @@ function selftest() {
   const ctx = (branch = K, scripts = {}) => ({
     protected: () => ['main', 'master'], branch: () => branch, scripts: () => scripts, isPath: (p) => /[/\\]/.test(p) && /\.\w+$/.test(p),
     read: (p) => FILES[p.replaceAll('\\', '/')] ?? null, state: (key) => (key === K ? STATE : null),
+    testBranches: () => ['renamed-test-branch'],
   });
   const kit = (args) => `node .claude/kit/shopify.mjs ${args}`;
   const bash = (command) => ({ tool_name: 'Bash', tool_input: { command } });
@@ -483,6 +491,9 @@ function selftest() {
     [bash(`git push origin +${K}`), 'deny'],
     [bash('git push --all origin'), 'deny'],
     [bash(`git push origin --delete ${K}`), 'deny'],
+    [bash(`git push -u origin ${K}-kit-test`), 'deny'],
+    [bash(`git push -u origin ${K}-KIT-TEST`), 'deny'],
+    [bash('git push -u origin renamed-test-branch'), 'deny'],
     [bash('git -C . push origin master'), 'deny'],
     [bash('bash -c "git push origin main"'), 'deny'],
     [ps('cmd /c "git push origin main"'), 'deny'],
