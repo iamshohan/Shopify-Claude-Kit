@@ -43,7 +43,7 @@ user-invocable: false
 
    Give each question 2–4 concrete options, with your recommendation first, marked "(Recommended)". An option that contradicts a quoted editability line is never the recommendation, and says so in its description ("conflicts with AC 18").
 3. **Ask all of them before planning**, in as few AskUserQuestion calls as possible (up to 4 questions per call). Don't drip-feed them one at a time. Before the first call, write 3–6 lines in chat: what is settled, and what you're asking and why. Don't restate the tickets.
-4. **Confirm the control surface** with one more question. Its text lists the values that stay in code by name: "These stay in code: colours, spacing, separators. Everything else is editable as shown in brief.md. OK?" The options are "OK", "Make something editable" (they type which), and "Discuss". Nothing is marked "(Recommended)" here: you'd be recommending your own table.
+4. **Confirm the control surface** with one more question. Its text lists the values that stay in code by name: "These stay in code: colours, spacing, separators. Everything else is editable as shown in brief.md. OK?" The options are "OK", "Make something editable" (they type which), and "Discuss".
 5. **Write § Decided:**
    - **Merchant can change:** one row per value, or "none".
    - **Stays in code:** one row per value. Name the editability AC it touches, or "none". When it touches one, cite the question in which the dev agreed (Q#). `kit.mjs done` refuses a row that touches an AC without a Q#.
@@ -55,6 +55,11 @@ If there are genuinely no open questions, still ask the confirm question in step
 ## Stage: plan
 
 **Goal:** a `plan.md` that the dev can approve from its first 25 lines, and that the builder can follow without guessing. Aim for 300 lines or fewer.
+
+**Small lane** (status says "Small lane"): there was no clarify stage.
+1. If anything is open that would change the plan, ask it first, in one AskUserQuestion round, and record it in `brief.md` § Decided → Questions and answers as clarify would. Nothing open: don't ask.
+2. Write the same plan, shorter: At a glance, Approach, Files, QA criteria (at least 2) and Risks. For Schema details and Store setup, write "none" if that's true.
+3. `done plan` checks that the work still fits the lane (no A/B port, no editability lines, at most 3 files, no merchant JSON, no store writes). If it refuses, tell the dev in one line why, run `kit.mjs lane <KEY> full`, and continue with clarify. Don't trim the plan to make it fit.
 
 Fill each heading in `plan.md`. Write **At a glance** last, from the finished detail:
 
@@ -82,7 +87,7 @@ Fill each heading in `plan.md`. Write **At a glance** last, from the finished de
   - **Definitions to create.** For each: owner, namespace.key, type, validations, translatable, not pinned, and "reuse: none fits because …".
     - **`adminApi: false`:** write numbered admin steps instead of mutations: Settings → Custom data → owner → Add definition, then every field (name, namespace and key, type, validations, storefront access, "translatable" for metaobjects). The dev creates them at the draft stage. Skip the mutation and scope points below.
     - Write each mutation now, to `.claude/logs/<KEY>/mutations/NN-<name>.graphql`, with variables in `NN-<name>.vars.json`.
-    - Validate each one once with the `shopify-plugin:shopify` skill (topic `admin`, `--version 2026-07`). The draft stage runs these same files.
+    - Validate each one once with the `shopify-plugin:shopify` skill (topic `admin`, `--version <adminApiVersion from .claude/shopify-kit.json>`). The draft stage runs these same files.
     - Metaobject definitions that should render on the storefront need `access.storefront: PUBLIC_READ`. Don't set `access.admin` on merchant-owned definitions.
   - **Scopes the Admin login needs**, by owner type:
 
@@ -101,7 +106,7 @@ Fill each heading in `plan.md`. Write **At a glance** last, from the finished de
   - defaults equal the winner (A/B ports)
   - each empty state
   - every locale in scope
-  - mobile and desktop, at sizes Chrome's device toolbar offers as presets (390×844, 375×667, 1440×900), because the dev may have to set them by hand
+  - mobile and desktop, at sizes Chrome's device toolbar offers as presets (390×844, 375×667, 1440×900): `kit-browser` sets any size, but without it the dev sets them by hand
   - the customizer contract: name, presets, where it can be added, labels and defaults (checked by `contract.mjs`)
   - untouched pages for the regression check
 - **QA setup.**
@@ -111,14 +116,12 @@ Fill each heading in `plan.md`. Write **At a glance** last, from the finished de
   - Test products: `kit.mjs set <KEY> qa.products=<handles>`.
 - **Risks,** and how the plan handles each one.
 
-**Fresh docs:** check every Liquid object, filter or tag and every schema setting type the plan uses that the theme doesn't already use with `search_docs` (topic `liquid`).
-
 **Done when:** every heading is filled. Then run `kit.mjs done <KEY> plan`.
 
 ## Stage: approve (Gate 2)
 
-1. Show the dev `plan.md` § At a glance as it is, plus one line: "Same as Gate 1 except: …", or "No change from Gate 1". Nothing else: no file anchors, no restated criteria, no method notes. The path `.claude/logs/<KEY>/plan.md` is for the detail.
-2. AskUserQuestion: "Approve the plan for <KEY>?", naming what the approval covers when there is any: "…including 4 store writes and 3 values kept in code?" The options are **Approve**, **Approve with changes** (they type the changes), and **Reject**. None is marked "(Recommended)".
+1. Show the dev `plan.md` § At a glance as it is, plus one line: "Same as Gate 1 except: …", or "No change from Gate 1". In the small lane there was no Gate 1: list the questions you asked and the answers instead, or "No open questions". Nothing else: no file anchors, no restated criteria, no method notes. The path `.claude/logs/<KEY>/plan.md` is for the detail.
+2. AskUserQuestion: "Approve the plan for <KEY>?", naming what the approval covers when there is any: "…including 4 store writes and 3 values kept in code?" The options are **Approve**, **Approve with changes** (they type the changes), and **Reject**.
 3. Then:
    - **Approve** → `kit.mjs done <KEY> approve --answer "<their words>"`.
    - **Approve with changes** → edit `plan.md` and ask again.

@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.5.0 — 2026-10-24
+
+- **The kit measures a branch from where it meets the base branch now, not from where it started.** Before, `push` refused "Live has changed …", the dev merged `origin/<base>` as told, and `push` refused again, forever: it kept comparing live with the copy at the task's first base commit. The same fixed base made `push` upload teammates' merged files, `check` count their offenses as introduced, and `contract` list their sections; the "merge base" in `check` and `contract` was always the starting commit. `push`, `verify`, `check`, `contract` and `done build` now use `git merge-base HEAD origin/<baseBranch>`, and `push` also sends files a merge resolution changed.
+- **`push|verify <KEY> --reconciled <files>`** for repos where live edits never reach git: the dev copies them into the branch and confirms; the guard asks. It pins the live version the dev confirmed, so a later live edit is flagged again.
+- **Small lane.** `/implement <KEY> --small` (or `kit.mjs lane <KEY> small` before the plan is approved) skips the separate clarify gate: questions are asked at the start of the plan stage, and the approve gate is the only one before QA. `done plan` refuses the lane for A/B ports, tickets with editability lines, store writes, merchant-owned JSON or more than 3 files, and names `kit.mjs lane <KEY> full`, which reopens clarify. CHE-802's editability rule stays intact: a ticket that says who may change what always gets Gate 1.
+- **Storefront QA in an isolated browser.** `kit-browser` is a pinned Playwright MCP server (`--isolated --headless`) that `/shopify-setup` adds once per machine. It sets exact viewports itself, so the dev no longer switches Chrome's device toolbar, and its clicks are real pointer clicks. `kit.mjs build-probe` also writes `probe.init.js`: run once per session, it loads the probe on every page before the page's own scripts, so `errors()` and `shift()` cover the load. Chrome stays for the theme editor and the admin, and is the fallback without `kit-browser`. A dev's own Playwright server isn't used, because it may drive their logged-in Chrome (`--extension`).
+- **Offline end-to-end test:** `node test/e2e.mjs` installs the kit into a temporary theme repo with a fake `shopify` CLI and runs draft → push → live drift → merge → push → check → contract → reconcile → mutate through the real scripts and guard (25 checks). Against 0.4.0 it fails 11, starting with the drift loop above. It lives outside `.claude/`, so theme repos don't get it.
+- **Maintainer mode.** In the kit's master repo (install.mjs present, no install manifest), the guard lets kit files be edited without a prompt; `hooks/` and `settings.json` still ask. A `cd` or `git -C` into another repository no longer counts as committing on this repo's protected branch.
+- **Cleanup.** About 40 lines of instructions that repeated another loaded file, or a script's own refusal message, are gone (the retro steps, most draft and push refusal handling, restated rules). A stale "kit v0.1" and the hard-coded `--version 2026-07` (now `adminApiVersion` from the config) are fixed. Safeguards that cost more than they caught are removed:
+  - the 15-word and 260-character checks on At a glance (the 25-line limit stays)
+  - the report.md title check
+  - the pre-0.3 brief.md migration
+  - the 3-row minimum in an investigation's evidence (at least one Confirmed row stays)
+  - the builder's second check of Gate 2
+  - the guard's ask on fetches from other remotes (`--upload-pack`/`--exec` still ask)
+  - the guard's lookup of renamed test-run branches (the `-kit-test` suffix rule stays)
+  
+  The merchant-JSON prompt now skips files the approved plan of the checked-out task names.
+- **Smaller.** The merchant-JSON pattern in `lib.mjs` is case-insensitive, like the guard's, and the guard imports it and the protected-branch list from there. Guard self-tests: 142 → 156.
+
 ## 0.4.0 — 2026-10-23
 
 - **Plans open with what needs your attention.** Most of a plan is new code that only the feature uses. What the dev has to weigh at Gate 2 is where the change can affect what already exists, so At a glance now starts with **Needs your attention**: at most 6 points, most impact first, each saying what's touched, what could go wrong and how the plan contains it. It covers store writes, merchant-owned JSON, shared code, changed behaviour and apps. It replaces the "Store writes" and "Risks to know" lines. The file table follows, with those files first.

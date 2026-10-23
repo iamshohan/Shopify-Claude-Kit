@@ -60,35 +60,31 @@ user-invocable: false
    - Give the dev the plan's admin steps, and ask them to create the definitions and set the QA values on the named products.
    - Wait for them to confirm. Then check in Chrome that each definition exists with the planned namespace, key and type (Settings → Custom data, look only).
    - Record what was created as an Amendment in `plan.md` ("created by the dev in the admin"), so handoff and cleanup know about it.
-   - Skip steps 1–6 below.
+   - Skip steps 1–5 below.
 
    **With the Admin API:**
    1. Re-check what exists: `node .claude/kit/shopify.mjs query definitions --owner <OWNER>`. If something now fits, use it, and add an Amendment to the plan.
    2. Run the files the plan validated (`.claude/logs/<KEY>/mutations/`). Re-validate only a file you changed.
    3. Run each one with `node .claude/kit/shopify.mjs mutate <KEY> <file> --vars <file>`. The guard shows the dev the mutation and its variables, and the dev approves or declines it. The created IDs are recorded in the task state.
-   4. **Create-only:** never update or delete an existing definition.
-   5. QA test values go only on the products the dev named (`qa.products`), through the same `mutate` path.
-   6. A scope error gives you the exact `! shopify store auth …` command. Pass it to the dev, then retry.
+   4. QA test values go only on the products the dev named (`qa.products`), through the same `mutate` path.
+   5. A scope error gives you the exact `! shopify store auth …` command. Pass it to the dev, then retry.
 2. **Draft theme.** The route comes from `draftRoute` in `.claude/shopify-kit.json`. Ask the dev only if it isn't set and recon shows "Update from Shopify" commits. A **test run** always takes the CLI route below, whatever `draftRoute` says, because the GitHub route needs a push. Its draft is named `<KEY>-kit-test`.
 
    **`draftRoute: "github"`** (the store's themes are connected to this repo). The draft is a theme connected to the task branch, so it always equals the branch, and customizer saves on it come back as commits.
    1. `git push -u origin <branch>`.
    2. Ask the dev to connect it, with the steps `shopify.mjs draft <KEY> --github` prints: Online Store → Themes → Add theme → Connect from GitHub → this repo → the task branch. Connecting is admin-only; the CLI can't do it. Then run the command again to adopt the theme.
-   3. `node .claude/kit/shopify.mjs verify <KEY>` waits for Shopify's sync and checks that every file the branch touched matches HEAD. It also refuses when live has edited one of the branch's JSON files since the base; merge `origin/<baseBranch>`, commit, push and verify again.
+   3. `node .claude/kit/shopify.mjs verify <KEY>` waits for Shopify's sync and checks that every file the branch touched matches HEAD. If it refuses, follow its message.
    4. **Every later commit:** `git push -u origin <branch>`, then `verify`. A rejected push means Shopify committed a save from the admin: `git pull --no-rebase origin <branch>`, then push. Never save in this theme's editor yourself. If the dev saves there, tell them the change lands on the branch and in the PR.
    5. Skip steps 3–4 below; `push` refuses a connected draft.
 
-   **`draftRoute: "cli"`** (the default): `node .claude/kit/shopify.mjs draft <KEY>`, run with a 10-minute timeout. It reuses this task's draft, or copies the live theme into a new unpublished theme named `<KEY>` and waits until Shopify finishes processing it. If an unpublished theme with that name already exists, it refuses: it's usually a teammate's draft for the same ticket. Ask the dev. Run `draft <KEY> --adopt` only if they say it's free to reuse.
+   **`draftRoute: "cli"`** (the default): `node .claude/kit/shopify.mjs draft <KEY>`, run with a 10-minute timeout. It reuses this task's draft, or copies the live theme into a new unpublished theme named `<KEY>` and waits until Shopify finishes processing it. If it refuses, follow its message; never `--adopt` without the dev's yes.
    - **The command timed out.** Run it again; it adopts the copy it already started.
-   - **"The theme library is full".** Show the dev the listed themes. Ask which to remove: kit drafts of finished tasks via `shopify.mjs delete-draft <THAT-KEY>`, anything else in the admin.
    - **The CLI can't do it** (no access, or the store's permissions forbid it). Offer the GitHub route above if the repo is connected. Otherwise tell the dev exactly what to create: an unpublished copy of the live theme with `<KEY>` in its name. Then record it: `kit.mjs set <KEY> draft.themeId=<id> draft.name=<name> draft.route=manual`. A manual draft is pushed with `shopify.mjs push` like a normal one.
 3. **Build outputs.** If the builder reported build outputs (e.g. compiled Tailwind CSS, which is gitignored), record them: `kit.mjs set <KEY> buildOutputs=<path,path>`.
-4. **Push:** `node .claude/kit/shopify.mjs push <KEY>`. It uploads every theme file the branch's commits touched (including files reverted to their base content), then pulls them back and compares them with HEAD. It refuses when:
-   - **The draft doesn't match after the upload.** It lists the files. Push once more; if the same files differ again, stop and show the dev.
-   - **Live changed a JSON file after the branch's base.** Merge `origin/<baseBranch>` into the task branch; Shopify syncs live edits there. Resolve conflicts, commit, and push again. If the repo doesn't sync live edits into git, ask the dev how to reconcile.
-   - **Shopify rejected a file**, for example a Liquid error. Fix it in fix mode, commit, and push again.
-   - **`.shopifyignore` excludes a changed file.** Ask the dev how that file reaches the store.
-5. **Check the page, not the request.** To see what the draft renders, use `node .claude/kit/shopify.mjs fetch <KEY> <path> --find <text>`. Never `curl` a `?preview_theme_id` URL: without the cookie the redirect sets, it returns the live theme without any error, which looks exactly like a broken draft.
+4. **Push:** `node .claude/kit/shopify.mjs push <KEY>`. It uploads every theme file the branch's commits touched (including files reverted to their base content), then pulls them back and compares them with HEAD. When it refuses, its message says what to do. Two that need more:
+   - **Live changed a JSON file:** `--reconciled` only after the dev confirms the branch holds live's edits.
+   - **Shopify rejected a file**, for example a Liquid error: fix it in fix mode, commit, and push again.
+5. **Check the page:** `node .claude/kit/shopify.mjs fetch <KEY> <path> --find <text>`.
 6. Give the dev the preview URL and the editor URL.
 
 **Done when:** `push` (or, on a connected draft, `verify`) reports that the draft matches the current commit. Then run `kit.mjs done <KEY> draft`.

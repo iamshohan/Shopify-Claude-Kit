@@ -16,11 +16,7 @@ Work through these checks in order. Report each one as ✓ or ✗ with the exact
 
    Then run `node .claude/kit/shopify.mjs cli-check --force` (about a minute). It confirms that the installed Shopify CLI and plugin still offer every command, flag and output field the kit uses. Any problem it lists means: run `/shopify-update` before going on.
 
-   Then run `node .claude/kit/shopify.mjs auth-check`, which reports:
-   - the Shopify CLI version, and whether the commands the kit needs exist
-   - the store the CLI last used
-   - the theme login and the Admin API login with its granted scopes
-   - the plugin telemetry opt-out
+   Then run `node .claude/kit/shopify.mjs auth-check` and report each line it prints.
 3. **Repo facts.** Run `node .claude/kit/recon.mjs`. Use its output to propose the config in step 4.
 4. **Config** (`.claude/shopify-kit.json`). If it exists, show it and ask whether it's still right. Otherwise propose these values and confirm them with the dev in one AskUserQuestion round:
    - `store`: the store's `*.myshopify.com` domain (from auth-check)
@@ -74,10 +70,15 @@ Work through these checks in order. Report each one as ✓ or ✗ with the exact
 7. **Shopify plugin.**
    - Check that the `shopify-plugin:shopify` skill is in your skill list. Listing it in `.claude/settings.json` doesn't install it. If it's missing, the dev runs `! claude plugin install shopify-ai-toolkit@claude-plugins-official` and restarts Claude Code.
    - Then run `node .claude/kit/kit.mjs optout`, telling the dev it creates an empty opt-out file for this machine. The plugin otherwise reports prompts and code to shopify.dev.
-8. **Browser.** QA uses Chrome through the Claude in Chrome extension.
-   - Check that the `mcp__claude-in-chrome__*` tools are available.
+8. **Browsers.** The kit uses two, and keeps them apart: the storefront in an isolated browser that is logged in nowhere, the admin and theme editor in the dev's Chrome.
+   - **Storefront: `kit-browser`.** Check that the `mcp__kit-browser__*` tools are available. If not, the dev adds the server once per machine (it serves every theme repo), then restarts Claude Code:
+     ```
+     ! claude mcp add kit-browser --scope user -- npx -y @playwright/mcp@0.0.83 --isolated --headless
+     ```
+     Don't substitute the dev's own Playwright server: it may drive their logged-in Chrome (`--extension`). Without `kit-browser`, storefront QA runs in Chrome and the dev sets each viewport by hand.
+   - **Admin and theme editor: Claude in Chrome.** Check that the `mcp__claude-in-chrome__*` tools are available.
    - The dev must be logged into the store admin in that Chrome profile.
    - The extension needs site access to the storefront domain and `admin.shopify.com`.
 
-   Without these, QA browser checks are BLOCKED.
+   Without Chrome, customizer checks are BLOCKED.
 9. **Summary.** List what works and what's missing. If everything is ✓, end with: "Ready. Start a task with /implement <KEY>, or investigate with /shopify-investigate <KEY or question>."

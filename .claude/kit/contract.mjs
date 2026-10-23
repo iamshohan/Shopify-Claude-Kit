@@ -7,7 +7,7 @@
 // Writes .claude/logs/<KEY>/contract.json and contract.md; prints a summary.
 import { existsSync, readdirSync, readFileSync, writeFileSync, statSync } from 'node:fs';
 import { join, basename } from 'node:path';
-import { ROOT, LOGS, print, fail, parseArgs, normKey, git, readState } from './lib.mjs';
+import { ROOT, LOGS, print, fail, parseArgs, normKey, git, readState, readConfig, effectiveBase } from './lib.mjs';
 
 /** JSON with comments and trailing commas, which live themes do contain. */
 function lenientJson(text) {
@@ -37,7 +37,8 @@ const st = readState(key);
 let files = typeof flags.files === 'string' ? flags.files.split(',').map((s) => s.trim()).filter(Boolean) : null;
 if (!files) {
   if (!st.base) fail(`No base commit recorded for ${key}; pass --files sections/x.liquid,…`);
-  const from = git(['merge-base', st.base, 'HEAD'], { allowFail: true }) || st.base;
+  // Sections that came in with a merge of the base branch aren't this task's.
+  const from = effectiveBase(st, readConfig({ required: false }));
   const changed = git(['diff', '--name-only', '--relative', from, '--', 'sections', 'blocks'], { allowFail: true }).split('\n');
   const untracked = git(['ls-files', '--others', '--exclude-standard', '--', 'sections', 'blocks'], { allowFail: true }).split('\n');
   files = [...new Set([...changed, ...untracked])].filter((f) => /^(sections|blocks)\/[^/]+\.liquid$/.test(f) && existsSync(join(ROOT, f)));

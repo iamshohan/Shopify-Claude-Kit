@@ -1,4 +1,4 @@
-# Shopify Implementation Kit · v0.4.0
+# Shopify Implementation Kit · v0.5.0
 
 A Claude Code setup for Shopify theme repos.
 
@@ -16,7 +16,8 @@ It never publishes a theme, writes to the live theme, or pushes or merges into t
 | Shopify CLI | `npm i -g @shopify/cli@latest`; `/shopify-setup` checks the commands the kit uses |
 | A staff account on the store: themes, metafields and metaobjects | the store owner |
 | The Shopify plugin for Claude Code, per person (the kit opts out of its telemetry) | `claude plugin install shopify-ai-toolkit@claude-plugins-official` |
-| Claude in Chrome, logged into the store admin, with access to the storefront and `admin.shopify.com` | the browser tools show up in Claude Code |
+| Claude in Chrome, logged into the store admin, with access to the storefront and `admin.shopify.com` (theme editor and admin checks) | the browser tools show up in Claude Code |
+| The `kit-browser` server: an isolated Playwright browser for storefront QA, once per machine | `claude mcp add kit-browser --scope user -- npx -y @playwright/mcp@0.0.83 --isolated --headless` |
 | A Jira API token | id.atlassian.com → Security → API tokens |
 | Optional: the Admin API login (below) | `node .claude/kit/shopify.mjs auth-check` |
 | For A/B ports: the test's code | e.g. a shadow-drip-exps checkout |
@@ -60,6 +61,7 @@ That file is yours alone: git ignores it, and Claude can't read it.
 /implement ABC-123                      start or continue a ticket
 /implement ABC-123 qa                   jump to a stage whose earlier stages are done
 /implement ABC-123 --test               a test run of the kit: every stage, nothing pushed to git
+/implement ABC-123 --small              the small lane: one gate before QA, for fixes of at most 3 files
 /implement                              list tasks in this repo
 /shopify-investigate ABC-123            investigate a ticket
 /shopify-investigate why do German menus link to English pages?    a question without a ticket (key INV-…)
@@ -76,7 +78,7 @@ That file is yours alone: git ignores it, and Claude can't read it.
 | 5 | approve | Shows At a glance and what changed since Gate 1. | **Gate 2:** approve, change or reject |
 | 6 | build | Creates the task branch from a fresh base. The builder agent implements; `/code-review` and a Shopify checklist review; then it commits. | — |
 | 7 | draft | Creates the planned definitions. Pushes to an unpublished theme named `<KEY>`, or adopts the theme you connect to the branch (`draftRoute: "github"`), and proves the draft matches the commit. | approve mutations; connect the branch (GitHub route) |
-| 8 | qa | Measures every criterion on the draft: storefront, settings previews, customizer, regression against live. | set the viewports once; do the "by hand" checks |
+| 8 | qa | Measures every criterion on the draft: storefront, settings previews, customizer, regression against live. | do the "by hand" checks (and set viewports, only without `kit-browser`) |
 | 9 | accept | Shows the result. Failures go back to the builder. | **Gate 3:** accept or send back |
 | 10 | handoff | Pushes the branch. Writes the PR text, admin steps, go-live order and a Jira comment, then runs a retro on the kit. | create the PR, merge, go live |
 
@@ -125,11 +127,11 @@ The logs are history, not a knowledge base: every task reads the code fresh.
 | One CLI wrapper | `.claude/kit/shopify.mjs` builds every command and writes only to the task's own unpublished theme, named after the key. It has no publish, live or delete-other command. The guard denies direct `shopify`, `npx @shopify/cli` and Theme Kit calls, including inside npm scripts and `bash -c`. |
 | Store changes | Only the kit's own mutations: definitions, QA values, metaobject entries, and deleting what this task created. Anything else (e.g. `productDelete`) is refused. |
 | Your approval | `mutate` and `delete-draft` show you the whole file (or the theme) first. The wrapper runs only what you were shown, once, within 15 minutes; a changed file or a chained call is refused. |
-| Git | Pushes go only as `git push -u origin <task-branch>`: no force, no delete, nothing to protected branches. No commits on protected branches. Other remotes, `git -c` and commands that discard work ask first. |
-| Files | Credentials are never read or written: `.env*`, `~/.claude/.env`, Theme Kit's `config.yml`, the CLI's `shopify-cli-*` folders. `state.json` changes only through `kit.mjs`. Changes to `shopify-kit.json`, merchant-owned JSON and the kit's own files ask first. |
+| Git | Pushes go only as `git push -u origin <task-branch>`: no force, no delete, nothing to protected branches. No commits on protected branches. `git -c`, `--upload-pack`/`--exec` and commands that discard work ask first. |
+| Files | Credentials are never read or written: `.env*`, `~/.claude/.env`, Theme Kit's `config.yml`, the CLI's `shopify-cli-*` folders. `state.json` changes only through `kit.mjs`. Changes to `shopify-kit.json`, the kit's own files, and merchant-owned JSON that the approved plan doesn't name ask first. |
 | Jira token | Sent only over https, and only to an `atlassian.net` site unless your own `.env.local` sets `JIRA_BASE_URL`. |
 | Admin API | Read-only, except for products, metafields and metaobjects. The agent never prints discount codes, and never reads orders or customers. |
-| Browser | Chrome runs as your admin account, and no hook sees clicks. The agent's "look only" rules and the extension's prompts are the only checks. Don't give `admin.shopify.com` "always allow". |
+| Browser | Storefront checks run in `kit-browser`, an isolated browser logged in nowhere. Chrome (editor, admin) runs as your admin account, and no hook sees clicks. The agent's "look only" rules and the extension's prompts are the only checks. Don't give `admin.shopify.com` "always allow". |
 | The real boundary | The guard is a seatbelt; if it fails, the call is blocked. GitHub branch protection and your store permissions are what hold. Never run the kit in bypass-permissions mode. |
 
 ## Troubleshooting
@@ -141,7 +143,7 @@ The logs are history, not a knowledge base: every task reads the code fresh.
 | "Admin API login missing or lacks scopes", or an investigation's query gets "access denied" | the login command above (`auth-check` prints it) |
 | "No Jira credentials" | create `.claude/.env.local`, or paste the ticket text |
 | "The theme library is full" | delete old kit drafts with `shopify.mjs delete-draft <KEY>`, and others in the admin (stores allow 20 themes, 100 on Plus) |
-| push: "Live has changed … since this branch's base" | merge `origin/<base>` into the task branch, commit, push again |
+| push: "Live has changed … since this branch's base" | merge `origin/<base>` into the task branch, commit, push again. If live edits never reach git: copy them into the branch, commit, and `push <KEY> --reconciled <file>` (you're asked to confirm) |
 | push: "Shopify rejected files" | fix the named file (often a Liquid error), commit, push again |
 | push or verify: "the draft doesn't match" | push once more. A JSON file that keeps differing usually needs its schema change pushed first. |
 | The draft seems to show old code | `shopify.mjs fetch <KEY> <path> --find <text>`. A plain `?preview_theme_id` request gets the live theme. |
@@ -150,6 +152,6 @@ The logs are history, not a knowledge base: every task reads the code fresh.
 | The guard blocks a harmless command that mentions "shopify" | use the Grep tool, or rephrase |
 | You need a CLI command the wrapper doesn't have | run it yourself with `!`; the guard only watches Claude |
 
-## Not in v0.4
+## Not in v0.5
 
-Shopify app development, fetching A/B code from shadow-drip, target themes other than live, posting to Jira or creating PRs, unattended runs, and a short lane for small changes.
+Shopify app development, fetching A/B code from shadow-drip, target themes other than live, posting to Jira or creating PRs, unattended runs, and shared task state between devs.

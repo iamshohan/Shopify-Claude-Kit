@@ -60,7 +60,22 @@
       "PowerShell(git show:*)",
       "PowerShell(git rev-parse:*)",
       "PowerShell(git ls-remote --heads origin:*)",
-      "PowerShell(git merge-base:*)"
+      "PowerShell(git merge-base:*)",
+      "mcp__kit-browser__browser_navigate",
+      "mcp__kit-browser__browser_navigate_back",
+      "mcp__kit-browser__browser_resize",
+      "mcp__kit-browser__browser_snapshot",
+      "mcp__kit-browser__browser_take_screenshot",
+      "mcp__kit-browser__browser_evaluate",
+      "mcp__kit-browser__browser_click",
+      "mcp__kit-browser__browser_hover",
+      "mcp__kit-browser__browser_select_option",
+      "mcp__kit-browser__browser_press_key",
+      "mcp__kit-browser__browser_wait_for",
+      "mcp__kit-browser__browser_console_messages",
+      "mcp__kit-browser__browser_network_requests",
+      "mcp__kit-browser__browser_tabs",
+      "mcp__kit-browser__browser_close"
     ],
     "deny": [
       "Read(./.claude/.env.local)",

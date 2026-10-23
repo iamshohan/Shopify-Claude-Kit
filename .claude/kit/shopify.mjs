@@ -5,10 +5,11 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { tmpdir, homedir } from 'node:os';
+import { createHash } from 'node:crypto';
 import {
   ROOT, LOGS, KIT_DIR, THEME_DIRS, MERCHANT_JSON, WIN, print, fail, parseArgs, normKey, now, run, git,
   currentBranch, parseCliJson, diagnosticJson, readConfig, readState, writeState, secret, inTaskFolder, ignoreMatcher,
-  storefrontGet, renderedTheme, storefrontPath, isThemePath, mutationProblems, sealDigest, SEAL_FILE, draftNameFor,
+  storefrontGet, renderedTheme, storefrontPath, isThemePath, mutationProblems, sealDigest, SEAL_FILE, draftNameFor, effectiveBase,
 } from './lib.mjs';
 
 const HELP = `Usage: node .claude/kit/shopify.mjs <verb> ...
@@ -31,6 +32,8 @@ This task's draft theme
                                          (refuses an existing theme with that name unless the dev says --adopt)
   draft <KEY> --github [--theme ID]      adopt the theme the dev connected to the task branch (Add theme → Connect from GitHub)
   push <KEY> [--dry-run]                 upload every theme file the branch's commits touched to the draft, then verify
+  push|verify <KEY> --reconciled F,F     the dev confirms live's edits to these files are already in the branch (a repo
+                                         that doesn't sync live edits into git); the guard asks first
   preview <KEY> <overrides.json>         virtual preview of the draft with JSON overrides; prints the URL
 Investigations (kit.mjs start <KEY> --investigate) can't use draft, push, preview, mutate or delete-draft.
 The guard asks the dev before these run
@@ -238,20 +241,24 @@ function assertFullHistory(base) {
 /**
  * Theme files the draft must match: every file any branch commit touched, not only base...HEAD,
  * so a file reverted to its base content is re-sent instead of keeping an earlier push's version.
+ * Measured from the effective base, so work merged in from the base branch isn't sent as this task's;
+ * the diff adds files a merge resolution changed, which a merge commit's log doesn't list.
  */
 function branchFiles(st) {
   assertFullHistory(st.base);
-  const touched = git(['log', '--format=', '--name-only', '--no-renames', '--relative', `${st.base}..HEAD`, '--', ...THEME_DIRS], { allowFail: true });
+  const base = effectiveBase(st, cfg);
+  const touched = git(['log', '--format=', '--name-only', '--no-renames', '--relative', `${base}..HEAD`, '--', ...THEME_DIRS], { allowFail: true });
+  const differ = git(['diff', '--name-only', '--no-renames', '--relative', base, 'HEAD', '--', ...THEME_DIRS], { allowFail: true });
   const files = [];
   const gone = [];
-  for (const f of [...new Set(touched.split('\n').filter(Boolean))].sort()) {
+  for (const f of [...new Set(`${touched}\n${differ}`.split('\n').filter(Boolean))].sort()) {
     if (existsSync(join(ROOT, f))) files.push(f); else gone.push(f);
   }
   for (const out of st.buildOutputs || []) {
     if (!isThemePath(out)) fail(`buildOutputs holds "${out}", which isn't a theme file path (assets/…, snippets/…). Fix it: kit.mjs set ${st.key} buildOutputs=<path,path>`);
     if (existsSync(join(ROOT, out)) && !files.includes(out)) files.push(out);
   }
-  return { files, gone };
+  return { files, gone, base };
 }
 
 /** Batches stay well under cmd.exe's 8,191-character command line. */
@@ -264,21 +271,43 @@ function batches(files) {
   return out;
 }
 
-/** Changed merchant JSON that live edited after the branch's base: pushing it would overwrite those edits. */
-function liveDrift(st, files) {
+/** Changed merchant JSON that live edited after the base: pushing it would overwrite those edits. live: a digest of live's copy. */
+function liveDrift(files, base) {
   const jsonFiles = files.filter((f) => MERCHANT_JSON.test(f) || /^locales\/.+\.json$/.test(f));
   if (!jsonFiles.length) return [];
   const dir = mkdtempSync(join(tmpdir(), 'kit-live-'));
   try {
     const r = cli(['theme', 'pull', '--store', cfg.store, '--live', '--path', dir, '--nodelete', '--force', ...jsonFiles.flatMap((f) => ['--only', f])]);
     if (r.code !== 0) failCli(cfg.store, r, 'Pulling live JSON for the drift check');
-    return jsonFiles.filter((f) => {
+    return jsonFiles.flatMap((f) => {
       const livePath = join(dir, f);
       const liveText = existsSync(livePath) ? readFileSync(livePath, 'utf8') : null;
-      const baseText = git(['show', `${st.base}:./${f}`], { allowFail: true }) || null;
-      return baseText !== null && normJson(liveText) !== normJson(baseText);
+      const baseText = git(['show', `${base}:./${f}`], { allowFail: true }) || null;
+      if (baseText === null || normJson(liveText) === normJson(baseText)) return [];
+      return [{ file: f, live: createHash('sha256').update(normJson(liveText) ?? '(missing)').digest('hex').slice(0, 16) }];
     });
   } finally { rmSync(dir, { recursive: true, force: true }); }
+}
+
+/**
+ * Drifted files the dev hasn't reconciled. --reconciled records the named ones at their current live version,
+ * so a later live edit to the same file is flagged again.
+ */
+function openDrift(key, st, drifted) {
+  if (flags.reconciled === undefined) return drifted.filter((d) => st.liveReconciled?.[d.file]?.live !== d.live);
+  if (typeof flags.reconciled !== 'string') fail('Name the files: --reconciled templates/product.json,sections/header-group.json');
+  const named = flags.reconciled.split(',').map((s) => s.trim()).filter(Boolean);
+  const unknown = named.filter((f) => !drifted.some((d) => d.file === f));
+  if (unknown.length) fail(`--reconciled names ${unknown.join(', ')}, which live hasn't changed since the base. Name only files the drift check lists.`);
+  for (const d of drifted) if (named.includes(d.file)) (st.liveReconciled ||= {})[d.file] = { live: d.live, at: now() };
+  writeState(key, st);
+  return drifted.filter((d) => st.liveReconciled?.[d.file]?.live !== d.live);
+}
+
+function driftMessage(key, open, base) {
+  return `Live has changed ${open.map((d) => d.file).join(', ')} since this branch's base (${base.slice(0, 7)}). Pushing would overwrite those edits on the draft and, after merge, on live.\n`
+    + `- Shopify syncs live edits into git ("Update from Shopify" commits): merge origin/${cfg.baseBranch || 'main'} into the branch, resolve, commit, push again.\n`
+    + `- It doesn't: copy live's edits into the branch (pull-live ${key} <file> shows them), commit, and once the dev confirms, run the push or verify again with --reconciled ${open.map((d) => d.file).join(',')}.`;
 }
 
 const sameText = (a, b) => a.replace(/\r\n/g, '\n') === b.replace(/\r\n/g, '\n');
@@ -542,10 +571,12 @@ switch (verb) {
     if (!st.base) fail(`No base commit recorded yet. Record it first: kit.mjs set ${key} base=<sha>`);
     assertFullHistory(st.base);
     const offenses = themeCheck();
-    // Diff from the merge base, so base-branch changes merged into the task branch don't count as introduced.
-    const ranges = changedRanges(git(['merge-base', st.base, 'HEAD'], { allowFail: true }) || st.base);
+    // From the effective base, so base-branch changes merged into the task branch don't count as introduced.
+    const base = effectiveBase(st, cfg);
+    const ranges = changedRanges(base);
     const introduced = offenses.filter((o) => (ranges[o.path] || []).some(([a, b]) => o.line >= a && o.line <= b));
     const result = {
+      base: base.slice(0, 7),
       introduced,
       introducedErrors: introduced.filter((o) => o.severity === 'error').length,
       introducedWarnings: introduced.filter((o) => o.severity !== 'error').length,
@@ -555,6 +586,7 @@ switch (verb) {
       const after = countBy(offenses, 'check');
       // Catches offenses the change causes in files it didn't touch (e.g. a removed snippet).
       result.checksThatRose = Object.entries(after).filter(([c, n]) => n > (before[c] || 0)).map(([check, n]) => ({ check, before: before[check] || 0, after: n }));
+      if (base !== st.base) result.baselineNote = 'The base branch was merged in after the baseline was recorded, so checksThatRose can include offenses that came with the merge.';
     } else {
       result.note = `No baseline; only offenses on changed lines are shown. Run: shopify.mjs check ${key} --baseline (before building).`;
     }
@@ -657,17 +689,15 @@ switch (verb) {
     const target = waitUntilReady(cfg.store, st.draft.themeId);
     assertOwnDraft(key, st, target);
 
-    const { files, gone: deleted } = branchFiles(st);
+    const { files, gone: deleted, base } = branchFiles(st);
     if (!files.length) fail('Nothing to push: the branch has no committed theme changes beyond its base.');
     const ignored = files.filter(shopifyIgnore());
     if (ignored.length) fail(`The repo's .shopifyignore excludes ${ignored.join(', ')}, so the CLI would skip them without saying so. Ask the dev how these files reach the store (often: they are edited in the admin, not in git).`);
 
     const head = git(['rev-parse', 'HEAD']);
-    if (flags['dry-run']) { print({ dryRun: true, theme: target, files, deletedOnBranch: deleted, jsonDriftCheck: 'skipped in dry run' }); break; }
-    const drifted = liveDrift(st, files);
-    if (drifted.length) {
-      fail(`Live has changed ${drifted.join(', ')} since this branch's base. Pushing would overwrite those edits on the draft and, after merge, on live.\nMerge origin/${cfg.baseBranch || 'main'} into the branch (Shopify syncs live edits into it), resolve, commit, then push again. If this repo doesn't sync live edits into git, ask the dev how to reconcile.`, 3);
-    }
+    if (flags['dry-run']) { print({ dryRun: true, theme: target, base: base.slice(0, 7), files, deletedOnBranch: deleted, jsonDriftCheck: 'skipped in dry run' }); break; }
+    const drifted = openDrift(key, st, liveDrift(files, base));
+    if (drifted.length) fail(driftMessage(key, drifted, base), 3);
     let urls = {};
     for (const batch of batches(files)) {
       const r = cli(['theme', 'push', '--store', cfg.store, '--theme', String(target.id), '--nodelete', '--json', ...batch.flatMap((f) => ['--only', f])]);
@@ -691,7 +721,7 @@ switch (verb) {
     if (urls.editorUrl) st.draft.editorUrl = urls.editorUrl;
     writeState(key, st);
     print({
-      pushed: files.length, verified: `${files.length}/${files.length} files match ${head.slice(0, 7)}`, previewUrl: st.draft.previewUrl, editorUrl: st.draft.editorUrl,
+      pushed: files.length, base: base.slice(0, 7), verified: `${files.length}/${files.length} files match ${head.slice(0, 7)}`, previewUrl: st.draft.previewUrl, editorUrl: st.draft.editorUrl,
       deletedOnBranchButStillOnDraft: deleted,
     });
     break;
@@ -703,7 +733,7 @@ switch (verb) {
     if (!st.draft?.themeId) fail(`No draft yet. Run: shopify.mjs draft ${key}`);
     const target = listThemes(cfg.store).find((t) => t.id === st.draft.themeId);
     assertOwnDraft(key, st, target);
-    const { files, gone } = branchFiles(st);
+    const { files, gone, base } = branchFiles(st);
     if (!files.length) fail('The branch has no committed theme changes beyond its base.');
     const head = git(['rev-parse', 'HEAD']);
     const github = st.draft.route === 'github';
@@ -716,12 +746,12 @@ switch (verb) {
     const until = Date.now() + waitSeconds * 1000;
     let mismatches = draftMismatches(target.id, files);
     while (mismatches.length && Date.now() < until) { sleep(15000); mismatches = draftMismatches(target.id, files); }
-    const drifted = github ? liveDrift(st, files) : [];
+    const drifted = github ? openDrift(key, st, liveDrift(files, base)) : [];
     if (!mismatches.length) { st.draft.verifiedCommit = head; writeState(key, st); }
     print({
-      commit: head.slice(0, 7), files: files.length, matching: files.length - mismatches.length, mismatches,
+      commit: head.slice(0, 7), base: base.slice(0, 7), files: files.length, matching: files.length - mismatches.length, mismatches,
       deletedOnBranchButStillOnDraft: gone,
-      ...(drifted.length ? { liveChangedSinceBase: drifted, fix: `Merge origin/${cfg.baseBranch || 'main'} into the branch, resolve, commit and push: the merge would otherwise overwrite these live edits.` } : {}),
+      ...(drifted.length ? { liveChangedSinceBase: drifted.map((d) => d.file), fix: driftMessage(key, drifted, base) } : {}),
     });
     if (mismatches.length || drifted.length) process.exit(3);
     break;

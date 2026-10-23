@@ -27,10 +27,10 @@ After a compaction or in a new session, run status first and continue from what 
 
 ## Rules
 
-- **Read-only.** No theme edits, no store changes, no draft themes. The wrapper refuses the write verbs, and `conclude` refuses if theme files changed.
+- **Read-only:** the skill lists what that means.
 - **Gates are the dev's decisions.** Ask with AskUserQuestion, and record their words. `--answer` is one line of at most 200 characters, without quotes, backticks or `$`.
 - **You write `investigation.md`.** Agents return reports, and you record what matters.
-- **Only these skills run here:** `shopify-investigate`, `shopify-plugin:shopify` for docs, and `claude-in-chrome` for the storefront. Don't load other investigate, QA or Jira skills, or Jira MCP tools; `jira.mjs` replaces them.
+- **Only these skills run here:** `shopify-investigate`, `shopify-plugin:shopify` for docs, the `kit-browser` tools for the storefront (Chrome if they're missing), and `claude-in-chrome` for admin pages. Don't load other investigate, QA or Jira skills, or Jira MCP tools; `jira.mjs` replaces them.
 - **Two failed attempts at the same thing → stop,** say what you tried and what you saw, and ask.
 - **Talk like /implement does:** lead with what needs the dev, at most 6 lines between gates, and point to `investigation.md` instead of quoting it.
 - **When the kit itself gets in your way**, record it then: `kit.mjs note <KEY> "<what happened> → <what would have prevented it>" --kind friction|mistake|kit-bug|missing|idea`.

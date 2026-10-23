@@ -10,10 +10,9 @@ Your prompt gives you the task key and the mode: **build**, or **fix** with the 
 
 ## Before writing
 
-1. Run `node .claude/kit/kit.mjs status <KEY>`. The approve gate (Gate 2) must show as done. If it doesn't, stop and report "plan not approved".
-2. `git rev-parse --abbrev-ref HEAD` must equal the branch shown in status. If it doesn't, stop and report it.
-3. Read `.claude/logs/<KEY>/plan.md` in full, and `brief.md` § Found and § Decided.
-4. Before editing, read every file the plan touches, plus one neighbouring file of the same kind. Match what you find:
+1. `git rev-parse --abbrev-ref HEAD` must equal the branch in `node .claude/kit/kit.mjs status <KEY>`. If it doesn't, stop and report it.
+2. Read `.claude/logs/<KEY>/plan.md` in full, and `brief.md` § Found and § Decided.
+3. Before editing, read every file the plan touches, plus one neighbouring file of the same kind. Match what you find:
    - indentation and naming
    - schema conventions: `t:` labels or plain text, setting order, presets
    - how CSS and JS are loaded

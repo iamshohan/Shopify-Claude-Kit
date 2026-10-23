@@ -25,19 +25,25 @@ Never write "QA passed" while any row is FAIL, NOT TESTED or BLOCKED.
 2. Copy every row of `plan.md` § QA criteria into `report.md` § Criteria, filling the Expected column and leaving Measured empty. Do this before measuring anything, so that results can't shape the expectations.
 3. **Write each row's result into `report.md` as soon as you've measured it**, not at the end. A compaction then loses nothing.
    Use `kit.mjs qa-row <KEY> <#> --measured "…" --how "…" --verdict PASS`. It edits one row safely; don't rewrite the table with heredocs or regex scripts.
-4. **Browser.** Load the `claude-in-chrome` skill, then create a new tab with the Chrome MCP. Keep that tab in front: background tabs freeze animations and timers.
-5. **Viewports: ask once, up front.** `resize_window` can't change the viewport of a maximized window. Chrome's device toolbar (devtools responsive mode) can, but only the dev can turn it on, and it stays per tab. So list every viewport the criteria need, as device-toolbar presets (e.g. iPhone 12 Pro 390×844, iPhone SE 375×667), and ask the dev in one message, in the order you'll use them. Then measure everything for one viewport before asking for the next.
-   - In device-toolbar mode, real clicks from the Chrome MCP can time out. Trigger the theme's own control with `element.click()` in `javascript_tool` instead. Record that in How, and leave a by-hand row only for what needs a real tap.
+4. **Browsers: two, each for what it's safe for.**
+   - **Storefront (the draft, live for comparison): the `kit-browser` tools** (`mcp__kit-browser__*`, an isolated Playwright browser that `/shopify-setup` adds). It isn't logged in anywhere, so nothing it does can reach the admin.
+   - **Theme editor and admin pages: Chrome** (load the `claude-in-chrome` skill, then open a new tab and keep it in front: background tabs freeze animations and timers). Chrome runs as the dev's admin account.
+   - **No `kit-browser` tools?** Do the storefront in Chrome too, with the Chrome fallback under step 5.
+5. **Viewports.**
+   - **kit-browser:** `browser_resize` to each width × height the criteria need, then read `innerWidth` back. No device toolbar and nothing for the dev to do. `browser_click` is a real pointer click on the element. Touch-only behaviour (swipes, `touchstart` handlers) stays a by-hand row.
+   - **Chrome fallback: ask once, up front.** `resize_window` can't change the viewport of a maximized window. Chrome's device toolbar (devtools responsive mode) can, but only the dev can turn it on, and it stays per tab. So list every viewport the criteria need, as device-toolbar presets (e.g. iPhone 12 Pro 390×844, iPhone SE 375×667), and ask the dev in one message, in the order you'll use them. Then measure everything for one viewport before asking for the next. In device-toolbar mode, real clicks from the Chrome MCP can time out: trigger the theme's own control with `element.click()` in `javascript_tool`, record that in How, and leave a by-hand row only for what needs a real tap.
 6. **Plan the order.** Work page by page, then viewport by viewport, and measure every criterion for that page and width before navigating again.
-7. **Plain HTML checks** (does the draft render X, which theme served it) don't need the browser: `node .claude/kit/shopify.mjs fetch <KEY> <path> --find <text>`. Never `curl` a `?preview_theme_id` URL; without the cookie it gets the live theme.
+7. **Plain HTML checks** (does the draft render X, which theme served it) don't need the browser: `node .claude/kit/shopify.mjs fetch <KEY> <path> --find <text>`.
 
 ### On every page, before measuring
 
-1. **Probe loaded.** On the first page of a storefront origin, read `.claude/kit/probe.inject.js` and run its contents with `javascript_tool`. It defines `window.__qa` and keeps the source in the tab's `sessionStorage`. After every navigation or reload, run only this one line:
-   ```js
-   sessionStorage.getItem('__qaSrc') ? ((0, eval)(sessionStorage.getItem('__qaSrc')), 'probe ready') : 'NO PROBE: inject probe.inject.js'
-   ```
-   If eval is refused on a page, inject `.claude/kit/probe.js` directly.
+1. **Probe loaded.**
+   - **kit-browser:** once per session, before opening the first storefront page, run `browser_run_code_unsafe` with `filename: ".claude/kit/probe.init.js"` (no `code`). The file only adds the probe to every page; the prompt names it, so the dev can see what runs. From the next navigation on, each page defines `window.__qa` before its own scripts, so `__qa.errors()` and `__qa.shift()` include the load. Check with `browser_evaluate` `() => typeof __qa`. Measure with `browser_evaluate` too, e.g. `() => __qa.see('.x')`. If the init file is refused, use the Chrome steps below through `browser_evaluate`.
+   - **Chrome:** on the first page of a storefront origin, read `.claude/kit/probe.inject.js` and run its contents with `javascript_tool`. It defines `window.__qa` and keeps the source in the tab's `sessionStorage`. After every navigation or reload, run only this one line:
+     ```js
+     sessionStorage.getItem('__qaSrc') ? ((0, eval)(sessionStorage.getItem('__qaSrc')), 'probe ready') : 'NO PROBE: inject probe.inject.js'
+     ```
+     If eval is refused on a page, inject `.claude/kit/probe.js` directly.
 2. **Right theme.** Run `__qa.env()`, plus `Shopify.theme.id`, which must equal the draft id. A URL alone doesn't prove it, because the preview cookie survives redirects. Read it once `document.readyState` is `complete`; earlier, `Shopify.theme` can still be unset, and null means "not loaded yet", not a wrong theme.
 3. **Right width.** Read `window.innerWidth` after every reload. If it isn't the viewport you asked for, ask the dev; never record a mobile result measured at desktop width.
 4. **Change present.** `__qa.live('<prefix>')` must find the feature where it should render.
@@ -98,7 +104,7 @@ Never write "QA passed" while any row is FAIL, NOT TESTED or BLOCKED.
 
 ### The report
 
-- **§ You must still do** (top of the report): one numbered line per BLOCKED or NOT TESTED row, saying where and how the dev checks it: "#22 Replace the FAQ icon in Content → Metaobjects → Mobile menu image, reload the draft, restore it." Add any ticket AC that isn't delivered. `kit.mjs done` refuses QA with open rows and an empty list.
+- **§ You must still do** (top of the report): one numbered line per BLOCKED or NOT TESTED row, saying where and how the dev checks it: "#22 Replace the FAQ icon in Content → Metaobjects → Mobile menu image, reload the draft, restore it." Add any ticket AC that isn't delivered.
 - **§ Criteria:** one row per criterion, with the columns `#`, criterion, expected, measured, how, and verdict. Keep Measured and How to about 15 words each: the probe call or command and the number that decided it. Longer evidence goes in a file under `.claude/logs/<KEY>/` that the cell names.
 - **§ Summary:**
   - "N criteria: x PASS, y FAIL, z NOT TESTED, w BLOCKED."
@@ -117,7 +123,7 @@ Never write "QA passed" while any row is FAIL, NOT TESTED or BLOCKED.
    - each FAIL with what was measured
    - § You must still do, as written in the report
    - anything noticed that the dev should decide about, at most three lines
-2. AskUserQuestion: "QA result for <KEY>". Options: **Accept, I'll do the N checks** (or **Accept** when nothing is open), **Fix the failures**, and **I'll test more first**. None is marked "(Recommended)".
+2. AskUserQuestion: "QA result for <KEY>". Options: **Accept, I'll do the N checks** (or **Accept** when nothing is open), **Fix the failures**, and **I'll test more first**.
 3. Then:
    - **Accept** → `kit.mjs done <KEY> accept --answer "<their words>"`.
    - **Fix the failures** → `kit.mjs back <KEY> build --reason "<the failing rows>"`. Then:

@@ -19,7 +19,7 @@ export const THEME_DIRS = ['assets', 'blocks', 'config', 'layout', 'locales', 's
 /** The CLI's --only takes the next argument even when it starts with -, so only theme paths reach it. */
 export const isThemePath = (p) => new RegExp(`^(${THEME_DIRS.join('|')})/.`).test(p) && !p.split('/').includes('..');
 // Files Shopify rewrites when someone saves in the admin (and syncs into git on GitHub-connected themes).
-export const MERCHANT_JSON = /^(templates\/.+\.json|sections\/[^/]+\.json|config\/settings_data\.json)$/;
+export const MERCHANT_JSON = /^(templates\/.+\.json|sections\/[^/]+\.json|config\/settings_data\.json)$/i;
 
 // Source of truth for the pipeline. Human-readable copies: commands/implement.md and README.md.
 export const STAGES = [
@@ -42,7 +42,12 @@ export const INVESTIGATION_STAGES = [
   { name: 'conclude', skill: 'shopify-investigate', gate: 'the dev accepts the answer or asks for more' },
 ];
 
-export const stagesFor = (st) => (st?.kind === 'investigation' ? INVESTIGATION_STAGES : STAGES);
+// The small lane (kit.mjs start <KEY> --small): no separate clarify gate. Open questions are asked in the plan
+// stage, and done plan refuses work that needs Gate 1 (an A/B port, editability lines, store writes, merchant JSON).
+export const SMALL_STAGES = STAGES.filter((s) => s.name !== 'clarify')
+  .map((s) => (s.name === 'approve' ? { ...s, gate: 'the dev approves the plan (small lane: decisions and plan in one gate)' } : s));
+
+export const stagesFor = (st) => (st?.kind === 'investigation' ? INVESTIGATION_STAGES : st?.lane === 'small' ? SMALL_STAGES : STAGES);
 
 export const now = () => new Date().toISOString();
 
@@ -55,7 +60,7 @@ export function fail(message, code = 1) {
   process.exit(code);
 }
 
-const BOOLEAN_FLAGS = new Set(['dry-run', 'baseline', 'json', 'help', 'force', 'no-comments', 'selftest', 'investigate', 'live', 'github', 'none', 'all', 'adopt', 'test']);
+const BOOLEAN_FLAGS = new Set(['dry-run', 'baseline', 'json', 'help', 'force', 'no-comments', 'selftest', 'investigate', 'live', 'github', 'none', 'all', 'adopt', 'test', 'small']);
 
 export function parseArgs(argv) {
   const out = { _: [], flags: {} };
@@ -112,6 +117,15 @@ export function git(args, { allowFail = false } = {}) {
 
 export function currentBranch() {
   return git(['rev-parse', '--abbrev-ref', 'HEAD'], { allowFail: true });
+}
+
+/**
+ * The commit this task's changes are measured from: where HEAD meets origin/<baseBranch> now, as a PR diff is.
+ * st.base is only where the branch started. Once the base branch is merged in, measuring from st.base counts
+ * the merged-in work as this task's, and keeps flagging live edits the merge already brought in.
+ */
+export function effectiveBase(st, cfg) {
+  return git(['merge-base', 'HEAD', `origin/${cfg?.baseBranch || 'main'}`], { allowFail: true }) || st.base;
 }
 
 /**

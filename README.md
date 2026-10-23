@@ -23,17 +23,19 @@ install.mjs                 installs or updates the kit in a theme repo
   skills/                   one skill per phase (intake, plan, build, qa, handoff) plus shopify-investigate
   agents/                   theme-recon, abtest-analyst, theme-builder, evidence-checker
   hooks/guard.mjs           the safety guard (with --selftest)
-  kit/                      scripts: kit.mjs (task state), shopify.mjs (the only CLI wrapper),
-                            jira.mjs, recon.mjs, contract.mjs, compare.mjs, probe.js, templates/, queries/
+  kit/                      scripts: kit.mjs (task state), shopify.mjs (the only CLI wrapper), lib.mjs (shared),
+                            jira.mjs, recon.mjs, contract.mjs, compare.mjs, templates/, queries/,
+                            probe.js (QA probe; build-probe generates probe.inject.js and probe.init.js)
+test/                       e2e.mjs and fake-shopify.mjs: the offline end-to-end test (not installed)
 ```
 
 ## Maintaining the kit
 
 - **Change it here, never in a theme repo's copy.** Teams pick up changes with `git pull` and the installer.
-- **Before committing,** `node .claude/hooks/guard.mjs --selftest` and `node .claude/kit/kit.mjs --selftest` must both pass. After changing `kit/probe.js`, also run `node .claude/kit/kit.mjs build-probe`.
+- **Before committing,** `node .claude/hooks/guard.mjs --selftest`, `node .claude/kit/kit.mjs --selftest` and `node test/e2e.mjs` must all pass. The e2e test runs the scripts offline against a fake Shopify CLI (`test/fake-shopify.mjs`); a wrapper change that reads new CLI output needs the fake to produce it too. After changing `kit/probe.js`, also run `node .claude/kit/kit.mjs build-probe`.
 - **`hooks/guard.mjs` and `kit/shopify.mjs` are safety code.** Review changes to them in a PR, with a self-test case for every new rule or bypass.
 - **After a Shopify CLI or plugin update,** run `/shopify-update` in a theme repo and fix here what it reports.
-- **Every release:** bump `.claude/VERSION` (patch for fixes, minor for new behaviour) and add a `CHANGELOG.md` entry.
+- **Every release:** bump `.claude/VERSION` (patch for fixes, minor for new behaviour) add a `CHANGELOG.md` entry, and update the version in both READMEs.
 - **The Admin API scopes** live in `kit/shopify.mjs` and are written out in the team guide's login command. Change both.
 
-Status: v0.4.0. See `CHANGELOG.md`.
+Status: v0.5.0. See `CHANGELOG.md`.

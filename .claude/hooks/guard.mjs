@@ -7,10 +7,14 @@ import { readFileSync, existsSync, appendFileSync, mkdirSync, writeFileSync, rea
 import { execFileSync } from 'node:child_process';
 import { dirname, join, resolve, relative, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { homedir } from 'node:os';
 // The wrapper's own argv parser and mutation check: the guard must read a command exactly as the wrapper will run it.
-import { parseArgs, mutationProblems, sealDigest, SEAL_FILE, TEST_SUFFIX } from '../kit/lib.mjs';
+import { parseArgs, mutationProblems, sealDigest, SEAL_FILE, TEST_SUFFIX, MERCHANT_JSON, protectedBranches as branchesFrom } from '../kit/lib.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+const WIN = process.platform === 'win32';
+// The kit's master repo: install.mjs sits beside .claude/, and the installer (which writes the manifest) never ran here.
+const MASTER = existsSync(join(ROOT, 'install.mjs')) && !existsSync(join(ROOT, '.claude', '.kit-manifest.json'));
 
 const USE_WRAPPER = 'Shopify CLI calls go through the kit: node .claude/kit/shopify.mjs <verb> (run it with --help for the verbs). '
   + 'If the wrapper has no verb for what you need, ask the dev to run the command themselves with the ! prefix. '
@@ -35,7 +39,6 @@ const CONFIG_KEYS = {
   draftRoute: 'how the draft theme is made',
 };
 const STORE_VERBS = new Set(['mutate', 'delete-draft']);
-const MERCHANT_JSON = /^(templates\/.+\.json|sections\/[^/]+\.json|config\/settings_data\.json)$/i;
 // Wrapper verbs that run without asking. Anything else, including verbs added later, asks the dev.
 const SAFE_VERBS = new Set(['cli-check', 'auth-check', 'themes', 'query', 'pull-live', 'check', 'draft', 'push', 'preview', 'fetch', 'verify', 'help', '--help']);
 // Without the cookie the redirect sets, ?preview_theme_id silently serves the live theme.
@@ -44,10 +47,7 @@ const NPM_BUILTINS = new Set(['install', 'i', 'ci', 'add', 'remove', 'rm', 'unin
   'outdated', 'ls', 'list', 'view', 'info', 'audit', 'link', 'config', 'cache', 'why', 'pack', 'prune', 'dedupe', 'help', 'version', '-v', '--version']);
 
 function protectedBranches() {
-  try {
-    const cfg = JSON.parse(readFileSync(join(ROOT, '.claude', 'shopify-kit.json'), 'utf8'));
-    return [...new Set(['main', 'master', cfg.baseBranch, ...(cfg.protectedBranches || [])].filter(Boolean))];
-  } catch { return ['main', 'master']; }
+  try { return branchesFrom(JSON.parse(readFileSync(join(ROOT, '.claude', 'shopify-kit.json'), 'utf8'))); } catch { return branchesFrom(null); }
 }
 
 function currentBranch() {
@@ -126,6 +126,25 @@ function gitCommand(segment) {
   return { sub: w[i] || '', args: w.slice(i + 1), globals: w.slice(start + 1, i) };
 }
 
+/** The argument of a cd, pushd or Set-Location segment ({ arg: undefined } means home), or null for any other segment. */
+function cdArg(segment) {
+  const { w, i } = program(stripRedirects(segment));
+  if (!/^(cd|pushd|chdir|Set-Location|sl)$/i.test(w[i] || '')) return null;
+  return { arg: w.slice(i + 1).find((x) => !/^-(L|P|e|@|Path|LiteralPath)$/i.test(x) && !/^\/d$/i.test(x)) };
+}
+
+/** The folder a cd or git -C leads to, or null when the guard can't tell (a variable, cd -, an unknown start). */
+function dirAfter(arg, from) {
+  if (arg === undefined) return homedir();
+  if (!arg || arg === '-' || /[$`%*?]/.test(arg)) return null;
+  let p = arg.replace(/^~(?=$|[\\/])/, homedir());
+  if (WIN) p = p.replace(/^\/([a-zA-Z])(?=\/|$)/, (_, d) => `${d.toUpperCase()}:`);
+  if (isAbsolute(p)) return resolve(p);
+  return from === null ? null : resolve(from, p);
+}
+
+const outsideRepo = (dir) => { const rel = relative(ROOT, dir); return rel.startsWith('..') || isAbsolute(rel); };
+
 /** The command string inside bash -c "...", cmd /c ..., powershell -Command "...". */
 function innerCommand(segment) {
   const m = segment.match(/^(?:[A-Za-z_]\w*=\S+\s+)*(?:&\s*)?(?:bash|sh|zsh|cmd|powershell|pwsh)(?:\.exe)?\s+(?:-c|\/c|-Command|-command)\s+([\s\S]+)$/i);
@@ -135,7 +154,7 @@ function innerCommand(segment) {
   return (q === '"' || q === "'") && rest.endsWith(q) ? rest.slice(1, -1) : rest;
 }
 
-function checkPush(args, prot, testBranches = []) {
+function checkPush(args, prot) {
   const flags = args.filter((a) => a.startsWith('-'));
   const pos = args.filter((a) => !a.startsWith('-'));
   const allowed = 'Allowed form: git push -u origin <task-branch>.';
@@ -146,7 +165,7 @@ function checkPush(args, prot, testBranches = []) {
   const ref = pos[1].replace(/^refs\/heads\//, '');
   if (ref.toUpperCase() === 'HEAD' || /[:+*^~]/.test(ref)) return `Push the branch by name, not a refspec like HEAD:main or +branch. ${allowed}`;
   if (prot.some((p) => p.toLowerCase() === ref.toLowerCase())) return `"${ref}" is protected. It changes only through a reviewed PR that the dev merges.`;
-  if (ref.toLowerCase().endsWith(TEST_SUFFIX) || testBranches.includes(ref.toLowerCase())) return `"${ref}" belongs to a test run of the kit, which is never pushed. The draft gets the files through shopify.mjs push; handoff skips the push.`;
+  if (ref.toLowerCase().endsWith(TEST_SUFFIX)) return `"${ref}" belongs to a test run of the kit, which is never pushed. The draft gets the files through shopify.mjs push; handoff skips the push.`;
   return null;
 }
 
@@ -181,6 +200,9 @@ function wrapperDecision(segs, ctx) {
       continue;
     }
     const verb = call._[0];
+    if (['push', 'verify'].includes(verb) && call.flags.reconciled !== undefined) {
+      return { decision: 'ask', reason: `The dev confirms that live's edits to ${call.flags.reconciled} are already in the task branch (copied by hand: this repo doesn't sync live edits into git). The draft, and live after the merge, get the branch's version of these files. Allow?` };
+    }
     if (!verb || SAFE_VERBS.has(verb)) continue;
     if (!STORE_VERBS.has(verb)) return { decision: 'ask', reason: `The kit command "${verb}" isn't on the read-only list. Allow it? (${seg.trim()})` };
     // The wrapper reads the same flag the same way, so this is a real dry run.
@@ -233,7 +255,7 @@ function configChange(ti, ctx) {
   return `This changes the kit's settings for this repo (${CONFIG_REL}):\n${lines ? lines.join('\n') || '- no setting changes' : '- the guard couldn\'t tell which settings change'}\nAllow it?`;
 }
 
-function decideCommand(raw, ctx, depth = 0) {
+function decideCommand(raw, ctx, depth = 0, cwd = null) {
   const cmd = stripMessageBodies(raw);
   const segs = segments(cmd);
   const prot = ctx.protected();
@@ -241,7 +263,7 @@ function decideCommand(raw, ctx, depth = 0) {
   for (const seg of segs) {
     const inner = depth < 2 ? innerCommand(seg) : null;
     if (inner) {
-      const r = decideCommand(inner, ctx, depth + 1);
+      const r = decideCommand(inner, ctx, depth + 1, cwd);
       if (r) return r;
     }
   }
@@ -263,9 +285,13 @@ function decideCommand(raw, ctx, depth = 0) {
     return { decision: 'deny', reason: 'A plain request with ?preview_theme_id can be served the live theme without any error. Use node .claude/kit/shopify.mjs fetch <KEY> <path> [--find TEXT]: it keeps the preview cookie and checks which theme rendered the page.' };
   }
 
-  // Walk the segments in order: "git switch main && git commit" commits on main.
+  // Walk the segments in order: "git switch main && git commit" commits on main. A cd or git -C into
+  // another repository leaves this repo's branch behind; a folder the guard can't resolve counts as this repo.
   let branch = ctx.branch();
+  let dir = cwd ? dirAfter(cwd, null) : ROOT;
   for (const seg of segs) {
+    const cd = cdArg(seg);
+    if (cd) { dir = dirAfter(cd.arg, dir); continue; }
     const { w, i } = program(seg);
     const run = w[i] && /^(npm|pnpm|yarn|bun)(\.cmd)?$/.test(w[i]) ? w.slice(i + 1).filter((x) => x !== 'run' && x !== 'run-script')[0] : null;
     if (run && !NPM_BUILTINS.has(run)) {
@@ -275,7 +301,10 @@ function decideCommand(raw, ctx, depth = 0) {
 
     const g = gitCommand(seg);
     if (!g) continue;
-    if (g.sub === 'switch' || g.sub === 'checkout') {
+    const c = g.globals.indexOf('-C');
+    const at = c === -1 ? dir : dirAfter(g.globals[c + 1], dir);
+    const here = at === null || !outsideRepo(at);
+    if (here && (g.sub === 'switch' || g.sub === 'checkout')) {
       if (!g.args.includes('--')) {
         const create = g.args.findIndex((a) => ['-c', '-C', '-b', '-B', '--create', '--force-create'].includes(a));
         const target = create !== -1 ? g.args[create + 1] : g.args.find((a) => !a.startsWith('-'));
@@ -283,10 +312,10 @@ function decideCommand(raw, ctx, depth = 0) {
       }
     }
     if (g.sub === 'push') {
-      const why = checkPush(g.args, prot, ctx.testBranches());
+      const why = checkPush(g.args, prot);
       if (why) return { decision: 'deny', reason: why };
     }
-    if (['commit', 'merge', 'rebase', 'cherry-pick', 'revert', 'am'].includes(g.sub) && prot.some((p) => p.toLowerCase() === String(branch).toLowerCase())) {
+    if (here && ['commit', 'merge', 'rebase', 'cherry-pick', 'revert', 'am'].includes(g.sub) && prot.some((p) => p.toLowerCase() === String(branch).toLowerCase())) {
       return { decision: 'deny', reason: `That runs on "${branch}", which is protected. Switch to the task branch first (the build stage creates it).` };
     }
   }
@@ -306,10 +335,8 @@ function decideCommand(raw, ctx, depth = 0) {
     const g = gitCommand(seg);
     if (!g) continue;
     const a = g.args;
-    // Another remote or an option that runs a program: either can carry data off the machine.
-    const remote = a.find((x) => !x.startsWith('-'));
-    if (['fetch', 'pull', 'ls-remote'].includes(g.sub) && ((remote && remote !== 'origin') || a.some((x) => /^--(upload-pack|exec)\b/.test(x)))) {
-      return { decision: 'ask', reason: `This talks to "${remote ?? a.join(' ')}", not origin: ${seg}` };
+    if (['fetch', 'pull', 'ls-remote'].includes(g.sub) && a.some((x) => /^--(upload-pack|exec)\b/.test(x))) {
+      return { decision: 'ask', reason: `--upload-pack and --exec make git run a program. Allow it? ${seg}` };
     }
     if (g.globals.some((x) => /^(-c|--config-env|--exec-path)/.test(x))) return { decision: 'ask', reason: `git -c can make git run a program. Allow it? ${seg}` };
     const destructive = (g.sub === 'reset' && a.includes('--hard'))
@@ -337,30 +364,37 @@ function decideFile(ti, cwd, ctx) {
   if (rel.toLowerCase() === CONFIG_REL) return { decision: 'ask', reason: configChange(ti, ctx) };
   if (/^(\.claude\/\.env\.local|\.env(\.[^/]*)?|config\.yml)$/i.test(rel)) return { decision: 'deny', reason: 'Credential files are written by the dev, never by Claude.' };
   if (/^\.claude\/(settings\.json|CLAUDE\.md|VERSION|hooks\/|kit\/|commands\/|agents\/|skills\/)/i.test(rel)) {
-    return { decision: 'ask', reason: `This edits the kit itself (${rel}). Kit changes belong in the master copy so every repo gets them.` };
+    // In the kit's master repo, editing the kit is the work; only the hook's own wiring still asks.
+    if (!ctx.master()) return { decision: 'ask', reason: `This edits the kit itself (${rel}). Kit changes belong in the master copy so every repo gets them.` };
+    if (/^\.claude\/(settings\.json|hooks\/)/i.test(rel)) return { decision: 'ask', reason: `This changes the guard that checks this session (${rel}). Allow it?` };
   }
-  if (MERCHANT_JSON.test(rel)) {
+  // A file the approved plan names was already agreed at Gate 2.
+  if (MERCHANT_JSON.test(rel) && !ctx.planned(rel)) {
     return { decision: 'ask', reason: `${rel} is merchant-owned: Shopify writes admin edits into it (and syncs them into git). Edit it only if the approved plan says so.` };
   }
   return null;
 }
 
 const defaultCtx = {
-  protected: protectedBranches, branch: currentBranch, scripts: packageScripts, isPath: (p) => existsSync(join(ROOT, p)),
+  protected: protectedBranches, branch: currentBranch, scripts: packageScripts, isPath: (p) => existsSync(join(ROOT, p)), master: () => MASTER,
   read: (p) => { try { return readFileSync(resolve(ROOT, p), 'utf8'); } catch { return null; } },
   state: (key) => { try { return JSON.parse(readFileSync(join(ROOT, '.claude', 'logs', key, 'state.json'), 'utf8')); } catch { return null; } },
-  // Branches of test runs, whatever they were named.
-  testBranches: () => {
+  // Named in plan.md of an approved task whose branch is checked out.
+  planned: (rel) => {
     try {
-      return readdirSync(join(ROOT, '.claude', 'logs')).map((k) => defaultCtx.state(k)).filter((s) => s?.test && s.branch).map((s) => s.branch.toLowerCase());
-    } catch { return []; }
+      const branch = currentBranch();
+      return readdirSync(join(ROOT, '.claude', 'logs')).some((k) => {
+        const st = defaultCtx.state(k);
+        return st?.gates?.approve && st.branch === branch && readFileSync(join(ROOT, '.claude', 'logs', k, 'plan.md'), 'utf8').includes(rel);
+      });
+    } catch { return false; }
   },
 };
 
 export function decide(input, ctx = defaultCtx) {
   const tool = input.tool_name;
   const ti = input.tool_input || {};
-  if (tool === 'Bash' || tool === 'PowerShell') return decideCommand(String(ti.command || ''), ctx);
+  if (tool === 'Bash' || tool === 'PowerShell') return decideCommand(String(ti.command || ''), ctx, 0, input.cwd || null);
   if (['Edit', 'Write', 'MultiEdit', 'NotebookEdit'].includes(tool)) return decideFile(ti, input.cwd, ctx);
   return null;
 }
@@ -411,16 +445,17 @@ function selftest() {
     [CONFIG_REL]: '{"store":"a.myshopify.com","baseBranch":"main"}',
   };
   const STATE = { mutations: [{ ids: ['gid://shopify/MetafieldDefinition/7'] }], draft: { themeId: 5, name: K, route: 'cli' } };
-  const ctx = (branch = K, scripts = {}) => ({
-    protected: () => ['main', 'master'], branch: () => branch, scripts: () => scripts, isPath: (p) => /[/\\]/.test(p) && /\.\w+$/.test(p),
+  const ctx = (branch = K, scripts = {}, master = false) => ({
+    protected: () => ['main', 'master'], branch: () => branch, scripts: () => scripts, isPath: (p) => /[/\\]/.test(p) && /\.\w+$/.test(p), master: () => master,
     read: (p) => FILES[p.replaceAll('\\', '/')] ?? null, state: (key) => (key === K ? STATE : null),
-    testBranches: () => ['renamed-test-branch'],
+    planned: (rel) => rel === 'templates/product.alternate.json',
   });
   const kit = (args) => `node .claude/kit/shopify.mjs ${args}`;
   const bash = (command) => ({ tool_name: 'Bash', tool_input: { command } });
   const ps = (command) => ({ tool_name: 'PowerShell', tool_input: { command } });
   const file = (tool, p) => ({ tool_name: tool, tool_input: { file_path: join(ROOT, p) }, cwd: ROOT });
   const msys = (p) => `/${ROOT[0].toLowerCase()}${ROOT.slice(2).replaceAll('\\', '/')}/${p}`;
+  const OUT = resolve(ROOT, '..', 'kit-selftest-elsewhere').replaceAll('\\', '/');
   const cases = [
     // allowed
     [bash(`node .claude/kit/shopify.mjs push ${K}`), null],
@@ -493,7 +528,6 @@ function selftest() {
     [bash(`git push origin --delete ${K}`), 'deny'],
     [bash(`git push -u origin ${K}-kit-test`), 'deny'],
     [bash(`git push -u origin ${K}-KIT-TEST`), 'deny'],
-    [bash('git push -u origin renamed-test-branch'), 'deny'],
     [bash('git -C . push origin master'), 'deny'],
     [bash('bash -c "git push origin main"'), 'deny'],
     [ps('cmd /c "git push origin main"'), 'deny'],
@@ -547,10 +581,13 @@ function selftest() {
     [bash(`node -e "require('child_process').execSync('node .claude/kit/shopify.mjs mutate ${K} x.graphql')"`), 'ask'],
     [bash(`node .claude/kit/shopify.mjs delete-draft ${K}`), 'ask'],
     [bash(`node .claude/kit/shopify.mjs delete-draft ${K} --dry-run-x`), 'ask'],
-    [bash('git fetch https://example.invalid/some-text'), 'ask'],
-    [bash('git ls-remote https://example.invalid/x'), 'ask'],
-    [ps('git fetch https://example.invalid/x'), 'ask'],
+    [bash(kit(`push ${K} --reconciled templates/product.json`)), 'ask'],
+    [bash(kit(`verify ${K} --reconciled templates/product.json`)), 'ask'],
+    [bash('git fetch https://example.invalid/some-text'), null],
+    [bash('git ls-remote https://example.invalid/x'), null],
     [bash('git fetch origin --upload-pack=x'), 'ask'],
+    [bash('git ls-remote --exec=x https://example.invalid/x'), 'ask'],
+    [file('Edit', 'templates/product.alternate.json'), null],
     [bash('git -c core.sshCommand=x fetch origin'), 'ask'],
     [file('Write', CONFIG_REL), 'ask'],
     [bash(`echo '{}' > ${CONFIG_REL}`), 'ask'],
@@ -568,6 +605,20 @@ function selftest() {
     [file('Write', 'config/settings_data.json'), 'ask'],
     [file('Edit', '.claude/hooks/guard.mjs'), 'ask'],
     [file('Edit', '.claude/settings.json'), 'ask'],
+    // the kit's master repo: kit files are the work, the guard's own wiring still asks
+    [file('Edit', '.claude/kit/kit.mjs'), null, ctx(K, {}, true)],
+    [file('Edit', '.claude/skills/shopify-qa/SKILL.md'), null, ctx(K, {}, true)],
+    [file('Edit', '.claude/hooks/guard.mjs'), 'ask', ctx(K, {}, true)],
+    [file('Edit', '.claude/settings.json'), 'ask', ctx(K, {}, true)],
+    [file('Write', `.claude/logs/${K}/state.json`), 'deny', ctx(K, {}, true)],
+    // another repository: this repo's protected branch doesn't apply; pushes are checked wherever they run
+    [bash(`cd ${OUT} && git init -q && git commit -qm x`), null, ctx('main')],
+    [bash(`git -C ${OUT} commit -qm x`), null, ctx('main')],
+    [{ tool_name: 'Bash', tool_input: { command: 'git commit -qm x' }, cwd: OUT }, null, ctx('main')],
+    [bash('cd .claude && git commit -m x'), 'deny', ctx('main')],
+    [bash('cd "$D" && git commit -m x'), 'deny', ctx('main')],
+    [bash(`cd ${OUT} && cd ${ROOT.replaceAll('\\', '/')} && git commit -m x`), 'deny', ctx('main')],
+    [bash(`cd ${OUT} && git push origin main`), 'deny'],
   ];
   if (process.platform === 'win32') cases.push([{ tool_name: 'Write', tool_input: { file_path: msys(`.claude/logs/${K}/state.json`) }, cwd: ROOT }, 'deny']);
   let failed = 0;

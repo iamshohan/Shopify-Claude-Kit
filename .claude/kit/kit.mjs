@@ -6,6 +6,7 @@ import { homedir } from 'node:os';
 import {
   ROOT, KIT_DIR, LOGS, KIT_VERSION, STAGES, stagesFor, THEME_DIRS, MERCHANT_JSON, print, fail, parseArgs, normKey, now, run, git, currentBranch,
   readConfig, readState, writeState, owner, branchFor, protectedBranches, storefrontPath, parseCliJson, diagnosticJson, ignoreMatcher, TEST_SUFFIX,
+  effectiveBase,
 } from './lib.mjs';
 
 const HELP = `Usage: node .claude/kit/kit.mjs <verb> ...
@@ -13,6 +14,8 @@ const HELP = `Usage: node .claude/kit/kit.mjs <verb> ...
   start <KEY>                            create .claude/logs/<KEY>/ (state + brief.md, plan.md, report.md); turns a finished investigation into an implementation
   start <KEY> --investigate              start a read-only investigation instead (state + investigation.md)
   start <KEY> --test                     a test run of the kit: branch and draft named <KEY>-kit-test, the branch is never pushed
+  start <KEY> --small                    the small lane: no separate clarify gate; done plan refuses work that needs one
+  lane <KEY> small|full                  switch lanes, up to the plan's approval (full reopens clarify for Gate 1)
   status <KEY> [--json]                  current stage, the skill to load, gates, branch, draft
   done <KEY> <stage> [--answer "TEXT"] [--note "TEXT"]
                                          finish the current stage; gate stages need --answer with the dev's words
@@ -86,15 +89,12 @@ const stageIndex = (name, st) => stagesFor(st).findIndex((s) => s.name === name)
 const ref = (r) => git(['rev-parse', '--verify', '--quiet', r], { allowFail: true });
 /** Cells of a markdown table row; "\|" stays inside its cell. */
 const cells = (row) => row.replace(/^\|/, '').replace(/\|\s*$/, '').split(/(?<!\\)\|/).map((c) => c.trim());
-const words = (s) => s.split(/\s+/).filter(Boolean).length;
 const saysNone = (key, file, heading, within) => /^(none|n\/a|—)\b/i.test(added(key, file, heading, within).join(' ').replace(/^[-*]\s*/, ''));
 const NO_RECOMMENDED = /\(Recommended\)/i;
 
 /** Gate 1's hard-coded list: each entry that touches an editability AC must have been asked on its own. */
 function staysInCodeProblems(key) {
   const within = '## Decided';
-  const brief = read(join(LOGS, key, 'brief.md'));
-  if (!/^#### Stays in code/m.test(brief)) return ['brief.md predates kit 0.3: copy § Decided → Control surface (both tables) from .claude/kit/templates/brief.md and fill it'];
   const rows = tableRows(key, 'brief.md', '#### Stays in code', within);
   if (!rows.length && !saysNone(key, 'brief.md', '#### Stays in code', within)) return ['fill brief.md § Control surface → Stays in code (one row per value the merchant can\'t change, or "none")'];
   return rows.flatMap((r) => {
@@ -158,7 +158,6 @@ function reach(key) {
 function glanceProblems(key) {
   const lines = added(key, 'plan.md', '## At a glance');
   const rows = tableRows(key, 'plan.md', '## At a glance');
-  const long = rows.map(cells).filter((c) => words(c[c.length - 1] || '') > 15).map((c) => c[0]);
   const attention = added(key, 'plan.md', '### Needs your attention', '## At a glance');
   const said = attention.join('\n').toLowerCase();
   const unnamed = reach(key).filter((x) => !said.includes(x.file.toLowerCase()) && !said.includes(x.file.split('/').pop().toLowerCase()));
@@ -169,9 +168,24 @@ function glanceProblems(key) {
     storeWrites && !/\bstore\b|definition|metaobject|metafield/.test(said) && 'Needs your attention: name the store writes (definitions, QA values) and whether they show on live before the merge',
     attention.filter((l) => /^[-*]\s/.test(l)).length > 6 && 'Needs your attention has more than 6 points. Keep the ones the dev must weigh; the rest belong in § Files',
     !rows.length && 'fill plan.md § At a glance: one row per file (or file group), "What happens" in 15 words at most',
-    long.length && `plan.md § At a glance: "What happens" is over 15 words for ${long.join(', ')}. Shorten it; the detail goes in § Files (builder detail)`,
     lines.length > 25 && `plan.md § At a glance has ${lines.length} lines; keep it to 25 (group files such as locales into one row)`,
-    lines.some((l) => l.length > 260) && 'plan.md § At a glance has a line over 260 characters; split or shorten it',
+  ];
+}
+
+/** done plan in the small lane: the work must not need Gate 1. Each refusal names the way back. */
+function smallLaneProblems(key, st) {
+  const out = ` → it needs the full lane: kit.mjs lane ${key} full (reopens clarify for Gate 1)`;
+  const rows = tableRows(key, 'plan.md', '## Files').map((r) => cells(r)[0].replace(/`/g, '').trim());
+  // A grouped row ("locales/*.json ×5") counts as its group.
+  const count = rows.reduce((n, c) => n + Number((c.match(/×\s*(\d+)/) || [])[1] || 1), 0);
+  const editable = tableRows(key, 'brief.md', '### What the tickets say should be editable', '## Asked');
+  const store = ['### Definitions', '### QA test data'].some((h) => filled(key, 'plan.md', h, '## Store setup', 10) && !saysNone(key, 'plan.md', h, '## Store setup'));
+  return [
+    st.type === 'abtest' && `A/B ports decide what merchants control at Gate 1${out}`,
+    editable.length > 0 && `the ticket says who may change what (brief.md § Asked → What the tickets say should be editable)${out}`,
+    count > 3 && `plan.md § Files has ${count} files; the small lane takes at most 3${out}`,
+    rows.some((c) => MERCHANT_JSON.test(c.split(/\s+/)[0])) && `the plan edits merchant-owned JSON${out}`,
+    store && `the plan writes to the store (definitions or QA values)${out}`,
   ];
 }
 
@@ -228,15 +242,19 @@ const EXIT_CHECKS = {
     tableRows(key, 'brief.md', '### Questions and answers', '## Decided').some((r) => NO_RECOMMENDED.test(cells(r)[2] || ''))
       && 'brief.md § Questions and answers: record the dev\'s choice without the "(Recommended)" tag; how you apply it goes in "Applied as"',
   ],
-  plan: (key) => [
-    ...glanceProblems(key),
-    !tableRows(key, 'plan.md', '## Files').length && 'fill plan.md § Files (builder detail): one table row per file',
-    tableRows(key, 'plan.md', '## QA criteria').length < 3 && 'write at least 3 QA criteria rows in plan.md § QA criteria',
-  ],
+  plan: (key, st) => {
+    const minCriteria = st.lane === 'small' ? 2 : 3;
+    return [
+      ...glanceProblems(key),
+      ...(st.lane === 'small' ? smallLaneProblems(key, st) : []),
+      !tableRows(key, 'plan.md', '## Files').length && 'fill plan.md § Files (builder detail): one table row per file',
+      tableRows(key, 'plan.md', '## QA criteria').length < minCriteria && `write at least ${minCriteria} QA criteria rows in plan.md § QA criteria`,
+    ];
+  },
   build: (key, st) => {
     if (!st.branch || !st.base) return ['record branch and base: kit.mjs set <KEY> branch=... base=<sha>'];
     const dirty = git(['status', '--porcelain', '--', ...existingThemeDirs()], { allowFail: true });
-    const ahead = Number(git(['rev-list', '--count', `${st.base}..HEAD`], { allowFail: true }) || 0);
+    const ahead = Number(git(['rev-list', '--count', `${effectiveBase(st, readConfig({ required: false }))}..HEAD`], { allowFail: true }) || 0);
     return [
       currentBranch() !== st.branch && `check out the task branch ${st.branch}`,
       dirty && 'commit the theme changes on the task branch',
@@ -257,10 +275,8 @@ const EXIT_CHECKS = {
   qa: (key) => {
     const rows = tableRows(key, 'report.md', '## Criteria').filter((l) => /\|\s*\**(PASS|FAIL|NOT TESTED|BLOCKED)\b/.test(l));
     const planned = tableRows(key, 'plan.md', '## QA criteria').length;
-    const report = read(join(LOGS, key, 'report.md'));
     const open = rows.filter((l) => /\|\s*\**(BLOCKED|NOT TESTED)\b/.test(l)).length;
     return [
-      !report.startsWith(`# ${key} · Report`) && `report.md's first line must be "# ${key} · Report"; an edit overwrote it`,
       rows.length === 0 && 'write report.md § Criteria with a verdict on every row',
       rows.length < planned && `report.md has ${rows.length} rows with a verdict but the plan has ${planned} QA criteria`,
       !filled(key, 'report.md', '## Summary') && 'write report.md § Summary',
@@ -280,7 +296,6 @@ const EXIT_CHECKS = {
   gather: (key, st) => {
     const labelled = tableRows(key, 'investigation.md', '## Evidence').filter((l) => /\b(Confirmed|Inferred|Assumed|Unknown)\b/.test(l));
     return [
-      labelled.length < 3 && `investigation.md § Evidence needs at least 3 rows labelled Confirmed, Inferred, Assumed or Unknown (it has ${labelled.length})`,
       !labelled.some((l) => /\bConfirmed\b/.test(l)) && 'no Confirmed evidence yet: read or observe something that settles a claim',
       st.type === 'debug' && tableRows(key, 'investigation.md', '## Hypotheses').length < 2
         && 'a debug investigation needs at least 2 hypotheses in investigation.md § Hypotheses, each confirmed, ruled out or open',
@@ -345,6 +360,7 @@ function summaryLines(key, st, cfg) {
     return lines.join('\n');
   }
   if (st.investigation) lines.push(`Investigated first (${st.investigation.type}): intake reads .claude/logs/${key}/investigation.md.`);
+  if (st.lane === 'small') lines.push(`Small lane: no separate clarify gate. Ask any open questions at the start of the plan stage; done plan refuses work that needs Gate 1 (then: kit.mjs lane ${key} full).`);
   if (st.test) lines.push(`TEST RUN of the kit: the branch and the draft are named ${key}${TEST_SUFFIX}, and the branch is never pushed (the guard blocks it). The draft is a CLI copy of live, whatever draftRoute says. Handoff writes the report but pushes nothing.`);
   lines.push(`Branch: ${st.branch || `${branchFor(cfg, key, st)} (not created yet)`} · base: ${st.base ? st.base.slice(0, 7) : '—'} · protected: ${protectedBranches(cfg).join(', ')}`);
   if (cfg?.adminApi === false) lines.push('Admin API: off in this repo. Definitions and QA values are admin steps for the dev; read store data from admin pages in Chrome (look only).');
@@ -379,7 +395,7 @@ function runSummary(key, st) {
     if (m) verdicts[m[1]]++;
   }
   return {
-    key, kind: kindOf(st), type: st.type, stage: st.stage, owner: st.owner?.name, kitVersion: st.kitVersion,
+    key, kind: kindOf(st), type: st.type, lane: kindOf(st) === 'implement' ? st.lane || 'full' : undefined, stage: st.stage, owner: st.owner?.name, kitVersion: st.kitVersion,
     startedAt: st.createdAt, lastUpdate: st.updatedAt, elapsedMinutes: minutes(st.createdAt, st.updatedAt),
     minutesPerStage: perStage,
     loopsBack: events.filter((e) => e.event === 'back').map((e) => `${e.from} → ${e.to}: ${e.reason}`),
@@ -412,9 +428,10 @@ function selftest() {
   eq('ignore miss', ignore('sections/header.liquid'), false);
   eq('stages implement', stagesFor({}).map((x) => x.name).slice(0, 2), ['intake', 'analyze']);
   eq('stages investigation', stagesFor({ kind: 'investigation' }).map((x) => x.name), ['frame', 'gather', 'conclude']);
+  eq('stages small lane', stagesFor({ lane: 'small' }).map((x) => x.name), ['intake', 'analyze', 'plan', 'approve', 'build', 'draft', 'qa', 'accept', 'handoff']);
+  eq('small lane keeps one gate', stagesFor({ lane: 'small' }).filter((x) => x.gate).map((x) => x.name), ['approve', 'accept']);
   eq('cells', cells('| 3 | a \\| b | PASS |'), ['3', 'a \\| b', 'PASS']);
   eq('cells empty last', cells('| Icons | AC 18 | winner SVGs | |'), ['Icons', 'AC 18', 'winner SVGs', '']);
-  eq('words', words(' Renders rows;  image looked up '), 5);
   const theme = new Map([
     ['layout/theme.liquid', "{{ 'base.css' | asset_url | stylesheet_tag }}\n{% sections 'header-group' %}"],
     ['sections/header-group.json', '{"sections":{"h":{"type":"header"}}}'],
@@ -445,7 +462,7 @@ switch (verb) {
     for (const k of keys) {
       const st = readState(k);
       const draft = st.draft?.themeId && !st.draft.deletedAt ? ` · draft ${st.draft.name || st.draft.themeId} still exists` : '';
-      const type = kindOf(st) === 'investigation' ? `investigation:${st.type || '-'}` : st.type || '-';
+      const type = kindOf(st) === 'investigation' ? `investigation:${st.type || '-'}` : `${st.type || '-'}${st.lane === 'small' ? ' (small)' : ''}`;
       print(`${k}\t${type}${st.test ? ' (test run)' : ''}\t${st.stage}\t${st.updatedAt.slice(0, 10)}\t${st.owner?.name || ''}${draft}`);
     }
     break;
@@ -455,8 +472,9 @@ switch (verb) {
     const key = normKey(rawKey);
     const cfg = readConfig();
     const existing = readState(key, { required: false });
+    if (flags.small && flags.investigate) fail('Investigations have no lanes; --small is for /implement.');
     const implementFields = {
-      kind: 'implement', type: null, stage: STAGES[0].name, gates: {},
+      kind: 'implement', type: null, lane: flags.small ? 'small' : 'full', stage: STAGES[0].name, gates: {},
       branch: null, base: null, abtest: {}, featurePrefix: null, buildOutputs: [], draft: {}, previews: [], qa: {},
     };
     const writeTemplates = (files) => {
@@ -572,6 +590,26 @@ switch (verb) {
     st.history.push({ at: now(), event: 'set', values: rest });
     writeState(key, st);
     print(`Recorded: ${rest.join(' ')}`);
+    break;
+  }
+
+  case 'lane': {
+    const key = normKey(rawKey);
+    const st = readState(key);
+    if (kindOf(st) === 'investigation') fail('Investigations have no lanes.');
+    const to = oneOf('small', 'full')(rest[0]);
+    const from = st.lane === 'small' ? 'small' : 'full';
+    if (to === from) { print(`${key} is already in the ${to} lane.`); break; }
+    const order = STAGES.map((s) => s.name);
+    const at = order.indexOf(st.stage);
+    if (at === -1 || at > order.indexOf('approve')) fail(`${key} is past the plan's approval (stage ${st.stage}), so its lane is fixed.`);
+    st.lane = to;
+    // Into the small lane at clarify: the questions move into the plan stage. Into the full lane after it: Gate 1 comes first.
+    if (to === 'small' && st.stage === 'clarify') st.stage = 'plan';
+    if (to === 'full' && at > order.indexOf('clarify')) st.stage = 'clarify';
+    st.history.push({ at: now(), event: 'lane', from, to, stage: st.stage });
+    writeState(key, st);
+    print(summaryLines(key, st, readConfig({ required: false })));
     break;
   }
 
@@ -713,7 +751,12 @@ switch (verb) {
     const loader = `// Generated by: node .claude/kit/kit.mjs build-probe. Edit probe.js, not this file.\n`
       + `sessionStorage.setItem('__qaSrc', ${JSON.stringify(source)});\n(0, eval)(sessionStorage.getItem('__qaSrc'));\n`;
     writeFileSync(join(KIT_DIR, 'probe.inject.js'), loader);
-    print(`Wrote kit/probe.inject.js (${Math.round(loader.length / 1024)} KB).`);
+    // For the kit-browser (Playwright) server: run once per session, and every page loads the probe
+    // before its own scripts, so errors() and shift() also see what happens during load.
+    const init = `// Generated by: node .claude/kit/kit.mjs build-probe. Edit probe.js, not this file.\n`
+      + `async (page) => {\n  await page.context().addInitScript({ content: ${JSON.stringify(source)} });\n  return 'probe loads on every page from the next navigation on';\n}\n`;
+    writeFileSync(join(KIT_DIR, 'probe.init.js'), init);
+    print(`Wrote kit/probe.inject.js (${Math.round(loader.length / 1024)} KB) and kit/probe.init.js.`);
     break;
   }
 
