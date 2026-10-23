@@ -18,6 +18,7 @@
   - the guard's lookup of renamed test-run branches (the `-kit-test` suffix rule stays)
   
   The merchant-JSON prompt now skips files the approved plan of the checked-out task names.
+- **Shared run rules in one place.** Gates, `--answer`, how to talk to the dev, two failed attempts and kit notes were written into both commands, and had started to drift apart. They're now `.claude/rules/kit-runs.md`, a path-scoped rule (`.claude/logs/**`): it loads in kit runs and not in other chats in the theme repo, and loads again after a compaction the next time a task file is touched. The commands keep only their start-up steps and their own rules.
 - **Smaller.** The merchant-JSON pattern in `lib.mjs` is case-insensitive, like the guard's, and the guard imports it and the protected-branch list from there. Guard self-tests: 142 → 156.
 
 ## 0.4.0 — 2026-10-23

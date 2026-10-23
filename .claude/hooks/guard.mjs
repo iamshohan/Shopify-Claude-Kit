@@ -363,7 +363,7 @@ function decideFile(ti, cwd, ctx) {
   if (SEAL.test(rel)) return { decision: 'deny', reason: `Only the guard writes ${SEAL_FILE}.` };
   if (rel.toLowerCase() === CONFIG_REL) return { decision: 'ask', reason: configChange(ti, ctx) };
   if (/^(\.claude\/\.env\.local|\.env(\.[^/]*)?|config\.yml)$/i.test(rel)) return { decision: 'deny', reason: 'Credential files are written by the dev, never by Claude.' };
-  if (/^\.claude\/(settings\.json|CLAUDE\.md|VERSION|hooks\/|kit\/|commands\/|agents\/|skills\/)/i.test(rel)) {
+  if (/^\.claude\/(settings\.json|CLAUDE\.md|VERSION|hooks\/|kit\/|commands\/|agents\/|skills\/|rules\/)/i.test(rel)) {
     // In the kit's master repo, editing the kit is the work; only the hook's own wiring still asks.
     if (!ctx.master()) return { decision: 'ask', reason: `This edits the kit itself (${rel}). Kit changes belong in the master copy so every repo gets them.` };
     if (/^\.claude\/(settings\.json|hooks\/)/i.test(rel)) return { decision: 'ask', reason: `This changes the guard that checks this session (${rel}). Allow it?` };
@@ -605,6 +605,7 @@ function selftest() {
     [file('Write', 'config/settings_data.json'), 'ask'],
     [file('Edit', '.claude/hooks/guard.mjs'), 'ask'],
     [file('Edit', '.claude/settings.json'), 'ask'],
+    [file('Edit', '.claude/rules/kit-runs.md'), 'ask'],
     // the kit's master repo: kit files are the work, the guard's own wiring still asks
     [file('Edit', '.claude/kit/kit.mjs'), null, ctx(K, {}, true)],
     [file('Edit', '.claude/skills/shopify-qa/SKILL.md'), null, ctx(K, {}, true)],

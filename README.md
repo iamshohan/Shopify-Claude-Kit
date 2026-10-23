@@ -20,6 +20,7 @@ install.mjs                 installs or updates the kit in a theme repo
   README.md                 team guide
   settings.json             guard hook, permissions, env
   commands/                 /implement, /shopify-investigate, /shopify-setup, /shopify-update
+  rules/kit-runs.md         rules both commands share; loads when Claude touches .claude/logs/
   skills/                   one skill per phase (intake, plan, build, qa, handoff) plus shopify-investigate
   agents/                   theme-recon, abtest-analyst, theme-builder, evidence-checker
   hooks/guard.mjs           the safety guard (with --selftest)

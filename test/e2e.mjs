@@ -64,7 +64,7 @@ try {
   cpSync(repo, join(store, 'themes', '1'), { recursive: true, filter: (p) => !p.includes('.git') });
 
   const install = spawnSync(process.execPath, [join(KIT, 'install.mjs'), repo], { encoding: 'utf8' });
-  ok('installer copies the kit', install.status === 0 && existsSync(join(repo, '.claude', 'kit', 'shopify.mjs')), install.stderr);
+  ok('installer copies the kit, rules included', install.status === 0 && existsSync(join(repo, '.claude', 'kit', 'shopify.mjs')) && existsSync(join(repo, '.claude', 'rules', 'kit-runs.md')), install.stderr);
   writeFileSync(join(repo, '.claude', 'shopify-kit.json'), JSON.stringify({
     store: 'fake-store.myshopify.com', baseBranch: 'main', protectedBranches: ['main'], branchPattern: '{KEY}', adminApi: true, draftRoute: 'cli', adminApiVersion: '2026-07',
   }));
