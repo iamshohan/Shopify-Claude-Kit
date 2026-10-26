@@ -65,6 +65,16 @@ try {
 
   const install = spawnSync(process.execPath, [join(KIT, 'install.mjs'), repo], { encoding: 'utf8' });
   ok('installer copies the kit, rules included', install.status === 0 && existsSync(join(repo, '.claude', 'kit', 'shopify.mjs')) && existsSync(join(repo, '.claude', 'rules', 'kit-runs.md')), install.stderr);
+  // An update must not overwrite a settings.json the dev has added their own permissions to.
+  const settingsPath = join(repo, '.claude', 'settings.json');
+  const again = spawnSync(process.execPath, [join(KIT, 'install.mjs'), repo], { encoding: 'utf8' });
+  ok('an update writes no settings.kit.json while settings.json is the kit\'s own', again.status === 0 && !existsSync(join(repo, '.claude', 'settings.kit.json')), again.stdout);
+  const mine = readFileSync(settingsPath, 'utf8').replace('"allow": [', '"allow": [\n      "Bash(npm run dev:*)",');
+  writeFileSync(settingsPath, mine);
+  const update = spawnSync(process.execPath, [join(KIT, 'install.mjs'), repo], { encoding: 'utf8' });
+  ok('an update keeps a settings.json the dev edited and writes the kit\'s beside it', update.status === 0 && readFileSync(settingsPath, 'utf8') === mine && existsSync(join(repo, '.claude', 'settings.kit.json')), update.stdout);
+  writeFileSync(settingsPath, readFileSync(join(KIT, '.claude', 'settings.json')));
+  rmSync(join(repo, '.claude', 'settings.kit.json'), { force: true });
   writeFileSync(join(repo, '.claude', 'shopify-kit.json'), JSON.stringify({
     store: 'fake-store.myshopify.com', baseBranch: 'main', protectedBranches: ['main'], branchPattern: '{KEY}', adminApi: true, draftRoute: 'cli', adminApiVersion: '2026-07',
   }));

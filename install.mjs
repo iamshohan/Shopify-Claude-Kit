@@ -4,6 +4,7 @@
 // Copies the kit's .claude/ files and leaves the repo's own files alone: shopify-kit.json,
 // .env.local, settings.local.json, cli-check.json and logs/. Files a newer kit no longer ships
 // are removed (tracked in .claude/.kit-manifest.json).
+import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -36,12 +37,17 @@ function walk(dir, out = []) {
 }
 const files = walk(KIT).filter((f) => !PER_REPO.has(f));
 
-// A repo with its own settings.json keeps it; the kit's version is written beside it to merge by hand.
-const destSettings = join(dest, 'settings.json');
-const ownSettings = existsSync(destSettings) && !readFileSync(destSettings, 'utf8').includes('.claude/hooks/guard.mjs');
-
+const sha = (p) => createHash('sha256').update(readFileSync(p)).digest('hex');
 const manifestPath = join(dest, '.kit-manifest.json');
-const previous = existsSync(manifestPath) ? JSON.parse(readFileSync(manifestPath, 'utf8')).files || [] : [];
+const manifest = existsSync(manifestPath) ? JSON.parse(readFileSync(manifestPath, 'utf8')) : {};
+const previous = manifest.files || [];
+
+// settings.json is the repo's own once it differs from what this installer wrote last time (for a manifest from an
+// older installer, which recorded no hash: once it lacks the kit's guard). The kit's version goes beside it, to merge by hand.
+const destSettings = join(dest, 'settings.json');
+const kitSettings = join(KIT, 'settings.json');
+const ownSettings = existsSync(destSettings) && sha(destSettings) !== sha(kitSettings)
+  && (manifest.settingsSha ? sha(destSettings) !== manifest.settingsSha : !readFileSync(destSettings, 'utf8').includes('.claude/hooks/guard.mjs'));
 const stale = previous.filter((f) => !files.includes(f) && !PER_REPO.has(f));
 const version = readFileSync(join(KIT, 'VERSION'), 'utf8').trim();
 const installed = existsSync(join(dest, 'VERSION')) ? readFileSync(join(dest, 'VERSION'), 'utf8').trim() : null;
@@ -56,7 +62,7 @@ for (const f of files) {
 }
 for (const f of stale) actions.push([`remove ${f} (no longer in the kit)`, () => rmSync(join(dest, f), { force: true })]);
 if (!existsSync(join(dest, '.gitignore'))) actions.push(['write .gitignore (keeps the kit out of git)', () => writeFileSync(join(dest, '.gitignore'), GITIGNORE)]);
-actions.push(['write .kit-manifest.json', () => writeFileSync(manifestPath, JSON.stringify({ version, installedAt: new Date().toISOString(), files }, null, 2))]);
+actions.push(['write .kit-manifest.json', () => writeFileSync(manifestPath, JSON.stringify({ version, installedAt: new Date().toISOString(), files, settingsSha: ownSettings ? manifest.settingsSha : sha(kitSettings) }, null, 2))]);
 
 console.log(`${installed ? `Updating kit ${installed} → ${version}` : `Installing kit ${version}`} in ${dest}`);
 for (const [what, act] of actions) {

@@ -89,6 +89,8 @@ const stageIndex = (name, st) => stagesFor(st).findIndex((s) => s.name === name)
 const ref = (r) => git(['rev-parse', '--verify', '--quiet', r], { allowFail: true });
 /** Cells of a markdown table row; "\|" stays inside its cell. */
 const cells = (row) => row.replace(/^\|/, '').replace(/\|\s*$/, '').split(/(?<!\\)\|/).map((c) => c.trim());
+/** Rows whose last recorded verdict is FAIL on a commit other than the draft's current one: the fix was never re-measured. */
+const staleFails = (rows = {}, head) => Object.entries(rows).filter(([, r]) => r.verdict === 'FAIL' && r.commit && head && r.commit !== head).map(([n]) => n);
 const saysNone = (key, file, heading, within) => /^(none|n\/a|—)\b/i.test(added(key, file, heading, within).join(' ').replace(/^[-*]\s*/, ''));
 const NO_RECOMMENDED = /\(Recommended\)/i;
 
@@ -272,13 +274,15 @@ const EXIT_CHECKS = {
     }
     return [st.draft.verifiedCommit !== head && st.draft.lastPushedCommit !== head && 'push the current commit: shopify.mjs push <KEY>'];
   },
-  qa: (key) => {
+  qa: (key, st) => {
+    const stale = staleFails(st.qa?.rows, st.draft?.verifiedCommit || st.draft?.lastPushedCommit);
     const rows = tableRows(key, 'report.md', '## Criteria').filter((l) => /\|\s*\**(PASS|FAIL|NOT TESTED|BLOCKED)\b/.test(l));
     const planned = tableRows(key, 'plan.md', '## QA criteria').length;
     const open = rows.filter((l) => /\|\s*\**(BLOCKED|NOT TESTED)\b/.test(l)).length;
     return [
       rows.length === 0 && 'write report.md § Criteria with a verdict on every row',
       rows.length < planned && `report.md has ${rows.length} rows with a verdict but the plan has ${planned} QA criteria`,
+      stale.length && `rows ${stale.join(', ')} failed on an earlier commit and weren't measured again on the current draft: re-measure them and record each with kit.mjs qa-row`,
       !filled(key, 'report.md', '## Summary') && 'write report.md § Summary',
       open && !filled(key, 'report.md', '## You must still do', undefined, 10) && `${open} rows are BLOCKED or NOT TESTED: list what the dev must do for each in report.md § You must still do`,
     ];
@@ -445,6 +449,8 @@ function selftest() {
   eq('reach unused section', reachOf('sections/mnav.liquid', theme), null);
   eq('reach merchant JSON', reachOf('sections/header-group.json', theme).startsWith('merchant-owned'), true);
   eq('retroDone needs a note after retro', [retroDone({ history: [{ event: 'note' }, { event: 'retro' }] }), retroDone({ history: [{ event: 'retro' }, { event: 'note', none: true }] })], [false, true]);
+  eq('staleFails: a FAIL measured on an older commit', staleFails({ 3: { verdict: 'FAIL', commit: 'a1' }, 4: { verdict: 'PASS', commit: 'a1' }, 5: { verdict: 'FAIL', commit: 'b2' }, 6: { verdict: 'FAIL', commit: null } }, 'b2'), ['3']);
+  eq('staleFails: nothing recorded', [staleFails(undefined, 'b2'), staleFails({ 1: { verdict: 'FAIL', commit: 'a1' } }, undefined)], [[], []]);
   const failed = checks.filter((c) => !c[1]);
   for (const [name, , got, want] of failed) print(`FAIL ${name}: got ${JSON.stringify(got)}, want ${JSON.stringify(want)}`);
   print(failed.length ? `${failed.length} of ${checks.length} failed` : `all ${checks.length} passed`);
@@ -629,7 +635,7 @@ switch (verb) {
 
   case 'qa-row': {
     const key = normKey(rawKey);
-    readState(key);
+    const st = readState(key);
     const n = rest[0];
     if (!/^\d+$/.test(n || '')) fail('Usage: qa-row <KEY> <#> [--measured T] [--how T] [--verdict V] [--expected T]');
     if (flags.verdict && !['PASS', 'FAIL', 'NOT TESTED', 'BLOCKED'].includes(flags.verdict)) fail('--verdict is one of: PASS, FAIL, NOT TESTED, BLOCKED');
@@ -650,7 +656,11 @@ switch (verb) {
     for (const f of ['measured', 'how', 'verdict', 'expected']) if (typeof flags[f] === 'string') set(f, flags[f]);
     lines[row] = `| ${c.join(' | ')} |`;
     writeFileSync(p, lines.join('\n'));
-    print(`row ${n}: ${c[names.findIndex((h) => h.startsWith('verdict'))] || '(no verdict yet)'}`);
+    const cell = c[names.findIndex((h) => h.startsWith('verdict'))] || '';
+    // The commit a verdict was measured on: done qa uses it to tell that a failed row's fix was never measured again.
+    st.qa = { ...st.qa, rows: { ...st.qa?.rows, [n]: { verdict: (cell.match(/PASS|FAIL|NOT TESTED|BLOCKED/) || [''])[0], commit: st.draft?.verifiedCommit || st.draft?.lastPushedCommit || null } } };
+    writeState(key, st);
+    print(`row ${n}: ${cell || '(no verdict yet)'}`);
     break;
   }
 
