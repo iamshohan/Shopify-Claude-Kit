@@ -39,6 +39,9 @@ const CONFIG_KEYS = {
   draftRoute: 'how the draft theme is made',
 };
 const STORE_VERBS = new Set(['mutate', 'delete-draft']);
+// Gate 2 approves the plan, which unlocks the build and the store writes in it. kit.mjs only checks that --answer is
+// non-empty, so the dev sees what gets recorded. The other gates are reviewed again at Gate 2 or in the dev's PR review.
+const GATE_STAGES = new Set(['approve']);
 // Wrapper verbs that run without asking. Anything else, including verbs added later, asks the dev.
 const SAFE_VERBS = new Set(['cli-check', 'auth-check', 'themes', 'query', 'pull-live', 'check', 'draft', 'push', 'preview', 'fetch', 'verify', 'help', '--help']);
 // Without the cookie the redirect sets, ?preview_theme_id silently serves the live theme.
@@ -162,9 +165,16 @@ function checkPush(args, prot) {
   if (bad.length) return `git push ${bad.join(' ')} is blocked (no force, delete, mirror, all or tags). ${allowed}`;
   if (pos.length !== 2) return `Name the remote and the branch. ${allowed}`;
   if (/[$`(]/.test(pos.join(' '))) return `Push the branch by its literal name, not a variable or $(…). ${allowed}`;
-  const ref = pos[1].replace(/^refs\/heads\//, '');
-  if (ref.toUpperCase() === 'HEAD' || /[:+*^~]/.test(ref)) return `Push the branch by name, not a refspec like HEAD:main or +branch. ${allowed}`;
-  if (prot.some((p) => p.toLowerCase() === ref.toLowerCase())) return `"${ref}" is protected. It changes only through a reviewed PR that the dev merges.`;
+  const full = pos[1];
+  if (/^(HEAD|@)$/i.test(full) || /[:+*^~]/.test(full)) return `Push the branch by name, not a refspec like HEAD:main or +branch. ${allowed}`;
+  // Only refs/heads/<name> is a branch; refs/tags/…, refs/remotes/… and the like are not what this push is for.
+  if (/^refs\//i.test(full) && !/^refs\/heads\//i.test(full)) return `Push the branch by its plain name. ${allowed}`;
+  // git resolves heads/main and refs/heads/main to main. origin/main and remotes/… are refused too, to be safe.
+  const ref = full.replace(/^refs\/heads\//i, '').replace(/^heads\//i, '');
+  const names = [ref, ref.replace(/^remotes\/[^/]+\//i, '')];
+  if (ref.toLowerCase().startsWith(`${pos[0].toLowerCase()}/`)) names.push(ref.slice(pos[0].length + 1));
+  const hit = names.find((n) => prot.some((p) => p.toLowerCase() === n.toLowerCase()));
+  if (hit) return `"${hit}" is protected. It changes only through a reviewed PR that the dev merges.`;
   if (ref.toLowerCase().endsWith(TEST_SUFFIX)) return `"${ref}" belongs to a test run of the kit, which is never pushed. The draft gets the files through shopify.mjs push; handoff skips the push.`;
   return null;
 }
@@ -179,6 +189,17 @@ function scriptCallsCli(name, scripts, depth = 0) {
     if (inner) return inner;
   }
   return null;
+}
+
+/** gh pr merge, or a gh api call that merges a PR or moves a ref. gh takes global flags (-R owner/repo) before its subcommand. */
+function ghMerges(segment) {
+  const { w, i } = program(stripRedirects(segment));
+  if (!/^gh(\.exe)?$/i.test(w[i] || '')) return false;
+  const rest = w.slice(i + 1);
+  const at = rest.findIndex((x) => x === 'pr' || x === 'api');
+  if (at === -1 || at > 4) return false;
+  if (rest[at] === 'pr') return rest[at + 1] === 'merge';
+  return rest.slice(at + 1).some((x) => /\/merges?\b|\/pulls\/\d+\/merge|git\/refs|mergePullRequest/.test(x));
 }
 
 /** A wrapper call in one segment, with its arguments parsed the way the wrapper parses them. */
@@ -236,6 +257,20 @@ function wrapperDecision(segs, ctx) {
   return null;
 }
 
+/** kit.mjs done <KEY> <gate> --answer "…": the gate is the dev's decision, so the dev sees the words the kit will record as theirs. */
+function gateDecision(segs) {
+  for (const seg of segs) {
+    const { w, i } = program(stripRedirects(seg));
+    if (!/^node(\.exe)?$/i.test(w[i] || '') || !/(^|[\\/])kit\.mjs$/i.test(w[i + 1] || '')) continue;
+    const call = parseArgs(w.slice(i + 2));
+    const answer = typeof call.flags.answer === 'string' ? call.flags.answer : '';
+    // Without --answer the kit refuses on its own.
+    if (call._[0] !== 'done' || !GATE_STAGES.has(call._[2]) || !answer) continue;
+    return { decision: 'ask', reason: `Record this as your answer to the "${call._[2]}" gate of ${call._[1]}? The kit logs these words as yours:\n"${answer}"` };
+  }
+  return null;
+}
+
 /** The prompt for a change to shopify-kit.json: which settings change, and what each controls. */
 function configChange(ti, ctx) {
   const before = ctx.read(CONFIG_REL);
@@ -268,8 +303,14 @@ function decideCommand(raw, ctx, depth = 0, cwd = null) {
     }
   }
 
-  // Commit and tag messages are text; everything else is scanned.
-  const scanned = segs.filter((s) => !['commit', 'tag'].includes(gitCommand(s)?.sub)).join(' ; ').replace(WRAPPER_PATH, ' KIT_WRAPPER ');
+  // Commit and tag messages, and the text a kit.mjs call records (notes, gate answers), are text; everything else is
+  // scanned. A $( or a backtick in that text could still run something, so those segments stay scanned.
+  const isText = (s) => {
+    if (['commit', 'tag'].includes(gitCommand(s)?.sub)) return true;
+    const { w, i } = program(stripRedirects(s));
+    return /^node(\.exe)?$/i.test(w[i] || '') && /(^|[\\/])kit\.mjs$/i.test(w[i + 1] || '') && !/[$`]/.test(s);
+  };
+  const scanned = segs.filter((s) => !isText(s)).join(' ; ').replace(WRAPPER_PATH, ' KIT_WRAPPER ');
   if (CLI_WORD.test(scanned) || CLI_PATH.test(scanned) || CLI_PKG.test(scanned)) return { decision: 'deny', reason: USE_WRAPPER };
   if (segs.some((s) => { const { w, i } = program(s); return THEMEKIT.test(w.slice(i).join(' ')); })) {
     return { decision: 'deny', reason: 'Theme Kit (the "theme" command) can deploy to live themes. Use node .claude/kit/shopify.mjs, or ask the dev to run it.' };
@@ -311,6 +352,10 @@ function decideCommand(raw, ctx, depth = 0, cwd = null) {
         if (target && !(g.sub === 'checkout' && ctx.isPath(target))) branch = target.replace(/^origin\//, '');
       }
     }
+    // An alias, or a remote's push refspec, hides "push origin main" behind a short command the guard can't read.
+    if (g.sub === 'config' && g.args.some((a) => /^(alias\.|remote\.[^.]+\.push$)/i.test(a)) && !g.args.some((a) => /^(--get(-all|-regexp)?|-l|--list)$/.test(a))) {
+      return { decision: 'deny', reason: 'git aliases and push refspecs can hide a push to a protected branch from the guard. Run the git command itself.' };
+    }
     if (g.sub === 'push') {
       const why = checkPush(g.args, prot);
       if (why) return { decision: 'deny', reason: why };
@@ -320,12 +365,15 @@ function decideCommand(raw, ctx, depth = 0, cwd = null) {
     }
   }
 
-  if (/(^|[\s;&|])gh\s+pr\s+merge\b/.test(cmd) || /(^|[\s;&|])gh\s+api\b[^\n]*\/merges?\b/.test(cmd)) {
+  // gh takes global flags before the subcommand (gh -R owner/repo pr merge), and the API can merge or move a ref.
+  if (segs.some(ghMerges)) {
     return { decision: 'deny', reason: 'Merging is the dev\'s step after handoff, not the agent\'s.' };
   }
 
   const kit = wrapperDecision(segs, ctx);
   if (kit) return kit;
+  const gate = gateDecision(segs);
+  if (gate) return gate;
 
   if (/shopify-kit\.json/i.test(scanned) && (/>\s*["']?[^\s;&|]*shopify-kit\.json/i.test(scanned) || /\b(writeFileSync|Set-Content|Out-File|Add-Content|tee|cp|mv|Copy-Item|Move-Item|rm|Remove-Item|del)\b|\bsed\s+-i/i.test(scanned))) {
     return { decision: 'ask', reason: `This command may change ${CONFIG_REL}, which sets the store the kit acts on, the branches the guard protects and where the Jira token goes. Allow it? (${cmd.slice(0, 300)})` };
@@ -409,13 +457,32 @@ function writeSeal({ key, ...seal }) {
 
 /** Blocks feed kit.mjs retro: a block on a harmless command is a guard bug worth reporting. */
 function logBlock(input, result) {
-  if (result?.decision !== 'deny') return;
+  if (result?.decision !== 'deny' || result.byMode) return; // a mode block is the dev's setup, not a guard bug
   try {
     const ti = input.tool_input || {};
     const entry = { at: new Date().toISOString(), tool: input.tool_name, reason: result.reason.slice(0, 200), command: String(ti.command || ti.file_path || '').slice(0, 200) };
     mkdirSync(join(ROOT, '.claude', 'logs'), { recursive: true });
     appendFileSync(join(ROOT, '.claude', 'logs', '_guard.jsonl'), `${JSON.stringify(entry)}\n`);
   } catch { /* logging never changes the decision */ }
+}
+
+// Modes in which a hook's "ask" reaches the dev. bypassPermissions was seen to approve it silently; dontAsk denies
+// every prompt and plan can skip them. acceptEdits only auto-approves file edits, so mutate, gates and git still prompt.
+// A mode that isn't listed (including a future one) is treated like bypassPermissions.
+const ASK_SHOWN = new Set(['default', 'auto', 'acceptEdits']);
+
+/** In a mode that hides prompts, an "ask" is a silent allow. Turn it into a deny that says how to get the prompt back. */
+function enforceMode(result, input) {
+  const mode = input.permission_mode;
+  if (typeof mode !== 'string' || ASK_SHOWN.has(mode)) return result; // no field: an older Claude Code, nothing to compare
+  const probe = /guard\.mjs\s+--mode-probe\b/.test(String(input.tool_input?.command || ''));
+  if (result?.decision !== 'ask' && !probe) return result;
+  const would = result?.reason ? ` It would have asked: ${result.reason.slice(0, 300)}` : '';
+  return {
+    decision: 'deny',
+    byMode: true,
+    reason: `Permission mode "${mode}" doesn't show the kit's confirmation prompts, so this was blocked instead of approved silently. Stop and ask the dev to switch to default mode (Shift+Tab cycles modes), then run it again.${would}`,
+  };
 }
 
 function emit(result) {
@@ -537,6 +604,42 @@ function selftest() {
     [bash(`git checkout main && git merge ${K}`), 'deny'],
     [bash(`git merge ${K}`), 'deny', ctx('master')],
     [bash('gh pr merge 21 --squash'), 'deny'],
+    // denied: other routes to a protected branch (a ref written another way, an alias, a script, gh)
+    [bash('git push -u origin heads/main'), 'deny'],
+    [bash('git push origin refs/heads/main'), 'deny'],
+    [bash('git push origin Heads/MAIN'), 'deny'],
+    [bash('git push origin origin/main'), 'deny'],
+    [bash('git push origin refs/remotes/origin/main'), 'deny'],
+    [bash('git push origin refs/tags/v1'), 'deny'],
+    [bash('git config alias.pm "push origin main"'), 'deny'],
+    [bash('git config --global alias.pm "push origin main"'), 'deny'],
+    [bash('git push origin @'), 'deny'],
+    [bash('git config remote.origin.push refs/heads/ABC-123:refs/heads/main'), 'deny'],
+    [bash('gh -R owner/repo pr merge 3'), 'deny'],
+    [bash('gh api -X PUT repos/owner/repo/pulls/3/merge'), 'deny'],
+    [bash('gh api -X PATCH repos/owner/repo/git/refs/heads/main -f sha=abc'), 'deny'],
+    // allowed: the same words used harmlessly
+    [bash(`git push -u origin refs/heads/${K}`), null],
+    [bash('git push origin feature/team-x'), null],
+    [bash('git config user.name "Dev"'), null],
+    [bash('git config --get alias.co'), null],
+    [bash('gh pr create --title "Add USP row" --body "merge after review"'), null],
+    [bash('gh pr view 3'), null],
+    [bash(`node .claude/kit/kit.mjs note ${K} --note "git push failed on main"`), null],
+    [bash(`node .claude/kit/kit.mjs note ${K} --note "docs say shopify theme push; cat .env; git push -u; -c is not needed"`), null],
+    [bash(`node .claude/kit/kit.mjs done ${K} qa --note "28 criteria, state.json untouched"`), null],
+    [bash(`node .claude/kit/kit.mjs note ${K} --note "$(cat .env)"`), 'deny'],
+    [bash(`echo ok; node .claude/kit/kit.mjs note ${K} --note x; cat .env`), 'deny'],
+    // Gate 2 approves the plan and the store writes in it: the dev sees the words the kit will record as theirs
+    [bash(`node .claude/kit/kit.mjs done ${K} approve --answer "Approve"`), 'ask'],
+    [bash(`node .claude/kit/kit.mjs done ${K} approve --answer "Approve" 2>&1`), 'ask'],
+    [bash(`bash -c "node .claude/kit/kit.mjs done ${K} approve --answer x"`), 'ask'],
+    [bash(`node .claude/kit/kit.mjs done ${K} clarify --answer "Mobile menu; seed all"`), null],
+    [bash(`node .claude/kit/kit.mjs done ${K} accept --answer "Accept"`), null],
+    [bash(`node .claude/kit/kit.mjs done ${K} build`), null],
+    [bash(`node .claude/kit/kit.mjs done ${K} qa --note "28 criteria"`), null],
+    [bash(`node .claude/kit/kit.mjs done ${K} accept`), null],
+    [bash(`node .claude/kit/kit.mjs status ${K}`), null],
     [bash('curl -sL "https://x.myshopify.com/?preview_theme_id=1" -o d.html'), 'deny'],
     [ps('Invoke-WebRequest "https://x.com/cart?preview_theme_id=1"'), 'deny'],
     // denied: secrets and state through the shell
@@ -635,6 +738,14 @@ function selftest() {
     [decide(bash(kit(`mutate ${K} ${M}/ok.graphql --vars ${M}/ok.vars.json`)), ctx()).seal?.sha === sealDigest(FILES[`${M}/ok.graphql`], FILES[`${M}/ok.vars.json`]), 'mutate seal holds the digest of file + variables'],
     [decide(bash(kit(`delete-draft ${K}`)), ctx()).seal?.themeId === 5, 'delete-draft seal holds the theme id shown'],
     [/store:.*→.*b\.myshopify\.com.*the store every kit command acts on/.test(decide({ tool_name: 'Write', tool_input: { file_path: join(ROOT, CONFIG_REL), content: '{"store":"b.myshopify.com","baseBranch":"main"}' }, cwd: ROOT }, ctx()).reason), 'config prompt names the changed setting'],
+    // permission modes that hide the prompt: an ask must become a deny, never a silent allow
+    ...['bypassPermissions', 'plan', 'dontAsk', 'someFutureMode'].map((m) => [enforceMode({ decision: 'ask', reason: 'Run it?' }, { permission_mode: m }).decision === 'deny', `an ask becomes a deny in mode ${m}`]),
+    ...['default', 'auto', 'acceptEdits', undefined].map((m) => [enforceMode({ decision: 'ask', reason: 'Run it?' }, { permission_mode: m }).decision === 'ask', `an ask stays an ask in mode ${m ?? '(no mode field)'}`]),
+    [enforceMode({ decision: 'deny', reason: 'No.' }, { permission_mode: 'bypassPermissions' }).reason === 'No.', 'a deny keeps its own reason in bypass mode'],
+    [enforceMode(null, { permission_mode: 'bypassPermissions' }) === null, 'an allowed command stays allowed in bypass mode'],
+    [enforceMode(null, { permission_mode: 'bypassPermissions', tool_input: { command: 'node .claude/hooks/guard.mjs --mode-probe' } })?.decision === 'deny', 'the mode probe is refused in bypass mode'],
+    [enforceMode(null, { permission_mode: 'default', tool_input: { command: 'node .claude/hooks/guard.mjs --mode-probe' } }) === null, 'the mode probe passes in default mode'],
+    [enforceMode(decide(bash(kit(`mutate ${K} ${M}/ok.graphql --vars ${M}/ok.vars.json`)), ctx()), { permission_mode: 'bypassPermissions' }).seal === undefined, 'a mutation blocked by mode leaves no seal behind'],
   ];
   for (const [ok, what] of checks) if (!ok) { failed++; console.log(`FAIL  ${what}`); }
   cases.push(...checks);
@@ -643,6 +754,8 @@ function selftest() {
 }
 
 if (process.argv.includes('--selftest')) selftest();
+// Reaching this line means the hook let the call through, so the session's permission mode shows the kit's prompts.
+else if (process.argv.includes('--mode-probe')) console.log('ok: this session\'s permission mode shows the kit\'s confirmation prompts.');
 else {
   let raw = '';
   process.stdin.setEncoding('utf8');
@@ -655,7 +768,7 @@ else {
       process.exit(2);
     }
     try {
-      const result = decide(input);
+      const result = enforceMode(decide(input), input);
       logBlock(input, result);
       if (result?.seal) writeSeal(result.seal);
       emit(result);

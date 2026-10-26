@@ -23,6 +23,7 @@
       "Bash(node .claude/kit/shopify.mjs draft:*)",
       "Bash(node .claude/kit/shopify.mjs push:*)",
       "Bash(node .claude/hooks/guard.mjs --selftest)",
+      "Bash(node .claude/hooks/guard.mjs --mode-probe)",
       "Bash(git status:*)",
       "Bash(git fetch origin:*)",
       "Bash(git switch:*)",
