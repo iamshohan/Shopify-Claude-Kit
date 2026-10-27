@@ -9,6 +9,7 @@ import { dirname, join, relative } from 'node:path';
 const DIR = process.env.FAKE_SHOPIFY_DIR;
 if (!DIR) { process.stderr.write('FAKE_SHOPIFY_DIR is not set\n'); process.exit(1); }
 
+// Flags that take a value; --only may repeat. Any other --flag is a boolean.
 const VALUE_FLAGS = new Set(['store', 'theme', 'name', 'path', 'only', 'output', 'role', 'query-file', 'variable-file', 'version', 'overrides', 'preview-id']);
 const words = [];
 const flags = { only: [] };
@@ -58,6 +59,7 @@ function walk(dir, base = dir, acc = []) {
   return acc;
 }
 
+// Reads (list, info, pull, check) are allowed on live; push and delete go through refuseLive().
 switch (cmd) {
   case 'version': out('3.99.0-fake'); break;
   case 'theme list': out(themes().filter((t) => !flags.role || t.role === flags.role).map((t) => ({ ...t, processing: false }))); break;

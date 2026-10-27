@@ -1,4 +1,6 @@
-// Shared helpers for the kit scripts. Zero dependencies, so the kit runs in any theme repo.
+// Shared helpers for the kit scripts (kit.mjs, shopify.mjs, jira.mjs, ...) and hooks/guard.mjs.
+// Zero dependencies, so the kit runs in any theme repo.
+// Reads .claude/shopify-kit.json, .claude/VERSION and secrets; writes only .claude/logs/<KEY>/state.json.
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync } from 'node:fs';
@@ -6,6 +8,7 @@ import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir, hostname } from 'node:os';
 
+// ── Paths and theme files ──
 // Located from this file, not from cwd: commands may run from a subfolder.
 export const KIT_DIR = dirname(fileURLToPath(import.meta.url));
 export const CLAUDE_DIR = resolve(KIT_DIR, '..');
@@ -21,6 +24,7 @@ export const isThemePath = (p) => new RegExp(`^(${THEME_DIRS.join('|')})/.`).tes
 // Files Shopify rewrites when someone saves in the admin (and syncs into git on GitHub-connected themes).
 export const MERCHANT_JSON = /^(templates\/.+\.json|sections\/[^/]+\.json|config\/settings_data\.json)$/i;
 
+// ── Pipeline stages ──
 // Source of truth for the pipeline. Human-readable copies: commands/implement.md and README.md.
 export const STAGES = [
   { name: 'intake', skill: 'shopify-intake' },
@@ -43,11 +47,14 @@ export const INVESTIGATION_STAGES = [
 ];
 
 // The small lane (kit.mjs start <KEY> --small): no separate clarify gate. Open questions are asked in the plan
-// stage, and done plan refuses work that needs Gate 1 (an A/B port, editability lines, store writes, merchant JSON).
+// stage, and done plan refuses work that needs Gate 1 (an A/B port, editability lines, store writes,
+// merchant JSON).
 export const SMALL_STAGES = STAGES.filter((s) => s.name !== 'clarify')
   .map((s) => (s.name === 'approve' ? { ...s, gate: 'the dev approves the plan (small lane: decisions and plan in one gate)' } : s));
 
 export const stagesFor = (st) => (st?.kind === 'investigation' ? INVESTIGATION_STAGES : st?.lane === 'small' ? SMALL_STAGES : STAGES);
+
+// ── Output and arguments ──
 
 export const now = () => new Date().toISOString();
 
@@ -60,6 +67,8 @@ export function fail(message, code = 1) {
   process.exit(code);
 }
 
+// Flags that never take a value. Any other --flag swallows the next argument unless it starts with --,
+// so a new boolean flag must be listed here.
 const BOOLEAN_FLAGS = new Set(['dry-run', 'baseline', 'json', 'help', 'force', 'no-comments', 'selftest', 'investigate', 'live', 'github', 'none', 'all', 'adopt', 'test', 'small']);
 
 export function parseArgs(argv) {
@@ -85,6 +94,8 @@ export function normKey(raw) {
 export function slug(text, max = 20) {
   return String(text || 'dev').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, max) || 'dev';
 }
+
+// ── Processes, git and CLI output ──
 
 /**
  * Runs a program. Real executables are spawned directly. The Shopify CLI is a .cmd shim
@@ -121,8 +132,8 @@ export function currentBranch() {
 
 /**
  * The commit this task's changes are measured from: where HEAD meets origin/<baseBranch> now, as a PR diff is.
- * st.base is only where the branch started. Once the base branch is merged in, measuring from st.base counts
- * the merged-in work as this task's, and keeps flagging live edits the merge already brought in.
+ * st.base is only where the branch started. Once the base branch is merged in, measuring from st.base
+ * counts the merged-in work as this task's, and keeps flagging live edits the merge already brought in.
  */
 export function effectiveBase(st, cfg) {
   return git(['merge-base', 'HEAD', `origin/${cfg?.baseBranch || 'main'}`], { allowFail: true }) || st.base;
@@ -159,6 +170,9 @@ export function diagnosticJson(text) {
   return null;
 }
 
+// ── Secrets, config and names ──
+
+// KEY=value lines, with an optional export prefix and matching quotes. No escapes or multi-line values.
 export function parseEnv(text) {
   const out = {};
   for (const raw of text.split(/\r?\n/)) {
@@ -200,11 +214,13 @@ export function readConfig({ required = true } = {}) {
   return JSON.parse(readFileSync(CONFIG_PATH, 'utf8'));
 }
 
+// Branches the kit never pushes or merges into. hooks/guard.mjs enforces the same list.
 export function protectedBranches(cfg) {
   return [...new Set(['main', 'master', cfg?.baseBranch, ...(cfg?.protectedBranches || [])].filter(Boolean))];
 }
 
-// A test run (kit.mjs start <KEY> --test) names its branch and draft with this suffix, and the guard never lets that branch be pushed.
+// A test run (kit.mjs start <KEY> --test) names its branch and draft with this suffix,
+// and the guard never lets that branch be pushed.
 export const TEST_SUFFIX = '-kit-test';
 
 export function branchFor(cfg, key, st) {
@@ -216,6 +232,10 @@ export function branchFor(cfg, key, st) {
 /** The draft theme's name: the key, so a teammate sees whose ticket it is; a test run's is set apart. */
 export const draftNameFor = (key, st) => (st?.test ? `${key}${TEST_SUFFIX}` : key);
 
+// ── Task state ──
+// One .claude/logs/<KEY>/state.json per task; kit.mjs owns the stage logic.
+
+// Who started the task, stored in its state so a teammate can see whose it is.
 export function owner() {
   return {
     name: git(['config', 'user.name'], { allowFail: true }) || process.env.USERNAME || process.env.USER || 'dev',
@@ -245,6 +265,8 @@ export function writeState(key, state) {
   renameSync(tmp, p);
 }
 
+// ── Storefront paths and .shopifyignore ──
+
 /**
  * A storefront path like /cart. Git Bash on Windows rewrites arguments that start with "/"
  * into "C:/Program Files/Git/cart" before the script sees them, so undo that, and accept
@@ -268,6 +290,8 @@ export function ignoreMatcher(text) {
   });
   return (file) => tests.some((t) => t.test(file));
 }
+
+// ── Storefront fetch ──
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36';
 
@@ -305,6 +329,10 @@ export function renderedTheme(html) {
   if (!m) return null;
   try { const t = JSON.parse(m[1]); return { id: t.id, name: t.name, role: t.role }; } catch { return null; }
 }
+
+// ── Mutation checks ──
+// Safety code: shopify.mjs and hooks/guard.mjs both run these before a store write.
+// Every new rule or bypass gets a self-test or e2e case.
 
 // The mutations the kit runs: definitions and QA values at the draft stage, their cleanup at handoff.
 const KIT_MUTATIONS = ['metafieldDefinitionCreate', 'metaobjectDefinitionCreate', 'metafieldsSet', 'metaobjectCreate', 'metaobjectUpsert',

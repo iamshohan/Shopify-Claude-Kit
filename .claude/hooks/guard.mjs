@@ -2,7 +2,8 @@
 // PreToolUse guard for the Shopify kit. A seatbelt against realistic mistakes (calling the
 // Shopify CLI directly, pushing to main, hand-editing task state, reading secrets), not a
 // security boundary: GitHub branch protection and store staff permissions are the real limits.
-// Self-test: node .claude/hooks/guard.mjs --selftest
+// Flow: Claude Code sends the tool call as JSON on stdin → decide() → enforceMode() → emit() allow, ask or deny.
+// Self-test: node .claude/hooks/guard.mjs --selftest · Mode check: node .claude/hooks/guard.mjs --mode-probe
 import { readFileSync, existsSync, appendFileSync, mkdirSync, writeFileSync, readdirSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { dirname, join, resolve, relative, isAbsolute } from 'node:path';
@@ -10,6 +11,8 @@ import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 // The wrapper's own argv parser and mutation check: the guard must read a command exactly as the wrapper will run it.
 import { parseArgs, mutationProblems, sealDigest, SEAL_FILE, TEST_SUFFIX, MERCHANT_JSON, protectedBranches as branchesFrom } from '../kit/lib.mjs';
+
+// ── Rules: patterns, verb lists and messages ──
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const WIN = process.platform === 'win32';
@@ -49,6 +52,9 @@ const FETCHERS = /^(curl|wget|Invoke-WebRequest|Invoke-RestMethod|iwr|irm)(\.exe
 const NPM_BUILTINS = new Set(['install', 'i', 'ci', 'add', 'remove', 'rm', 'uninstall', 'update', 'up', 'upgrade', 'init', 'create',
   'outdated', 'ls', 'list', 'view', 'info', 'audit', 'link', 'config', 'cache', 'why', 'pack', 'prune', 'dedupe', 'help', 'version', '-v', '--version']);
 
+// ── Repo context ──
+// Read fresh on every call; the self-test swaps these for fakes through ctx.
+
 function protectedBranches() {
   try { return branchesFrom(JSON.parse(readFileSync(join(ROOT, '.claude', 'shopify-kit.json'), 'utf8'))); } catch { return branchesFrom(null); }
 }
@@ -61,6 +67,9 @@ function currentBranch() {
 function packageScripts() {
   try { return JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).scripts || {}; } catch { return {}; }
 }
+
+// ── Reading a shell command ──
+// Close enough to a shell's own parsing to find the program each segment runs and its arguments.
 
 /** Drop the body of a heredoc or PowerShell here-string, but only when it is a git commit/tag message. */
 function stripMessageBodies(cmd) {
@@ -157,6 +166,9 @@ function innerCommand(segment) {
   return (q === '"' || q === "'") && rest.endsWith(q) ? rest.slice(1, -1) : rest;
 }
 
+// ── git push, npm scripts and gh merges ──
+
+/** Why this git push is refused, or null for the one allowed form: git push -u origin <task-branch>. */
 function checkPush(args, prot) {
   const flags = args.filter((a) => a.startsWith('-'));
   const pos = args.filter((a) => !a.startsWith('-'));
@@ -179,6 +191,7 @@ function checkPush(args, prot) {
   return null;
 }
 
+/** The npm script's body if it runs the Shopify CLI or Theme Kit, following nested npm run calls 3 deep. */
 function scriptCallsCli(name, scripts, depth = 0) {
   const body = scripts[name];
   if (!body || depth > 3) return null;
@@ -202,6 +215,8 @@ function ghMerges(segment) {
   return rest.slice(at + 1).some((x) => /\/merges?\b|\/pulls\/\d+\/merge|git\/refs|mergePullRequest/.test(x));
 }
 
+// ── Kit wrapper calls, gates and config ──
+
 /** A wrapper call in one segment, with its arguments parsed the way the wrapper parses them. */
 function wrapperCall(segment) {
   const { w, i } = program(stripRedirects(segment));
@@ -209,6 +224,7 @@ function wrapperCall(segment) {
   return parseArgs(w.slice(i + 2));
 }
 
+/** Read-only verbs pass; mutate and delete-draft ask and seal what the dev saw; any other verb asks. */
 function wrapperDecision(segs, ctx) {
   for (const seg of segs) {
     const call = wrapperCall(seg);
@@ -290,6 +306,12 @@ function configChange(ti, ctx) {
   return `This changes the kit's settings for this repo (${CONFIG_REL}):\n${lines ? lines.join('\n') || '- no setting changes' : '- the guard couldn\'t tell which settings change'}\nAllow it?`;
 }
 
+// ── Bash and PowerShell ──
+
+/**
+ * Inner bash -c commands first, then the denies (CLI, secrets, state, seal, branches, pushes), then the asks
+ * (wrapper verbs, gates, config writes, git that can run a program or discard work).
+ */
 function decideCommand(raw, ctx, depth = 0, cwd = null) {
   const cmd = stripMessageBodies(raw);
   const segs = segments(cmd);
@@ -399,6 +421,9 @@ function decideCommand(raw, ctx, depth = 0, cwd = null) {
   return null;
 }
 
+// ── Edit and Write ──
+// Only files inside the repo are checked; paths outside it are allowed.
+
 function decideFile(ti, cwd, ctx) {
   const filePath = String(ti.file_path || ti.notebook_path || '');
   if (!filePath) return null;
@@ -423,6 +448,9 @@ function decideFile(ti, cwd, ctx) {
   return null;
 }
 
+// ── The decision ──
+// decide() returns null (allow) or { decision, reason, seal? }. defaultCtx reads the real repo; the self-test passes fakes.
+
 const defaultCtx = {
   protected: protectedBranches, branch: currentBranch, scripts: packageScripts, isPath: (p) => existsSync(join(ROOT, p)), master: () => MASTER,
   read: (p) => { try { return readFileSync(resolve(ROOT, p), 'utf8'); } catch { return null; } },
@@ -446,6 +474,8 @@ export function decide(input, ctx = defaultCtx) {
   if (['Edit', 'Write', 'MultiEdit', 'NotebookEdit'].includes(tool)) return decideFile(ti, input.cwd, ctx);
   return null;
 }
+
+// ── After the decision: seal, block log, permission mode ──
 
 /** What the dev is about to be shown, for the wrapper to compare with what it runs. */
 function writeSeal({ key, ...seal }) {
@@ -485,6 +515,7 @@ function enforceMode(result, input) {
   };
 }
 
+/** The PreToolUse answer on stdout. No output means allow. */
 function emit(result) {
   if (!result) process.exit(0);
   process.stdout.write(JSON.stringify({
@@ -492,6 +523,9 @@ function emit(result) {
   }));
   process.exit(0);
 }
+
+// ── Self-test ──
+// cases: [tool input, expected decision]; checks: [condition, description]. Every rule and bypass gets one.
 
 function selftest() {
   const K = 'ABC-123'; // any non-protected task key/branch name works here
@@ -752,6 +786,8 @@ function selftest() {
   console.log(failed ? `${failed} of ${cases.length} failed` : `all ${cases.length} passed`);
   process.exit(failed ? 1 : 0);
 }
+
+// ── Hook entry ──
 
 if (process.argv.includes('--selftest')) selftest();
 // Reaching this line means the hook let the call through, so the session's permission mode shows the kit's prompts.

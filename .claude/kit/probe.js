@@ -22,8 +22,17 @@
  * Lives on window — RE-INJECT after every navigation or reload.
  * errors() only sees what happened after injection; inject, then reload, then read.
  * Playwright: page.addScriptTag({ path: '<this file>' }) — costs zero context.
+ *
+ * A probe that knows its own answer is shaky says so. A non-empty `caveats`
+ * blocks a PASS exactly the way an empty `How` column does — the alternative
+ * is a clean-looking number the model treats as authoritative.
+ *
+ * After editing: `node .claude/kit/kit.mjs build-probe` regenerates probe.init.js and probe.inject.js.
  */
 (() => {
+
+  // ── Helpers ──
+
   const V = '1.0';
   const px = (n) => Math.round(n * 10) / 10;
   const one = (s) => document.querySelector(s);
@@ -33,6 +42,7 @@
     + (el.id ? '#' + el.id : '')
     + (el.classList.length ? '.' + [...el.classList].slice(0, 3).join('.') : '');
 
+  // The node's key in snap()/diff(): tag chain up to 6 levels, with a sibling index where tags repeat.
   const path = (el) => {
     const p = [];
     let n = el, d = 0;
@@ -50,6 +60,7 @@
              top: px(r.top), right: px(r.right), bottom: px(r.bottom), left: px(r.left) };
   };
 
+  // Partial alpha is dropped: rgba(0,0,0,0.5) reads as #000000. Only alpha 0 becomes 'transparent'.
   const hex = (c) => {
     const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?/.exec(c || '');
     if (!m) return c;
@@ -67,9 +78,8 @@
 
   const miss = (sel) => ({ sel, verdict: 'ABSENT', detail: 'no element matches this selector', caveats: [] });
 
-  // A probe that knows its own answer is shaky says so. A non-empty `caveats`
-  // blocks a PASS exactly the way an empty `How` column does — the alternative
-  // is a clean-looking number the model treats as authoritative.
+  // ── Page state: env, live ──
+
   const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   // innerWidth includes the scrollbar, clientWidth does not. Media queries use
@@ -107,6 +117,8 @@
              verdict: (inDOM || inCSS || inJS) ? 'LIVE'
                : 'NOT FOUND — the change may not be in this page; resolve before QAing anything' };
   };
+
+  // ── Visibility and styles: see, css, why ──
 
   // Present is not the same as visible.
   const see = (sel, max = 5) => {
@@ -198,6 +210,8 @@
                : 'NOT DECLARED ANYWHERE — the rule never reached this page' };
   };
 
+  // ── Geometry: gap, pad, gutter, overflow ──
+
   const gap = (selA, selB) => {
     const a = one(selA), b = one(selB);
     if (!a) return miss(selA);
@@ -248,6 +262,8 @@
              offenders: out.sort((a, b) => b.over - a.over).slice(0, 10) };
   };
 
+  // ── Motion ──
+
   // NEVER read getComputedStyle(transform) to check animation — mid-transition
   // it returns the start value, so a working slider reads as static.
   const motion = (sel, ms = 600) => {
@@ -288,6 +304,9 @@
       requestAnimationFrame(tick);
     });
   };
+
+  // ── Interaction diff: snap, diff ──
+  // snap() keeps one snapshot; diff() compares the page against it after an action.
 
   let saved = null;
 
@@ -334,7 +353,8 @@
              added: added.slice(0, max), removed: removed.slice(0, max), changed: changed.slice(0, max) };
   };
 
-  // ---- layout shift --------------------------------------------------------
+  // ── Layout shift ──
+
   // Every other probe measures a point in time. This one catches content that
   // was correct WHEN MEASURED but jumped during load — a late banner, a font
   // swap, an unsized lazy image. `buffered: true` replays shifts that happened
@@ -383,6 +403,9 @@
     };
   };
 
+  // ── Errors ──
+  // Listeners start at injection; nothing earlier is captured.
+
   const log = { errors: [], rejections: [], consoleErrors: [] };
   addEventListener('error', (e) => log.errors.push({
     msg: String(e.message || (e.error && e.error.message) || e.type),
@@ -393,6 +416,8 @@
   const _ce = console.error.bind(console);
   console.error = (...a) => { log.consoleErrors.push(a.map(String).join(' ').slice(0, 300)); _ce(...a); };
 
+  // responseStatus is 0 for cross-origin requests without CORS and missing in some browsers,
+  // so an empty failedRequests is not proof that nothing failed.
   const errors = () => Object.assign({
     since: 'probe injection — anything before it is not captured',
   }, log, {
@@ -401,7 +426,8 @@
       .map((r) => ({ url: r.name, status: r.responseStatus })).slice(0, 20),
   });
 
-  // ---- the ledger ----------------------------------------------------------
+  // ── The ledger ──
+
   // Every probe call records itself. The report's `How` column is then emitted
   // from what actually ran, instead of being a cell the model is trusted to
   // fill in honestly — the difference between a rule and a mechanism.
@@ -411,7 +437,8 @@
     typeof a === 'string' ? "'" + a + "'" : (a && typeof a === 'object') ? JSON.stringify(a) : String(a);
 
   // The value has to be citable on its own — a truncated JSON blob is not a
-  // measurement anyone can check.
+  // measurement anyone can check. Shapes are tested most specific first: several
+  // results share keys (`verdict`, `viewport`), so the order of these checks matters.
   const digest = (r) => {
     if (!r || typeof r !== 'object') return String(r);
     if ('cls' in r) return `${r.verdict} shifts=${r.count}`;
@@ -457,6 +484,9 @@
   });
 
   const reset = () => { ledger.length = 0; return { verdict: 'LEDGER CLEARED' }; };
+
+  // ── window.__qa ──
+  // Every probe goes through record(), so the ledger sees it; report, reset, tag and box are not recorded.
 
   const api = { env, live, see, css, why, gap, pad, gutter, overflow, shift, motion, snap, diff, errors };
   const wrapped = {};

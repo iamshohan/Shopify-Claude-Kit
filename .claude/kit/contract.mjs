@@ -1,13 +1,14 @@
 #!/usr/bin/env node
-// The customizer contract: what a merchant will see in the theme editor for the sections and
-// blocks this task changed, read from their {% schema %}, the schema locale files and the
-// templates. The editor itself can only be screenshotted, so most customizer criteria are
-// decided here, deterministically.
+// The customizer contract: what a merchant will see in the theme editor for the sections and blocks this
+// task changed, read from their {% schema %}, the schema locale files and the templates. The editor itself
+// can only be screenshotted, so most customizer criteria are decided here, deterministically.
 //   node .claude/kit/contract.mjs <KEY> [--files sections/a.liquid,blocks/b.liquid]
 // Writes .claude/logs/<KEY>/contract.json and contract.md; prints a summary.
 import { existsSync, readdirSync, readFileSync, writeFileSync, statSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import { ROOT, LOGS, print, fail, parseArgs, normKey, git, readState, readConfig, effectiveBase } from './lib.mjs';
+
+// ── Reading theme files ──
 
 /** JSON with comments and trailing commas, which live themes do contain. */
 function lenientJson(text) {
@@ -29,6 +30,8 @@ const read = (rel) => { try { return readFileSync(join(ROOT, rel), 'utf8'); } ca
 const schemaOf = (text) => (text?.match(/\{%-?\s*schema\s*-?%\}([\s\S]*?)\{%-?\s*endschema\s*-?%\}/) || [])[1] ?? null;
 const ls = (dir) => (existsSync(join(ROOT, dir)) ? readdirSync(join(ROOT, dir)).filter((n) => statSync(join(ROOT, dir, n)).isFile()) : []);
 
+// ── Files to check ──
+
 const { _: [rawKey], flags } = parseArgs(process.argv.slice(2));
 const key = normKey(rawKey);
 const st = readState(key);
@@ -45,6 +48,7 @@ if (!files) {
 }
 if (!files.length) { print({ files: 0, note: 'No changed section or block files; nothing appears in the customizer from this task.' }); process.exit(0); }
 
+// ── Labels and setting checks ──
 // Schema locales: t: keys resolve per admin language; a key missing from the default locale shows raw.
 const locales = {};
 let defaultLocale = null;
@@ -58,6 +62,7 @@ const lookup = (obj, path) => path.split('.').reduce((o, p) => (o == null ? unde
 const problems = [];
 const untranslated = new Set();
 
+// The text the editor shows for a t: key; records missing and untranslated keys as it goes.
 function label(value, where) {
   if (typeof value !== 'string' || !value.startsWith('t:')) return value ?? null;
   const path = value.slice(2);
@@ -68,6 +73,8 @@ function label(value, where) {
   return shown ?? value;
 }
 
+// Rows for the contract table, plus the schema mistakes a merchant would hit: duplicate ids,
+// defaults outside their options or range, visible_if pointing at an unknown setting.
 function settingsOf(list, where) {
   const ids = new Set();
   const rows = [];
@@ -97,6 +104,7 @@ function settingsOf(list, where) {
   return { rows, ids };
 }
 
+// ── Placements ──
 // Where each section type is placed today, from the JSON templates and section groups.
 const placements = {};
 const templateFiles = [
@@ -109,6 +117,8 @@ for (const f of templateFiles) {
   try { data = lenientJson(read(f).replace(/^\s*\/\*[\s\S]*?\*\//, '')); } catch { continue; }
   for (const [id, section] of Object.entries(data.sections || {})) (placements[section.type] ||= []).push({ file: f, sectionKey: id, disabled: Boolean(section.disabled) });
 }
+
+// ── One entry per changed file ──
 
 const entries = [];
 for (const file of files) {
@@ -142,6 +152,8 @@ for (const file of files) {
     placedIn, settings: own.rows, blocks: blocks.map(({ ids, ...b }) => b),
   });
 }
+
+// ── Write contract.md and contract.json ──
 
 const cell = (v) => (v == null || v === '' ? '' : String(typeof v === 'object' ? JSON.stringify(v) : v).replace(/\|/g, '\\|').replace(/\n/g, ' '));
 const md = [`# ${key} · Customizer contract`, '', `Read from the schemas at ${git(['rev-parse', '--short', 'HEAD'], { allowFail: true })}. Labels in ${defaultLocale || 'the schema (no schema locale files)'}.`, ''];

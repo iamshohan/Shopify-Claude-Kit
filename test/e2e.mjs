@@ -1,13 +1,17 @@
 #!/usr/bin/env node
 // End-to-end test of the kit's scripts, offline: installs the kit into a temporary theme repo
-// (with a bare "origin"), puts test/fake-shopify.mjs on PATH as `shopify`, and drives
-// draft → push → live drift → merge → push → check → contract → mutate through the real scripts and guard.
+// (with a bare "origin"), puts test/fake-shopify.mjs on PATH as `shopify`, and drives install → draft → push →
+// live drift → merge → push → check → contract → reconcile → mutate → lanes through the real scripts and guard.
 //   node test/e2e.mjs [--keep]      --keep leaves the temp folder for inspection
+// Exits 1 if any check fails.
 import { spawnSync, execFileSync } from 'node:child_process';
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { delimiter, dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
+
+// ── Harness ──
+// KIT is the kit repo root (install.mjs, test/), not its .claude/ as in install.mjs.
 
 const KIT = resolveKit();
 const KEY = 'ABC-1';
@@ -39,6 +43,9 @@ const state = () => JSON.parse(readFileSync(join(repo, '.claude', 'logs', KEY, '
 const product = (a, d) => `{\n  "sections": {\n    "main": { "type": "main-product" },\n    "a": { "type": "x", "settings": { "title": "${a}" } },\n    "b": { "type": "y" },\n    "c": { "type": "z" },\n    "d": { "type": "w", "settings": { "title": "${d}" } }\n  },\n  "order": ["main", "a", "b", "c", "d"]\n}\n`;
 
 try {
+
+  // ── Fixtures: fake CLI, theme repo, store ──
+
   // The fake CLI, as `shopify` on PATH.
   mkdirSync(bin);
   const fake = join(KIT, 'test', 'fake-shopify.mjs');
@@ -63,6 +70,8 @@ try {
   writeFileSync(join(store, 'calls.jsonl'), '');
   cpSync(repo, join(store, 'themes', '1'), { recursive: true, filter: (p) => !p.includes('.git') });
 
+  // ── Install and update ──
+
   const install = spawnSync(process.execPath, [join(KIT, 'install.mjs'), repo], { encoding: 'utf8' });
   ok('installer copies the kit, rules included', install.status === 0 && existsSync(join(repo, '.claude', 'kit', 'shopify.mjs')) && existsSync(join(repo, '.claude', 'rules', 'kit-runs.md')), install.stderr);
   // An update must not overwrite a settings.json the dev has added their own permissions to.
@@ -73,13 +82,14 @@ try {
   writeFileSync(settingsPath, mine);
   const update = spawnSync(process.execPath, [join(KIT, 'install.mjs'), repo], { encoding: 'utf8' });
   ok('an update keeps a settings.json the dev edited and writes the kit\'s beside it', update.status === 0 && readFileSync(settingsPath, 'utf8') === mine && existsSync(join(repo, '.claude', 'settings.kit.json')), update.stdout);
+  // Back to the kit's own settings, then the config /shopify-setup would write.
   writeFileSync(settingsPath, readFileSync(join(KIT, '.claude', 'settings.json')));
   rmSync(join(repo, '.claude', 'settings.kit.json'), { force: true });
   writeFileSync(join(repo, '.claude', 'shopify-kit.json'), JSON.stringify({
     store: 'fake-store.myshopify.com', baseBranch: 'main', protectedBranches: ['main'], branchPattern: '{KEY}', adminApi: true, draftRoute: 'cli', adminApiVersion: '2026-07',
   }));
 
-  // Task start, branch, baseline.
+  // ── Task start, branch, baseline ──
   ok('kit start', kit('kit.mjs', 'start', KEY).code === 0);
   git('switch', '-q', '--no-track', '-c', KEY, 'origin/main');
   const base = git('rev-parse', 'origin/main');
@@ -87,7 +97,7 @@ try {
   const baseline = kit('shopify.mjs', 'check', KEY, '--baseline');
   ok('theme-check baseline on a clean tree', baseline.code === 0, baseline.all);
 
-  // The feature, a draft, a first push.
+  // ── The feature, a draft, a first push ──
   write('sections/feature.liquid', '<div class="e2e-feature"></div>\n');
   write('templates/product.json', product('A2', 'D'));
   commit('feature');
@@ -96,6 +106,7 @@ try {
   const push1 = kit('shopify.mjs', 'push', KEY);
   ok('push uploads and verifies', push1.code === 0 && existsSync(join(store, 'themes', '2', 'sections', 'feature.liquid')), push1.all);
 
+  // ── Live drift ──
   // Live changes: a merchant edit that Shopify syncs into main, and a teammate's merged section.
   git('switch', '-q', 'main');
   write('templates/product.json', product('A', 'D2'));
@@ -110,6 +121,7 @@ try {
   const drift = kit('shopify.mjs', 'push', KEY);
   ok('push refuses when live changed a JSON file the branch changes', drift.code === 3 && /Live has changed templates\/product\.json/.test(drift.err), drift.all);
 
+  // ── Merge main, push again ──
   // The documented fix: merge the base branch. Before kit 0.5 this push was refused forever.
   git('fetch', '-q', 'origin');
   git('merge', '-q', '--no-edit', 'origin/main');
@@ -118,6 +130,9 @@ try {
   ok('after merging main, push goes through', push2.code === 0, push2.all);
   const sent = calls().slice(before).filter((c) => c.cmd === 'theme push').flatMap((c) => c.flags.only);
   ok('push sends only this task\'s files, not merged-in work', sent.includes('sections/feature.liquid') && !sent.includes('sections/teammate.liquid'), JSON.stringify(sent));
+
+  // ── Theme check and contract ──
+  // Both count only what this branch changed, not what the merge brought in.
 
   const check1 = kit('shopify.mjs', 'check', KEY);
   ok('check doesn\'t count a merged-in offense as introduced', check1.code === 0 && json(check1).introducedErrors === 0, check1.all);
@@ -130,6 +145,7 @@ try {
   const contract = kit('contract.mjs', KEY);
   ok('contract covers this task\'s sections only', contract.code === 0 && /feature\.liquid/.test(contract.out) && !/teammate/.test(contract.out), contract.all);
 
+  // ── Reconcile an unsynced live edit ──
   // A live edit that never reaches git: reconcile by hand, then --reconciled pins that live version.
   setLive('templates/product.json', product('A', 'D3'));
   write('templates/product.json', product('A2', 'D3'));
@@ -144,6 +160,8 @@ try {
   ok('a later live edit to the same file is refused again', kit('shopify.mjs', 'push', KEY).code === 3);
   setLive('templates/product.json', product('A', 'D3'));
 
+  // ── Verify, and never write to live ──
+
   ok('verify: the draft matches HEAD', kit('shopify.mjs', 'verify', KEY).code === 0);
 
   // The wrapper never writes to a theme that isn't an unpublished draft, even if the state points at live.
@@ -152,11 +170,13 @@ try {
   ok('push refuses a state that points at the live theme', toLive.code === 1 && /not unpublished/.test(toLive.err), toLive.all);
   kit('kit.mjs', 'set', KEY, 'draft.themeId=2');
 
+  // ── Mutations ──
   // Mutations run only after the guard showed them to the dev, and only once.
   const mfile = `.claude/logs/${KEY}/mutations/01-def.graphql`;
   write(mfile, 'mutation Def($d: MetafieldDefinitionInput!) { metafieldDefinitionCreate(definition: $d) { createdDefinition { id } userErrors { message } } }\n');
   const unsealed = kit('shopify.mjs', 'mutate', KEY, mfile);
   ok('mutate refuses a call the guard never showed', unsealed.code === 1 && /wasn't shown/.test(unsealed.err), unsealed.all);
+  // Feed the guard the PreToolUse JSON Claude Code would send; its "ask" writes the seal mutate needs.
   const hook = spawnSync(process.execPath, [join(repo, '.claude', 'hooks', 'guard.mjs')], {
     cwd: repo, env, encoding: 'utf8', input: JSON.stringify({ tool_name: 'Bash', tool_input: { command: `node .claude/kit/shopify.mjs mutate ${KEY} ${mfile}` }, cwd: repo }),
   });
@@ -165,9 +185,12 @@ try {
   ok('mutate runs once after the guard\'s prompt', sealed.code === 0 && state().mutations.at(-1)?.ids.includes('gid://shopify/MetafieldDefinition/901'), sealed.all);
   ok('the seal is single-use', kit('shopify.mjs', 'mutate', KEY, mfile).code === 1);
 
-  // Lanes.
+  // ── Lanes ──
   ok('start --small', kit('kit.mjs', 'start', 'ABC-2', '--small').out.includes('Small lane'));
   ok('lane full switches back before approval', kit('kit.mjs', 'lane', 'ABC-2', 'full').code === 0 && !kit('kit.mjs', 'status', 'ABC-2').out.includes('Small lane'));
+
+  // ── Live theme untouched ──
+  // The fake CLI logs any write to the live theme in violations.jsonl.
 
   const violations = join(store, 'violations.jsonl');
   ok('nothing wrote to the live theme', !existsSync(violations), existsSync(violations) ? readFileSync(violations, 'utf8') : '');

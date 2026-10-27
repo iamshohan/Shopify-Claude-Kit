@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// Regression check: fetches pages from the live theme and from this task's draft and compares
-// what Shopify rendered. The draft is a copy of live plus this branch's files, so on pages the
-// change shouldn't touch, the section list should match and the feature's class should be absent.
+// Regression check: fetches pages from the live theme and from this task's draft and compares what Shopify
+// rendered. The draft is a copy of live plus this branch's files, so on pages the change shouldn't touch,
+// the section list should match and the feature's class (featurePrefix) should be absent. Writes nothing.
 //   node .claude/kit/compare.mjs <KEY> [path ...]     e.g. home cart products/x (defaults: qa.paths, else home and cart)
 import { print, fail, normKey, readConfig, readState, storefrontPath, storefrontGet as get, renderedTheme as themeOf } from './lib.mjs';
 
@@ -31,6 +31,8 @@ for (const path of list) {
   const lt = themeOf(live.html);
   const dt = themeOf(draft.html);
   const row = { path, live: { status: live.status, theme: lt }, draft: { status: draft.status, theme: dt } };
+  // BLOCKED, not DIFFERS, when either side isn't the page we meant to compare: a password page,
+  // no theme on live, or a draft request that Shopify served from another theme.
   if (/\/password/.test(live.url) || /\/password/.test(draft.url)) { row.verdict = 'BLOCKED'; row.why = 'storefront is password-protected'; results.push(row); continue; }
   if (!lt || live.status >= 400) { row.verdict = 'BLOCKED'; row.why = `the live page didn't render a theme (HTTP ${live.status}; bot protection or a redirect?)`; results.push(row); continue; }
   if (dt?.id !== draftId) { row.verdict = 'BLOCKED'; row.why = `the draft request rendered theme ${dt?.id ?? 'unknown'}, not ${draftId}`; results.push(row); continue; }

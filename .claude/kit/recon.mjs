@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Repo facts for one task, read fresh from the files and git (no network, nothing written).
 // It reports what is there; the theme-recon agent decides what matters.
+//   node .claude/kit/recon.mjs        (no arguments; prints JSON)
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { ROOT, THEME_DIRS, print, git, readConfig } from './lib.mjs';
@@ -9,6 +10,8 @@ const ls = (dir) => (existsSync(join(ROOT, dir)) ? readdirSync(join(ROOT, dir)).
 const read = (rel) => { try { return readFileSync(join(ROOT, rel), 'utf8'); } catch { return ''; } };
 const top = (obj, n = 12) => Object.fromEntries(Object.entries(obj).sort((a, b) => b[1] - a[1]).slice(0, n));
 const bump = (obj, k, by = 1) => { obj[k] = (obj[k] || 0) + by; };
+
+// ── Theme files ──
 
 const files = {};
 for (const d of THEME_DIRS) files[d] = ls(d);
@@ -36,6 +39,8 @@ const trackShare = (pred) => {
 };
 const ignoredAssets = git(['status', '--ignored', '--porcelain', '--', 'assets'], { allowFail: true })
   .split('\n').filter((l) => l.startsWith('!!')).map((l) => l.slice(3));
+
+// ── Deploy and build ──
 
 // Deploy signals: Shopify's GitHub integration commits as "Update from Shopify for theme <name>"
 const defaultBranch = readConfig({ required: false })?.baseBranch
@@ -76,6 +81,8 @@ for (const p of [...scripts, ...styles]) {
   const lines = t.split('\n').length;
   if (t.length > 20000 && t.length / lines > 400) minified.push(`${p} (${Math.round(t.length / 1024)} KB, ${lines} lines)`);
 }
+
+// ── Code conventions ──
 
 // JS and cart conventions, by counting real usages
 const DOM_EVENTS = new Set(['click', 'change', 'input', 'submit', 'scroll', 'resize', 'load', 'unload', 'beforeunload', 'DOMContentLoaded',
@@ -143,11 +150,14 @@ for (const p of [...files.layout.map((n) => `layout/${n}`), ...files.snippets.ma
   for (const [name, re] of Object.entries(tools)) if (re.test(t)) (experimentTools[name] ||= []).push(p);
 }
 
-// Conventions from git (branch names; commit subjects other than Shopify's sync commits)
+// ── Git conventions ──
+// Branch names, and commit subjects other than Shopify's sync commits.
 const branches = git(['for-each-ref', '--sort=-committerdate', '--count=15', '--format=%(refname:short)', 'refs/remotes/origin'], { allowFail: true })
   .split('\n').filter((b) => b && b !== 'origin/HEAD' && b !== 'origin').map((b) => b.replace(/^origin\//, ''));
 const ownCommits = git(['log', '--all', '--no-merges', '--format=%s', '-400'], { allowFail: true })
   .split('\n').filter((s) => s && !s.startsWith('Update from Shopify')).slice(0, 12);
+
+// ── Output ──
 
 print({
   commit: git(['rev-parse', '--short', 'HEAD'], { allowFail: true }),

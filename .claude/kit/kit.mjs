@@ -1,5 +1,9 @@
 #!/usr/bin/env node
-// Records where a ticket is in the pipeline. Task state for /implement and /shopify-investigate. One folder per ticket: .claude/logs/<KEY>/.
+// Records where a ticket is in the pipeline: task state for /implement and /shopify-investigate, and the
+// checks a stage must pass before it can be marked done.
+// Usage: node .claude/kit/kit.mjs <verb> [<KEY>] ...   (--help lists the verbs)
+// One folder per ticket: .claude/logs/<KEY>/ (state.json, brief.md, plan.md, report.md or investigation.md,
+// kit-notes.md). Also reads the guard's _guard.jsonl and writes logs/kit-feedback.md and kit/probe.*.js.
 import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
@@ -9,6 +13,7 @@ import {
   effectiveBase,
 } from './lib.mjs';
 
+// ── Help and settable facts ──
 const HELP = `Usage: node .claude/kit/kit.mjs <verb> ...
   list                                   all tasks in this repo and their stage
   start <KEY>                            create .claude/logs/<KEY>/ (state + brief.md, plan.md, report.md); turns a finished investigation into an implementation
@@ -60,6 +65,8 @@ const SETTABLE = {
   'draft.editorUrl': String,
 };
 
+// ── Reading the task's markdown ──
+// The logs start as copies of kit/templates/, so checks look only at what a section adds to its template.
 const TEMPLATES = ['brief.md', 'plan.md', 'report.md'];
 const kindOf = (st) => st?.kind || 'implement';
 const read = (p) => (existsSync(p) ? readFileSync(p, 'utf8') : '');
@@ -89,10 +96,16 @@ const stageIndex = (name, st) => stagesFor(st).findIndex((s) => s.name === name)
 const ref = (r) => git(['rev-parse', '--verify', '--quiet', r], { allowFail: true });
 /** Cells of a markdown table row; "\|" stays inside its cell. */
 const cells = (row) => row.replace(/^\|/, '').replace(/\|\s*$/, '').split(/(?<!\\)\|/).map((c) => c.trim());
-/** Rows whose last recorded verdict is FAIL on a commit other than the draft's current one: the fix was never re-measured. */
+/**
+ * Rows whose last recorded verdict is FAIL on a commit other than the draft's current one:
+ * the fix was never re-measured.
+ */
 const staleFails = (rows = {}, head) => Object.entries(rows).filter(([, r]) => r.verdict === 'FAIL' && r.commit && head && r.commit !== head).map(([n]) => n);
 const saysNone = (key, file, heading, within) => /^(none|n\/a|—)\b/i.test(added(key, file, heading, within).join(' ').replace(/^[-*]\s*/, ''));
 const NO_RECOMMENDED = /\(Recommended\)/i;
+
+// ── Brief and plan checks ──
+// Helpers for the clarify and plan exits below; reach() also backs the reach verb.
 
 /** Gate 1's hard-coded list: each entry that touches an editability AC must have been asked on its own. */
 function staysInCodeProblems(key) {
@@ -191,6 +204,8 @@ function smallLaneProblems(key, st) {
   ];
 }
 
+// ── Retro signals ──
+
 /** What the record shows went wrong in a run. The guard log has no task key, so it is matched by time. */
 function retroSignals(key, st) {
   const events = st.history || [];
@@ -219,6 +234,7 @@ function retroDone(st) {
   return shown !== -1 && (st.history || []).slice(shown + 1).some((e) => e.event === 'note');
 }
 
+// ── Stage exit checks ──
 // Each check proves the stage's output exists, so a stage can't be marked done on intent alone.
 const EXIT_CHECKS = {
   intake: (key, st) => [
@@ -320,6 +336,8 @@ const EXIT_CHECKS = {
   },
 };
 
+// ── Git and theme state ──
+
 // Raw output: git() trims, which would cut the leading space of the first " M path" line.
 const themeStatus = () => run('git', ['status', '--porcelain', '--', ...existingThemeDirs()]).stdout.split(/\r?\n/).filter(Boolean);
 
@@ -335,11 +353,15 @@ function existingThemeDirs() {
   return THEME_DIRS.filter((d) => existsSync(join(ROOT, d)));
 }
 
+// Pushed means origin has the local branch's current commit, not just a branch of that name.
 function branchPushed(st) {
   const local = ref(`refs/heads/${st.branch}`);
   return Boolean(local) && local === ref(`refs/remotes/origin/${st.branch}`);
 }
 
+// ── Status and summary output ──
+
+/** What start, status, done, back and lane print: the stage, the skill to load next, and the task's facts. */
 function summaryLines(key, st, cfg) {
   const stages = stagesFor(st);
   const i = stageIndex(st.stage, st);
@@ -385,6 +407,7 @@ function summaryLines(key, st, cfg) {
 
 const minutes = (a, b) => Math.round((new Date(b) - new Date(a)) / 60000);
 
+/** The summary verb's JSON. A stage's time counts from the previous done or back, so a loop back restarts the clock. */
 function runSummary(key, st) {
   const events = st.history || [];
   let last = st.createdAt;
@@ -409,6 +432,8 @@ function runSummary(key, st) {
     draft: st.draft?.themeId ? `${st.draft.name || st.draft.themeId}${st.draft.deletedAt ? ' (deleted)' : ''}` : null,
   };
 }
+
+// ── Self-test ──
 
 function selftest() {
   const checks = [];
@@ -457,6 +482,8 @@ function selftest() {
   process.exit(failed.length ? 1 : 0);
 }
 
+// ── Verbs ──
+// One case per verb; HELP at the top describes each.
 const { _: [verb, rawKey, ...rest], flags } = parseArgs(process.argv.slice(2));
 
 if (process.argv.includes('--selftest')) selftest();
@@ -610,7 +637,8 @@ switch (verb) {
     const at = order.indexOf(st.stage);
     if (at === -1 || at > order.indexOf('approve')) fail(`${key} is past the plan's approval (stage ${st.stage}), so its lane is fixed.`);
     st.lane = to;
-    // Into the small lane at clarify: the questions move into the plan stage. Into the full lane after it: Gate 1 comes first.
+    // Into the small lane at clarify: the questions move into the plan stage.
+    // Into the full lane after it: Gate 1 comes first.
     if (to === 'small' && st.stage === 'clarify') st.stage = 'plan';
     if (to === 'full' && at > order.indexOf('clarify')) st.stage = 'clarify';
     st.history.push({ at: now(), event: 'lane', from, to, stage: st.stage });

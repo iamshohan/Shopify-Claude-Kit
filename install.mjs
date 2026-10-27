@@ -10,6 +10,7 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const KIT = join(dirname(fileURLToPath(import.meta.url)), '.claude');
+// Files each theme repo owns: never copied over, never removed. The installer writes the last two itself.
 const PER_REPO = new Set(['shopify-kit.json', '.env.local', 'settings.local.json', 'cli-check.json', '.kit-manifest.json', '.gitignore']);
 const GITIGNORE = '# The kit stays out of git for now. When the team commits it, replace this with:\n#   logs/\n#   .env.local\n#   settings.local.json\n#   cli-check.json\n*\n';
 
@@ -42,8 +43,9 @@ const manifestPath = join(dest, '.kit-manifest.json');
 const manifest = existsSync(manifestPath) ? JSON.parse(readFileSync(manifestPath, 'utf8')) : {};
 const previous = manifest.files || [];
 
-// settings.json is the repo's own once it differs from what this installer wrote last time (for a manifest from an
-// older installer, which recorded no hash: once it lacks the kit's guard). The kit's version goes beside it, to merge by hand.
+// settings.json is the repo's own once it differs from what this installer wrote last time
+// (for a manifest from an older installer, which recorded no hash: once it lacks the kit's guard).
+// The kit's version goes beside it, to merge by hand.
 const destSettings = join(dest, 'settings.json');
 const kitSettings = join(KIT, 'settings.json');
 const ownSettings = existsSync(destSettings) && sha(destSettings) !== sha(kitSettings)
@@ -52,6 +54,7 @@ const stale = previous.filter((f) => !files.includes(f) && !PER_REPO.has(f));
 const version = readFileSync(join(KIT, 'VERSION'), 'utf8').trim();
 const installed = existsSync(join(dest, 'VERSION')) ? readFileSync(join(dest, 'VERSION'), 'utf8').trim() : null;
 
+// Plan every step first, so --dry-run prints the same list without touching the repo.
 const actions = [];
 for (const f of files) {
   const to = f === 'settings.json' && ownSettings ? 'settings.kit.json' : f;

@@ -1,18 +1,23 @@
 #!/usr/bin/env node
 // Reads a Jira ticket (read-only) and prints compact JSON for /implement.
 // Custom fields are reported by their display names, so any Jira project works without field ids.
+// Credentials via lib.mjs secret() (.claude/.env.local); the site from JIRA_BASE_URL or jiraBaseUrl. Writes nothing.
 const HELP = `Usage:
   node .claude/kit/jira.mjs <KEY>                ticket, links, mentioned keys, estimates, comments
   node .claude/kit/jira.mjs <KEY> --no-comments  the same without comments (for related tickets)
   node .claude/kit/jira.mjs --check              which credentials would be used (never prints the token)`;
 import { print, fail, normKey, readConfig, secret, secretSource, git } from './lib.mjs';
 
+// ── Jira values to text ──
+
+// Fields kept out of `fields`: tracking data, or shown under their own key in the output.
 const SKIP = new Set(['lastViewed', 'watches', 'votes', 'worklog', 'timetracking', 'aggregatetimeestimate', 'aggregatetimeoriginalestimate',
   'aggregatetimespent', 'aggregateprogress', 'progress', 'workratio', 'issuerestriction', 'thumbnail', 'statuscategorychangedate',
   'timeestimate', 'timeoriginalestimate', 'timespent', 'security', 'comment', 'attachment', 'issuelinks', 'subtasks', 'parent',
   'summary', 'description', 'status', 'issuetype', 'project', 'priority', 'assignee', 'reporter', 'creator', 'created', 'updated',
   'labels', 'duedate', 'resolution', 'resolutiondate', 'fixVersions', 'versions', 'components', 'environment']);
 
+// Atlassian Document Format (Jira's rich-text JSON) to compact Markdown.
 function adf(node) {
   if (!node) return '';
   if (typeof node === 'string') return node;
@@ -45,6 +50,7 @@ function adf(node) {
   }
 }
 
+// Any field value as a string or null: rich text, lists, and option or user objects by their name.
 function text(v) {
   if (v == null || v === '') return null;
   if (typeof v === 'string') return v.trim() || null;
@@ -54,6 +60,7 @@ function text(v) {
   return text(v.value ?? v.name ?? v.displayName ?? v.key ?? null);
 }
 
+// Every URL in a value, from plain text and from link attributes (for figmaLinks).
 function urls(v, acc = new Set()) {
   if (!v) return acc;
   if (typeof v === 'string') { for (const u of v.match(/https?:\/\/[^\s)>\]|"]+/g) || []) acc.add(u); return acc; }
@@ -67,6 +74,9 @@ function urls(v, acc = new Set()) {
   return acc;
 }
 
+// ── Credentials and requests ──
+
+// JIRA_BASE_URL from the dev's own env wins over the repo's jiraBaseUrl; hostProblem says why that matters.
 function creds() {
   const cfg = readConfig({ required: false });
   const own = secret('JIRA_BASE_URL');
@@ -87,6 +97,7 @@ function hostProblem(base, own) {
   return null;
 }
 
+// null on 404; refused credentials and other errors end the script.
 async function get(c, path) {
   const res = await fetch(c.base + path, {
     headers: { Authorization: 'Basic ' + Buffer.from(`${c.user}:${c.token}`).toString('base64'), Accept: 'application/json' },
@@ -96,6 +107,8 @@ async function get(c, path) {
   if (!res.ok) fail(`Jira error ${res.status} for ${path}`);
   return res.json();
 }
+
+// ── Arguments and --check ──
 
 const argv = process.argv.slice(2);
 if (!argv.length || argv.includes('--help') || argv.includes('help')) { print(HELP); process.exit(argv.length ? 0 : 1); }
@@ -114,6 +127,8 @@ if (argv.includes('--check')) {
   });
   process.exit(ignored ? 0 : 2);
 }
+
+// ── Fetch and filter the ticket ──
 
 const key = normKey(argv.find((a) => !a.startsWith('--')));
 if (!c.base) fail('No Jira URL. Set jiraBaseUrl in .claude/shopify-kit.json (run /shopify-setup).');
@@ -161,6 +176,8 @@ const prefixes = readConfig({ required: false })?.ticketPrefixes || [];
 const looksLikeTicket = (k) => (prefixes.length ? prefixes.includes(k.split('-')[0]) : !/^(UTF|ISO|SHA|RFC|ES|TLS|HTTP|H|X)-/.test(k));
 const mentioned = [...new Set(allText.match(/\b[A-Z][A-Z0-9]+-\d+\b/g) || [])].filter((k) => k !== key && !linked.has(k) && looksLikeTicket(k));
 const allUrls = [...urls(f.description), ...urls(Object.values(f)), ...commentList.flatMap((cm) => cm.text.match(/https?:\/\/[^\s)>\]]+/g) || [])];
+
+// ── Output ──
 
 print({
   key: issue.key,

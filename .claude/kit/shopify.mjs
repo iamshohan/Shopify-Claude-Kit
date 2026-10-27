@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-// The only way the kit talks to the Shopify CLI. It builds every argument itself, targets only
-// this task's unpublished draft, and has no publish, live-push or delete-other verbs.
-// The guard hook blocks direct CLI calls, so keep everything that touches the store in here.
+// The only way the kit talks to the Shopify CLI. Usage: node .claude/kit/shopify.mjs <verb> ... (verbs in HELP below).
+// It builds every argument itself, targets only this task's unpublished draft, and has no publish, live-push or
+// delete-other verbs. The guard hook blocks direct CLI calls, so keep everything that touches the store in here.
+// Reads .claude/shopify-kit.json; writes .claude/logs/<KEY>/ (state.json, pulls, fetches) and .claude/cli-check.json.
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { tmpdir, homedir } from 'node:os';
@@ -42,6 +43,7 @@ The guard asks the dev before these run
                                          run once, exactly as the guard showed it to the dev; recorded in the task state
   delete-draft <KEY> [--dry-run]         delete this task's draft theme`;
 
+// ── Login scopes and Admin API version ──
 // /implement needs these. /shopify-investigate also reads menus, markets, languages, translations,
 // pages and blogs, discounts, files and sales channels. One login requests both: a client approves the app once.
 // .claude/README.md (Admin API login) spells the command out; change both.
@@ -50,6 +52,7 @@ const INVESTIGATE_SCOPES = 'read_online_store_navigation,read_markets,read_local
 const SCOPES = `${IMPLEMENT_SCOPES},${INVESTIGATE_SCOPES}`;
 const ADMIN_API_VERSION = '2026-07';
 
+// ── CLI contract check (cli-check) ──
 // Every CLI command and flag this wrapper relies on, and what breaks if one changes.
 // cli-check verifies them against the installed CLI's --help after every CLI update.
 const CLI_CONTRACT = [
@@ -67,6 +70,7 @@ const CLI_CONTRACT = [
 ];
 const CHECK_PATH = join(ROOT, '.claude', 'cli-check.json');
 
+// The Shopify AI Toolkit plugin's version and skill folder, from Claude Code's plugin registry; null if not installed.
 function pluginInfo() {
   try {
     const installed = JSON.parse(readFileSync(join(homedir(), '.claude', 'plugins', 'installed_plugins.json'), 'utf8'));
@@ -120,6 +124,9 @@ function fullCliCheck(store) {
   return { problems, notes, pluginVersion: plugin?.version || null };
 }
 
+// ── Write gates ──
+// Checks the store-writing verbs run before they act. assertOwnDraft (Draft theme section) is the other one.
+
 /**
  * mutate and delete-draft run only what the guard showed the dev, once. A call the guard never
  * saw (a script, a chained command it refused) has no seal, and a file changed since has another digest.
@@ -142,6 +149,9 @@ function writableTask(key) {
   return st;
 }
 
+// ── CLI calls and errors ──
+// failCli turns any CLI failure into one message, with the login command when a login is the cause.
+
 function cli(args) {
   const env = {};
   const token = secret('SHOPIFY_CLI_THEME_TOKEN');
@@ -154,6 +164,7 @@ function cli(args) {
   return { ...r, data: parseCliJson(r.stdout) ?? diagnosticJson(r.stderr) };
 }
 
+// The most useful error text a CLI result carries, structured fields first.
 function cliError(r) {
   const e = r.data?.error;
   const structured = [
@@ -209,6 +220,9 @@ function storeHandle(store) {
   return store.replace(/^https?:\/\//, '').replace(/\.myshopify\.com.*$/, '');
 }
 
+// ── Draft theme ──
+
+// The draft recorded in the task state, if the store still has it.
 function taskDraft(st, themes) {
   const id = st.draft?.themeId;
   if (!id || st.draft.deletedAt) return null;
@@ -227,6 +241,9 @@ function assertOwnDraft(key, st, theme) {
     fail(`Theme ${theme.id} is named "${theme.name}", which doesn't contain ${key}. Ask the dev to rename their draft to include ${key}, then record it again.`);
   }
 }
+
+// ── What push and verify compare ──
+// Which files the branch owns, whether live changed them since the base, and reading them back from the draft.
 
 /** The CLI skips files matching .shopifyignore without an error. */
 function shopifyIgnore() {
@@ -271,7 +288,10 @@ function batches(files) {
   return out;
 }
 
-/** Changed merchant JSON that live edited after the base: pushing it would overwrite those edits. live: a digest of live's copy. */
+/**
+ * Changed merchant JSON that live edited after the base: pushing it would overwrite those edits.
+ * Each result's `live` is a digest of live's copy.
+ */
 function liveDrift(files, base) {
   const jsonFiles = files.filter((f) => MERCHANT_JSON.test(f) || /^locales\/.+\.json$/.test(f));
   if (!jsonFiles.length) return [];
@@ -337,11 +357,15 @@ function draftMismatches(themeId, files) {
 
 const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 
+// ── Admin GraphQL ──
+// query refuses mutations; mutate runs only what lib.mjs mutationProblems allows and the guard showed the dev.
+
 function gqlFile(file) {
   if (!existsSync(file)) fail(`No such file: ${file}`);
   return readFileSync(file, 'utf8');
 }
 
+// Comments and strings are stripped first, so the word "mutation" inside them doesn't count.
 const hasMutation = (text) => /\bmutation\b/.test(text.replace(/#.*$/gm, '').replace(/"(?:[^"\\]|\\.)*"/g, ''));
 
 function storeExecute(store, file, vars, { mutate = false } = {}) {
@@ -356,6 +380,7 @@ function storeExecute(store, file, vars, { mutate = false } = {}) {
   return r.data;
 }
 
+// Every value anywhere in a GraphQL response whose key/value pair passes test (userErrors, gids).
 function collect(value, test, out = []) {
   if (Array.isArray(value)) value.forEach((v) => collect(v, test, out));
   else if (value && typeof value === 'object') {
@@ -366,6 +391,8 @@ function collect(value, test, out = []) {
   }
   return out;
 }
+
+// ── Local files and theme check ──
 
 function walk(dir, base = dir, out = []) {
   if (!existsSync(dir)) return out;
@@ -421,6 +448,9 @@ function themeCheck() {
 
 const countBy = (items, key) => items.reduce((acc, x) => ({ ...acc, [x[key]]: (acc[x[key]] || 0) + 1 }), {});
 
+// ── CLI entry ──
+// cli-check and auth-check run before setup, so they don't require .claude/shopify-kit.json.
+
 const args = parseArgs(process.argv.slice(2));
 const [verb, ...pos] = args._;
 const { flags } = args;
@@ -433,7 +463,10 @@ const NO_ADMIN = 'This repo runs without Admin API access (adminApi: false in .c
   + 'Use the manual path: read the admin page in Chrome (look only) or ask the dev, and give store changes to the dev as admin steps. '
   + 'Once someone approves the login (shopify.mjs auth-check prints the command), set adminApi to true.';
 
+// ── Verbs ──
+
 switch (verb) {
+  // Cached: the full check reruns only when the last one failed, the CLI or plugin version changed, or with --force.
   case 'cli-check': {
     const v = run('shopify', ['version'], { shell: true });
     if (v.code !== 0) fail('Shopify CLI not found. Install it: npm i -g @shopify/cli@latest');
@@ -551,6 +584,7 @@ switch (verb) {
     break;
   }
 
+  // --baseline records the offenses already there before the build; without it, reports what the branch added.
   case 'check': {
     const key = normKey(pos[0]);
     const st = readState(key);
@@ -594,6 +628,8 @@ switch (verb) {
     break;
   }
 
+  // In order: reuse the recorded draft; with --github adopt the connected one; refuse a same-named theme unless
+  // --adopt; else copy live.
   case 'draft': {
     const key = normKey(pos[0]);
     const st = writableTask(key);
@@ -659,6 +695,7 @@ switch (verb) {
       print({ adopted: true, ...st.draft, note: `An unpublished theme named ${name} existed already (a teammate's draft, an earlier session, or made by hand). The kit will push to it. Pushing replaces the changed files, so check with whoever made it first.` });
       break;
     }
+    // No draft yet: duplicate the live theme under the task's name.
     const command = `shopify theme duplicate --store ${cfg.store} --theme ${live.id} --name ${name} --force --json --no-input`;
     if (flags['dry-run']) { print({ dryRun: true, wouldRun: command, otherDraftsForThisTask: others }); break; }
     const r = cli(['theme', 'duplicate', '--store', cfg.store, '--theme', String(live.id), '--name', name, '--force', '--json']);
@@ -677,6 +714,7 @@ switch (verb) {
     break;
   }
 
+  // Gates (branch, clean tree, own draft, .shopifyignore, live drift), upload in batches, then read every file back.
   case 'push': {
     const key = normKey(pos[0]);
     const st = writableTask(key);
@@ -727,6 +765,7 @@ switch (verb) {
     break;
   }
 
+  // The read-back half of push; the only check for a GitHub-connected draft, which the kit never pushes to.
   case 'verify': {
     const key = normKey(pos[0]);
     const st = writableTask(key);
@@ -757,6 +796,7 @@ switch (verb) {
     break;
   }
 
+  // Exits 2 when the page was rendered by another theme, e.g. live served in place of the draft.
   case 'fetch': {
     const key = normKey(pos[0]);
     const st = readState(key);
@@ -808,6 +848,7 @@ switch (verb) {
     break;
   }
 
+  // Order matters: file and content checks, then --dry-run, then the guard's seal, then the one real run.
   case 'mutate': {
     if (cfg.adminApi === false) fail(NO_ADMIN);
     const key = normKey(pos[0]);
@@ -837,6 +878,7 @@ switch (verb) {
     break;
   }
 
+  // Deletes only the task's own unpublished draft, and only with the guard's seal.
   case 'delete-draft': {
     const key = normKey(pos[0]);
     const st = writableTask(key);
