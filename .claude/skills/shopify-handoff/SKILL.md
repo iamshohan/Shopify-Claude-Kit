@@ -1,6 +1,6 @@
 ---
 name: shopify-handoff
-description: Stage 10 of /implement. Push the task branch, write the PR text (with the run summary), admin steps, go-live order and the Jira comment into report.md, and offer cleanup. Use only when /implement's status says the stage is handoff.
+description: Stage 10 of /shopify-implement. Push the task branch, write the PR text (with the run summary), admin steps, go-live order and the Jira comment into report.md, and offer cleanup. Use only when /shopify-implement's status says the stage is handoff.
 user-invocable: false
 ---
 
@@ -48,4 +48,4 @@ The kit prepares everything and merges nothing. Creating the PR, merging, postin
    - The PR text, admin steps and Jira comment are in `.claude/logs/<KEY>/report.md`.
    - The next steps are theirs: create the PR, merge, follow the go-live order.
    - If you recorded kit notes: they're in `.claude/logs/<KEY>/kit-notes.md`, and `node .claude/kit/kit.mjs feedback` collects all tasks' notes into one file for the kit maintainer.
-   - **Client or AC feedback later:** run `/implement <KEY>`, then `kit.mjs back <KEY> build --reason "<feedback>"`.
+   - **Client or AC feedback later:** run `/shopify-implement <KEY>`, then `kit.mjs back <KEY> build --reason "<feedback>"`.

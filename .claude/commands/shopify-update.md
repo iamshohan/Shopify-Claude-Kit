@@ -1,5 +1,5 @@
 ---
-description: Check that the installed Shopify CLI and Shopify plugin still offer every command, flag and output the kit relies on, and explain what an update changed. Run it after updating either tool, or when /implement says the CLI check failed.
+description: Check that the installed Shopify CLI and Shopify plugin still offer every command, flag and output the kit relies on, and explain what an update changed. Run it after updating either tool, or when /shopify-implement says the CLI check failed.
 disable-model-invocation: true
 ---
 
@@ -15,7 +15,7 @@ The kit's wrapper (`.claude/kit/shopify.mjs`) depends on specific Shopify CLI co
    - that every query in `.claude/kit/queries/` still validates against the pinned Admin API version (`adminApiVersion` in `.claude/shopify-kit.json`), and which ones use deprecated fields
 
    The result is saved in `.claude/cli-check.json`.
-2. **Everything ok** → tell the dev which CLI and plugin versions are verified, and that `/implement` can run.
+2. **Everything ok** → tell the dev which CLI and plugin versions are verified, and that `/shopify-implement` can run.
 3. **Problems listed** → for each one:
    - Say what changed in plain words, and which kit verbs and stages it affects; the report names them.
    - Look up the change: `shopify <command> --help`, the CLI's release notes, or `search_docs` with the `shopify-plugin:shopify` skill.

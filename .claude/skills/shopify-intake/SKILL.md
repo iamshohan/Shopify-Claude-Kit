@@ -1,6 +1,6 @@
 ---
 name: shopify-intake
-description: Stages 1–2 of /implement. Read the Jira ticket(s), confirm the work type, collect the A/B code, then run the recon and analyst agents and record what they found. Use only when /implement's status says the stage is intake or analyze.
+description: Stages 1–2 of /shopify-implement. Read the Jira ticket(s), confirm the work type, collect the A/B code, then run the recon and analyst agents and record what they found. Use only when /shopify-implement's status says the stage is intake or analyze.
 user-invocable: false
 ---
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Reads a Jira ticket (read-only) and prints compact JSON for /implement.
+// Reads a Jira ticket (read-only) and prints compact JSON for /shopify-implement.
 // Custom fields are reported by their display names, so any Jira project works without field ids.
 const HELP = `Usage:
   node .claude/kit/jira.mjs <KEY>                ticket, links, mentioned keys, estimates, comments

@@ -1,6 +1,6 @@
 ---
 name: shopify-build
-description: Stages 6–7 of /implement. Create the task branch, have the theme-builder agent implement the approved plan, review the diff, commit, create the planned store definitions, and push the result to the task's draft theme. Use only when /implement's status says the stage is build or draft.
+description: Stages 6–7 of /shopify-implement. Create the task branch, have the theme-builder agent implement the approved plan, review the diff, commit, create the planned store definitions, and push the result to the task's draft theme. Use only when /shopify-implement's status says the stage is build or draft.
 user-invocable: false
 ---
 

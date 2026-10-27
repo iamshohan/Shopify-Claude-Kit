@@ -42,7 +42,7 @@ The guard asks the dev before these run
                                          run once, exactly as the guard showed it to the dev; recorded in the task state
   delete-draft <KEY> [--dry-run]         delete this task's draft theme`;
 
-// /implement needs these. /shopify-investigate also reads menus, markets, languages, translations,
+// /shopify-implement needs these. /shopify-investigate also reads menus, markets, languages, translations,
 // pages and blogs, discounts, files and sales channels. One login requests both: a client approves the app once.
 // .claude/README.md (Admin API login) spells the command out; change both.
 const IMPLEMENT_SCOPES = 'read_products,write_products,read_metaobject_definitions,write_metaobject_definitions,read_metaobjects,write_metaobjects';
@@ -138,7 +138,7 @@ function consumeSeal(key, expected) {
 /** Task state for a verb that writes to the store; investigations are read-only. */
 function writableTask(key) {
   const st = readState(key);
-  if (st.kind === 'investigation') fail(`${key} is an investigation, which is read-only. To change the theme or the store, finish it and run /implement ${key}.`);
+  if (st.kind === 'investigation') fail(`${key} is an investigation, which is read-only. To change the theme or the store, finish it and run /shopify-implement ${key}.`);
   return st;
 }
 
@@ -483,7 +483,7 @@ switch (verb) {
         const lacking = (scopes) => scopes.split(',').filter((s) => !(mine.scopes || []).includes(s) && !(mine.scopes || []).includes(s.replace('read_', 'write_')));
         const forImplement = lacking(IMPLEMENT_SCOPES);
         const forInvestigate = lacking(INVESTIGATE_SCOPES);
-        if (forImplement.length) out.adminScopesFix = `Missing ${forImplement.join(', ')} (needed by /implement): ! shopify store auth --store ${store} --scopes ${SCOPES}`;
+        if (forImplement.length) out.adminScopesFix = `Missing ${forImplement.join(', ')} (needed by /shopify-implement): ! shopify store auth --store ${store} --scopes ${SCOPES}`;
         if (forInvestigate.length) out.investigateScopesFix = `Missing ${forInvestigate.join(', ')} (needed by /shopify-investigate for menus, markets, languages and other store settings): ! shopify store auth --store ${store} --scopes ${SCOPES}`;
       }
     } else {

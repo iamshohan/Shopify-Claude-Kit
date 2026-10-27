@@ -1,6 +1,6 @@
 # Shopify-Claude-Kit
 
-The **Shopify Implementation Kit**: Claude Code commands that take a Jira ticket in a Shopify theme repo to a QA'd draft theme (`/implement`), or answer a question about the store read-only (`/shopify-investigate`). The team guide ships inside the kit: [`.claude/README.md`](.claude/README.md).
+The **Shopify Implementation Kit**: Claude Code commands that take a Jira ticket in a Shopify theme repo to a QA'd draft theme (`/shopify-implement`), or answer a question about the store read-only (`/shopify-investigate`). The team guide ships inside the kit: [`.claude/README.md`](.claude/README.md).
 
 ## Install or update in a theme repo
 
@@ -19,7 +19,7 @@ install.mjs                 installs or updates the kit in a theme repo
   CLAUDE.md                 always-loaded rules
   README.md                 team guide
   settings.json             guard hook, permissions, env
-  commands/                 /implement, /shopify-investigate, /shopify-setup, /shopify-update
+  commands/                 /shopify-implement, /shopify-investigate, /shopify-setup, /shopify-update
   rules/kit-runs.md         rules both commands share; loads when Claude touches .claude/logs/
   skills/                   one skill per phase (intake, plan, build, qa, handoff) plus shopify-investigate
   agents/                   theme-recon, abtest-analyst, theme-builder, evidence-checker

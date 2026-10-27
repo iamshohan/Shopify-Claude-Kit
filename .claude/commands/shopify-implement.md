@@ -4,7 +4,7 @@ argument-hint: <TICKET-KEY> [stage] [--test] [--small]
 disable-model-invocation: true
 ---
 
-# /implement $ARGUMENTS
+# /shopify-implement $ARGUMENTS
 
 You are running the Shopify Implementation Kit for one Jira ticket. The work moves through ten stages. A script keeps track of where you are, so you never have to remember it.
 
@@ -20,7 +20,7 @@ You are running the Shopify Implementation Kit for one Jira ticket. The work mov
 
 Also:
 
-- **A stage was named after the key** (e.g. `/implement ABC-123 qa`): use it only if status shows the earlier stages done. To redo an earlier stage, run `kit.mjs back <KEY> <stage> --reason "..."`.
+- **A stage was named after the key** (e.g. `/shopify-implement ABC-123 qa`): use it only if status shows the earlier stages done. To redo an earlier stage, run `kit.mjs back <KEY> <stage> --reason "..."`.
 - **After a compaction or in a new session:** run status first and continue from what it says, not from memory. If status still shows a stage you believe is finished, you skipped `done`: run it now. Never redo a gate the dev already answered.
 - **The dev wants to stop the task:** run `kit.mjs abandon <KEY> --reason "..."` and walk them through the cleanup list it prints.
 
@@ -43,7 +43,7 @@ Also:
 
 ## Rules for the whole run
 
-The rules every kit run shares (gates, `--answer`, talking to the dev, kit notes) are in `.claude/rules/kit-runs.md`; they load once you touch the task folder. These are /implement's own:
+The rules every kit run shares (gates, `--answer`, talking to the dev, kit notes) are in `.claude/rules/kit-runs.md`; they load once you touch the task folder. These are /shopify-implement's own:
 
-- **Only the kit's skills run inside /implement:** the stage skill that status names, `shopify-plugin:shopify` for docs, `code-review` at build, and at QA the `kit-browser` tools (storefront) and `claude-in-chrome` (editor and admin). Don't load other QA, dev or investigate skills, even when a hook or a skill description suggests them; `shopify-qa` replaces them.
+- **Only the kit's skills run inside /shopify-implement:** the stage skill that status names, `shopify-plugin:shopify` for docs, `code-review` at build, and at QA the `kit-browser` tools (storefront) and `claude-in-chrome` (editor and admin). Don't load other QA, dev or investigate skills, even when a hook or a skill description suggests them; `shopify-qa` replaces them.
 - **Scope is the ticket.** Note other problems in the report instead of fixing them.

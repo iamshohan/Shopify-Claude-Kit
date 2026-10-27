@@ -1,6 +1,6 @@
 ---
 name: shopify-qa
-description: Stages 8–9 of /implement. Check the task's draft theme against the plan's QA criteria with measured values (storefront, settings previews, customizer contract and editor, regression), write report.md, and get the dev's acceptance. QA failures go back to the builder. Use only when /implement's status says the stage is qa or accept.
+description: Stages 8–9 of /shopify-implement. Check the task's draft theme against the plan's QA criteria with measured values (storefront, settings previews, customizer contract and editor, regression), write report.md, and get the dev's acceptance. QA failures go back to the builder. Use only when /shopify-implement's status says the stage is qa or accept.
 user-invocable: false
 ---
 

@@ -21,7 +21,7 @@ export const isThemePath = (p) => new RegExp(`^(${THEME_DIRS.join('|')})/.`).tes
 // Files Shopify rewrites when someone saves in the admin (and syncs into git on GitHub-connected themes).
 export const MERCHANT_JSON = /^(templates\/.+\.json|sections\/[^/]+\.json|config\/settings_data\.json)$/i;
 
-// Source of truth for the pipeline. Human-readable copies: commands/implement.md and README.md.
+// Source of truth for the pipeline. Human-readable copies: commands/shopify-implement.md and README.md.
 export const STAGES = [
   { name: 'intake', skill: 'shopify-intake' },
   { name: 'analyze', skill: 'shopify-intake' },

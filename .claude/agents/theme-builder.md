@@ -1,6 +1,6 @@
 ---
 name: theme-builder
-description: Implements an approved /implement plan in the Shopify theme on the task branch, in the repo's own style, and runs theme check. Also fixes QA failures in fix mode. Never commits or pushes. Used by the build stage of /implement.
+description: Implements an approved /shopify-implement plan in the Shopify theme on the task branch, in the repo's own style, and runs theme check. Also fixes QA failures in fix mode. Never commits or pushes. Used by the build stage of /shopify-implement.
 model: inherit
 ---
 
