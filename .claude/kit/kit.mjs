@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Records where a ticket is in the pipeline: task state for /implement and /shopify-investigate, and the
-// checks a stage must pass before it can be marked done.
+// Records where a ticket is in the pipeline: task state for /shopify-implement and /shopify-investigate, and
+// the checks a stage must pass before it can be marked done.
 // Usage: node .claude/kit/kit.mjs <verb> [<KEY>] ...   (--help lists the verbs)
 // One folder per ticket: .claude/logs/<KEY>/ (state.json, brief.md, plan.md, report.md or investigation.md,
 // kit-notes.md). Also reads the guard's _guard.jsonl and writes logs/kit-feedback.md and kit/probe.*.js.

@@ -25,7 +25,7 @@ export const isThemePath = (p) => new RegExp(`^(${THEME_DIRS.join('|')})/.`).tes
 export const MERCHANT_JSON = /^(templates\/.+\.json|sections\/[^/]+\.json|config\/settings_data\.json)$/i;
 
 // ── Pipeline stages ──
-// Source of truth for the pipeline. Human-readable copies: commands/implement.md and README.md.
+// Source of truth for the pipeline. Human-readable copies: commands/shopify-implement.md and README.md.
 export const STAGES = [
   { name: 'intake', skill: 'shopify-intake' },
   { name: 'analyze', skill: 'shopify-intake' },

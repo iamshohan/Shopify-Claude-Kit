@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.0 — 2026-10-28
+
+- **`/implement` is now `/shopify-implement`**, like `/shopify-investigate`, `/shopify-setup` and `/shopify-update`. Updating a theme repo removes the old command file. Tasks already in progress resume with `/shopify-implement <KEY>`, because the task state keeps its internal kind (`implement`).
+- **The guard no longer lets a mention of `kit.mjs` unlock a `state.json` write.** Any command that named `.claude/kit/kit.mjs`, even in a comment (`echo … > .claude/logs/<KEY>/state.json # .claude/kit/kit.mjs`), skipped the state-file check. Real `kit.mjs` calls were already out of the scanned text, so the exemption is gone. Guard self-tests: 203 → 206.
+- **`__qa.css()` keeps transparency.** `rgba(0,0,0,0.5)` was reported as `#000000`, so a 50% overlay could pass a criterion for opaque black, and an alpha of `0.0` didn't count as transparent. Alpha below 1 is now a fourth byte (`#00000080`); opaque colours are still `#rrggbb`.
+- **Readable code.** Each script opens with what it does, how to run it and what it reads and writes, and the long ones are split into `// ── Section ──` blocks. Comments only; no behaviour changed.
+- **README:** a permission mode that hides prompts blocks only the steps that would ask you; read-only work still runs, and `/shopify-implement` stops at plan approval. Only the approve gate asks, not every gate answer.
+
 ## 0.5.0 — 2026-10-24
 
 - **The kit measures a branch from where it meets the base branch now, not from where it started.** Before, `push` refused "Live has changed …", the dev merged `origin/<base>` as told, and `push` refused again, forever: it kept comparing live with the copy at the task's first base commit. The same fixed base made `push` upload teammates' merged files, `check` count their offenses as introduced, and `contract` list their sections; the "merge base" in `check` and `contract` was always the starting commit. `push`, `verify`, `check`, `contract` and `done build` now use `git merge-base HEAD origin/<baseBranch>`, and `push` also sends files a merge resolution changed.

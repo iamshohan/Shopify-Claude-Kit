@@ -39,4 +39,4 @@ test/                       e2e.mjs and fake-shopify.mjs: the offline end-to-end
 - **Every release:** bump `.claude/VERSION` (patch for fixes, minor for new behaviour) add a `CHANGELOG.md` entry, and update the version in both READMEs.
 - **The Admin API scopes** live in `kit/shopify.mjs` and are written out in the team guide's login command. Change both.
 
-Status: v0.5.0. See `CHANGELOG.md`.
+Status: v0.6.0. See `CHANGELOG.md`.

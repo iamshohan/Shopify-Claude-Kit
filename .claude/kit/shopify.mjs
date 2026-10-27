@@ -44,7 +44,7 @@ The guard asks the dev before these run
   delete-draft <KEY> [--dry-run]         delete this task's draft theme`;
 
 // ── Login scopes and Admin API version ──
-// /implement needs these. /shopify-investigate also reads menus, markets, languages, translations,
+// /shopify-implement needs these. /shopify-investigate also reads menus, markets, languages, translations,
 // pages and blogs, discounts, files and sales channels. One login requests both: a client approves the app once.
 // .claude/README.md (Admin API login) spells the command out; change both.
 const IMPLEMENT_SCOPES = 'read_products,write_products,read_metaobject_definitions,write_metaobject_definitions,read_metaobjects,write_metaobjects';
