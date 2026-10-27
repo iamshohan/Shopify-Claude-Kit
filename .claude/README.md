@@ -132,7 +132,7 @@ The logs are history, not a knowledge base: every task reads the code fresh.
 | Jira token | Sent only over https, and only to an `atlassian.net` site unless your own `.env.local` sets `JIRA_BASE_URL`. |
 | Admin API | Read-only, except for products, metafields and metaobjects. The agent never prints discount codes, and never reads orders or customers. |
 | Browser | Storefront checks run in `kit-browser`, an isolated browser logged in nowhere. Chrome (editor, admin) runs as your admin account, and no hook sees clicks. The agent's "look only" rules and the extension's prompts are the only checks. Don't give `admin.shopify.com` "always allow". |
-| The real boundary | The guard is a seatbelt; if it fails, the call is blocked. GitHub branch protection and your store permissions are what hold. Never run the kit in bypass-permissions mode: there the guard blocks every action that would ask you, so nothing is approved silently. Gate answers (`kit.mjs done … --answer`) also ask, showing the words the kit will record as yours. |
+| The real boundary | The guard is a seatbelt; if it fails, the call is blocked. GitHub branch protection and your store permissions are what hold. In a permission mode that hides prompts (bypass, `dontAsk`, plan), any step that needs your confirmation is blocked instead of silently approved. Read-only work still runs; `/implement` stops at plan approval until you switch to default mode. That approval (`kit.mjs done <KEY> approve --answer …`) asks, showing the words the kit will record as yours. |
 
 ## Troubleshooting
 
