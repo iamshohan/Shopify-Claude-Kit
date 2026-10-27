@@ -339,7 +339,9 @@ function decideCommand(raw, ctx, depth = 0, cwd = null) {
   }
   if (SECRET_FILE.test(scanned)) return { decision: 'deny', reason: 'Credential files (.env*, .claude/.env.local, Theme Kit config.yml, the Shopify CLI\'s shopify-cli-* folders) are never read or written by Claude. jira.mjs --check reports whether Jira credentials are set; shopify.mjs auth-check reports the Shopify logins.' };
   if (SEAL.test(scanned)) return { decision: 'deny', reason: `Only the guard writes ${SEAL_FILE}: it records what the dev was shown for a mutate or delete-draft.` };
-  if (STATE_FILE.test(scanned) && !/\.claude[\\/]kit[\\/]kit\.mjs/.test(scanned)) {
+  // No kit.mjs exemption here: real kit.mjs calls are already out of `scanned` (isText), and a bare mention of
+  // kit.mjs (a comment, a stray argument) must not unlock a write.
+  if (STATE_FILE.test(scanned)) {
     return { decision: 'deny', reason: 'Task state goes through node .claude/kit/kit.mjs: status --json to read it; set, done, back to change it.' };
   }
   if (/Start-Process\b[^\n]*\bgit\b[^\n]*\bpush\b/i.test(cmd)) return { decision: 'deny', reason: 'Run git push directly so the guard can check it.' };
@@ -682,6 +684,10 @@ function selftest() {
     [bash('cat config.yml'), 'deny'],
     [bash(`echo '{}' > .claude/logs/${K}/state.json`), 'deny'],
     [bash(`node -e "require('fs').writeFileSync('.claude/logs/${K}/state.json','{}')"`), 'deny'],
+    // a mention of kit.mjs doesn't unlock a state write
+    [bash(`echo '{}' > .claude/logs/${K}/state.json # .claude/kit/kit.mjs`), 'deny'],
+    [bash(`node -e "require('fs').writeFileSync('.claude/logs/${K}/state.json','{}')" .claude/kit/kit.mjs`), 'deny'],
+    [bash(`node .claude/kit/kit.mjs status ${K} && echo '{}' > .claude/logs/${K}/state.json`), 'deny'],
     // denied: files
     [file('Write', `.claude/logs/${K}/state.json`), 'deny'],
     [file('Edit', '.claude/.env.local'), 'deny'],

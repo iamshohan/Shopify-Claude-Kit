@@ -60,12 +60,16 @@
              top: px(r.top), right: px(r.right), bottom: px(r.bottom), left: px(r.left) };
   };
 
-  // Partial alpha is dropped: rgba(0,0,0,0.5) reads as #000000. Only alpha 0 becomes 'transparent'.
+  // Alpha below 1 stays as a fourth byte (rgba(0,0,0,0.5) → #00000080): dropping it let a 50% overlay
+  // pass as opaque black. Opaque colours keep the plain #rrggbb that QA criteria are written in.
   const hex = (c) => {
     const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?/.exec(c || '');
     if (!m) return c;
-    if (m[4] === '0') return 'transparent';
-    return '#' + [m[1], m[2], m[3]].map((v) => (+v).toString(16).padStart(2, '0')).join('');
+    const alpha = m[4] === undefined ? 1 : Number(m[4]);
+    if (alpha === 0) return 'transparent';
+    const bytes = [m[1], m[2], m[3]];
+    if (alpha < 1) bytes.push(Math.round(alpha * 255));
+    return '#' + bytes.map((v) => (+v).toString(16).padStart(2, '0')).join('');
   };
 
   const norm = (prop, v) => {
