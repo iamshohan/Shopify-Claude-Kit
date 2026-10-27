@@ -46,7 +46,7 @@ The guard asks the dev before these run
 // ── Login scopes and Admin API version ──
 // /shopify-implement needs these. /shopify-investigate also reads menus, markets, languages, translations,
 // pages and blogs, discounts, files and sales channels. One login requests both: a client approves the app once.
-// .claude/README.md (Admin API login) spells the command out; change both.
+// The only copy: auth-check builds the login command from these, and the READMEs don't repeat it.
 const IMPLEMENT_SCOPES = 'read_products,write_products,read_metaobject_definitions,write_metaobject_definitions,read_metaobjects,write_metaobjects';
 const INVESTIGATE_SCOPES = 'read_online_store_navigation,read_markets,read_locales,read_translations,read_content,read_discounts,read_files,read_publications';
 const SCOPES = `${IMPLEMENT_SCOPES},${INVESTIGATE_SCOPES}`;

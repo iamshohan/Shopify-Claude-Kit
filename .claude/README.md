@@ -7,34 +7,6 @@ A Claude Code setup for Shopify theme repos.
 
 It never publishes a theme, writes to the live theme, or pushes or merges into the base branch. Merging stays with you.
 
-## What you need
-
-| Need | Check or get it |
-| --- | --- |
-| Claude Code 2.1.295 or newer | `claude --version` |
-| Node 20+ and git | `node --version` |
-| Shopify CLI | `npm i -g @shopify/cli@latest`; `/shopify-setup` checks the commands the kit uses |
-| A staff account on the store: themes, metafields and metaobjects | the store owner |
-| The Shopify plugin for Claude Code, per person (the kit opts out of its telemetry) | `claude plugin install shopify-ai-toolkit@claude-plugins-official` |
-| Claude in Chrome, logged into the store admin, with access to the storefront and `admin.shopify.com` (theme editor and admin checks) | the browser tools show up in Claude Code |
-| The `kit-browser` server: an isolated Playwright browser for storefront QA, once per machine | `claude mcp add kit-browser --scope user -- npx -y @playwright/mcp@0.0.83 --isolated --headless` |
-| A Jira API token | id.atlassian.com → Security → API tokens |
-| Optional: the Admin API login (below) | `node .claude/kit/shopify.mjs auth-check` |
-| For A/B ports: the test's code | e.g. a shadow-drip-exps checkout |
-
-### Admin API login (optional, once per store)
-
-It installs Shopify's own CLI app on the store, so the first person to run it must be allowed to install apps there. Run it in a terminal, or in Claude Code with `!` in front:
-
-```
-shopify store auth --store <store>.myshopify.com --scopes read_products,write_products,read_metaobject_definitions,write_metaobject_definitions,read_metaobjects,write_metaobjects,read_online_store_navigation,read_markets,read_locales,read_translations,read_content,read_discounts,read_files,read_publications
-```
-
-- A browser opens Shopify's approval page. Once it's approved, other devs run the same command on their own machines to log in.
-- The first six scopes are for `/shopify-implement`. The rest are read-only, for investigations. They're requested together because adding a scope later needs a new approval, and removing one means uninstalling the app.
-- `auth-check` prints this command with your store filled in, and lists any scopes the login lacks.
-- Without the login, set `adminApi: false`. The kit then gives you admin steps for definitions and reads admin pages in Chrome.
-
 ## Install
 
 ```
@@ -44,7 +16,7 @@ node Shopify-Claude-Kit/install.mjs <path-to-theme-repo>
 
 Use the installer, not a hand copy. It writes `.claude/.gitignore`, which keeps the kit and your credentials out of the theme repo's git. If the repo already has its own `.claude/settings.json`, the installer writes `settings.kit.json` beside it; merge its `hooks`, `permissions` and `env` into yours.
 
-Then open Claude Code in the repo, trust the folder, and run **`/shopify-setup`**. It proves the guard is live, checks your tools and logins, writes `.claude/shopify-kit.json` with you, and tells you when to create `.claude/.env.local`:
+Then open Claude Code in the repo, trust the folder, and run **`/shopify-setup`**. It proves the guard is live, checks every tool and login the kit needs (and gives the exact fix for each one missing, including the optional Admin API login), writes `.claude/shopify-kit.json` with you, and tells you when to create `.claude/.env.local`:
 ```
 JIRA_USER=you@company.com
 JIRA_API_TOKEN=...
@@ -140,7 +112,7 @@ The logs are history, not a knowledge base: every task reads the code fresh.
 | --- | --- |
 | Setup: the guard didn't block `shopify version` | Update Claude Code and trust the folder. Don't use the kit until it's blocked. |
 | "Theme login missing or expired" | `! shopify theme list --store <store>` |
-| "Admin API login missing or lacks scopes", or an investigation's query gets "access denied" | the login command above (`auth-check` prints it) |
+| "Admin API login missing or lacks scopes", or an investigation's query gets "access denied" | the login command `node .claude/kit/shopify.mjs auth-check` prints, with your store and the missing scopes filled in |
 | "No Jira credentials" | create `.claude/.env.local`, or paste the ticket text |
 | "The theme library is full" | delete old kit drafts with `shopify.mjs delete-draft <KEY>`, and others in the admin (stores allow 20 themes, 100 on Plus) |
 | push: "Live has changed … since this branch's base" | merge `origin/<base>` into the task branch, commit, push again. If live edits never reach git: copy them into the branch, commit, and `push <KEY> --reconciled <file>` (you're asked to confirm) |

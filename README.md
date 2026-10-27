@@ -37,6 +37,6 @@ test/                       e2e.mjs and fake-shopify.mjs: the offline end-to-end
 - **`hooks/guard.mjs` and `kit/shopify.mjs` are safety code.** Review changes to them in a PR, with a self-test case for every new rule or bypass.
 - **After a Shopify CLI or plugin update,** run `/shopify-update` in a theme repo and fix here what it reports.
 - **Every release:** bump `.claude/VERSION` (patch for fixes, minor for new behaviour) add a `CHANGELOG.md` entry, and update the version in both READMEs.
-- **The Admin API scopes** live in `kit/shopify.mjs` and are written out in the team guide's login command. Change both.
+- **The Admin API scopes** live only in `kit/shopify.mjs`; `auth-check` builds the login command from them.
 
 Status: v0.6.0. See `CHANGELOG.md`.
