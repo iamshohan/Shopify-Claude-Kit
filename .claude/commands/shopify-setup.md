@@ -82,4 +82,4 @@ Work through these checks in order. Report each one as ✓ or ✗ with the exact
    - The extension needs site access to the storefront domain and `admin.shopify.com`.
 
    Without Chrome, customizer checks are BLOCKED.
-9. **Summary.** List what works and what's missing. If everything is ✓, end with: "Ready. Start a task with /implement <KEY>, or investigate with /shopify-investigate <KEY or question>."
+9. **Summary.** List what works and what's missing. If everything is ✓, end with: "Ready. Start a task with /shopify-implement <KEY>, or investigate with /shopify-investigate <KEY or question>."

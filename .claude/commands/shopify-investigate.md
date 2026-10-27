@@ -18,7 +18,7 @@ You are running a read-only investigation with the Shopify Implementation Kit. A
    - Only a question → use `INV-<month><day><hour><minute>`, for example `INV-10201530`.
 5. **Run `node .claude/kit/kit.mjs status <KEY>`.**
    - **"not started":** run `node .claude/kit/kit.mjs start <KEY> --investigate`. Then, if the dev gave a question, write it under § Question in `.claude/logs/<KEY>/investigation.md` in their words.
-   - **It's an implementation task:** investigations of a running implementation happen inside `/implement`. Tell the dev that, and offer a separate `INV-…` key.
+   - **It's an implementation task:** investigations of a running implementation happen inside `/shopify-implement`. Tell the dev that, and offer a separate `INV-…` key.
 6. **Status names the stage and the skill.** Load that skill (`shopify-investigate`) with the Skill tool, and do only that stage.
 7. **When the stage is finished,** run `node .claude/kit/kit.mjs done <KEY> <stage>`. The last stage is a gate and needs `--answer "<the dev's words>"`. If the script refuses, fix what it lists and run it again.
 8. **Run status again and continue.** Tell the dev in one line each time the stage changes.

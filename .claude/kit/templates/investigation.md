@@ -34,7 +34,7 @@
 
 ## Next step
 
-<!-- A theme fix → /implement {{KEY}} (this file becomes its starting context). Store or app settings → steps for the dev or merchant. Nothing to do → say why. -->
+<!-- A theme fix → /shopify-implement {{KEY}} (this file becomes its starting context). Store or app settings → steps for the dev or merchant. Nothing to do → say why. -->
 
 ## Review
 

@@ -126,7 +126,7 @@ Back each one with docs, the store's plan, and the theme's code. Then write the 
    - **§ Answer:** one or two sentences first, then your confidence and what it rests on. Feasibility: yes, yes with conditions, or no, then the approaches table.
    - **§ Could not determine:** a report with nothing here usually stopped looking. Write "Nothing material" only if that's true.
    - **§ Next step**, one of:
-     - A theme change → `/implement <KEY>`. The same key continues, with this file as its starting context. An `INV-…` key has no ticket, so say the dev starts `/implement` with the real ticket and names this log.
+     - A theme change → `/shopify-implement <KEY>`. The same key continues, with this file as its starting context. An `INV-…` key has no ticket, so say the dev starts `/shopify-implement` with the real ticket and names this log.
      - A store or app setting → exact steps for the dev or merchant. The kit doesn't change them.
      - Nothing to do → say why.
    - **§ Jira comment:** text the dev can post. The kit doesn't write to Jira.

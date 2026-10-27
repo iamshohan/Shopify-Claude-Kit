@@ -74,4 +74,4 @@ for (const [what, act] of actions) {
 }
 console.log(`${dry ? '[dry run] would copy' : 'Copied'} ${files.length} kit files. Kept: shopify-kit.json, .env.local, settings.local.json, cli-check.json, logs/.`);
 if (ownSettings) console.log('This repo has its own .claude/settings.json: merge the hooks, permissions and env from .claude/settings.kit.json into it.');
-console.log(installed ? 'Next: open Claude Code in the repo; /implement runs the CLI check on its own.' : 'Next: open Claude Code in the repo, trust the folder, and run /shopify-setup.');
+console.log(installed ? 'Next: open Claude Code in the repo; /shopify-implement runs the CLI check on its own.' : 'Next: open Claude Code in the repo, trust the folder, and run /shopify-setup.');

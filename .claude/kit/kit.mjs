@@ -380,7 +380,7 @@ function summaryLines(key, st, cfg) {
   });
   if (done.length) lines.push(`Done: ${done.join(' · ')}`);
   if (kindOf(st) === 'investigation') {
-    lines.push('Read-only: no theme edits, no store changes, no draft theme. A fix becomes /implement on this key afterwards.');
+    lines.push('Read-only: no theme edits, no store changes, no draft theme. A fix becomes /shopify-implement on this key afterwards.');
     lines.push(`Logs: .claude/logs/${key}/investigation.md`);
     if (st.kitVersion !== KIT_VERSION) lines.push(`Note: started with kit ${st.kitVersion}, this is kit ${KIT_VERSION}.`);
     return lines.join('\n');
@@ -491,7 +491,7 @@ if (process.argv.includes('--selftest')) selftest();
 switch (verb) {
   case 'list': {
     const keys = existsSync(LOGS) ? readdirSync(LOGS).filter((d) => existsSync(join(LOGS, d, 'state.json'))) : [];
-    if (!keys.length) print('No tasks yet. Start one with /implement <KEY>.');
+    if (!keys.length) print('No tasks yet. Start one with /shopify-implement <KEY>.');
     for (const k of keys) {
       const st = readState(k);
       const draft = st.draft?.themeId && !st.draft.deletedAt ? ` · draft ${st.draft.name || st.draft.themeId} still exists` : '';
@@ -505,7 +505,7 @@ switch (verb) {
     const key = normKey(rawKey);
     const cfg = readConfig();
     const existing = readState(key, { required: false });
-    if (flags.small && flags.investigate) fail('Investigations have no lanes; --small is for /implement.');
+    if (flags.small && flags.investigate) fail('Investigations have no lanes; --small is for /shopify-implement.');
     const implementFields = {
       kind: 'implement', type: null, lane: flags.small ? 'small' : 'full', stage: STAGES[0].name, gates: {},
       branch: null, base: null, abtest: {}, featurePrefix: null, buildOutputs: [], draft: {}, previews: [], qa: {},
@@ -514,7 +514,7 @@ switch (verb) {
       mkdirSync(join(LOGS, key), { recursive: true });
       for (const f of files) if (!existsSync(join(LOGS, key, f))) writeFileSync(join(LOGS, key, f), tpl(key, f));
     };
-    if (flags.test && flags.investigate) fail('Investigations are read-only already; --test is for /implement.');
+    if (flags.test && flags.investigate) fail('Investigations are read-only already; --test is for /shopify-implement.');
     // A real task's logs, branch and draft must not be mixed with a test run's, in either direction.
     if (flags.test && existing && kindOf(existing) !== 'investigation' && !existing.test) {
       fail(`${key} already has a real task here (stage ${existing.stage}). A test run needs its own folder: move .claude/logs/${key}/ aside first.`);

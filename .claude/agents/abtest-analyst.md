@@ -1,6 +1,6 @@
 ---
 name: abtest-analyst
-description: Reads a winning A/B test variation's JS and CSS and lists every behaviour it implements, each mapped to how a Shopify theme should do it natively. Read-only. Used by the analyze stage of /implement for A/B ports.
+description: Reads a winning A/B test variation's JS and CSS and lists every behaviour it implements, each mapped to how a Shopify theme should do it natively. Read-only. Used by the analyze stage of /shopify-implement for A/B ports.
 tools: Read, Grep, Glob
 model: sonnet
 ---

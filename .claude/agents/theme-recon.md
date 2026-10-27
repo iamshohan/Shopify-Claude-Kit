@@ -1,6 +1,6 @@
 ---
 name: theme-recon
-description: Reads the current Shopify theme code for one task and reports, with citations, how the parts the task touches work today and which existing pattern new code should follow. Read-only. Used by the analyze stage of /implement.
+description: Reads the current Shopify theme code for one task and reports, with citations, how the parts the task touches work today and which existing pattern new code should follow. Read-only. Used by the analyze stage of /shopify-implement.
 tools: Read, Grep, Glob, Bash
 model: sonnet
 ---

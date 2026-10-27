@@ -3,7 +3,7 @@ paths:
   - ".claude/logs/**"
 ---
 
-# Kit runs (/implement and /shopify-investigate)
+# Kit runs (/shopify-implement and /shopify-investigate)
 
 - **Gates are the dev's decisions.** Ask with AskUserQuestion, wait for the answer, and record their words. Never infer an answer. Silence is not approval.
 - **`--answer` is one line of at most 200 characters, in the dev's words, without quotes, backticks or `$`** (they break shell quoting). The full answers go in the documents.

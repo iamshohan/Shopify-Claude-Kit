@@ -1,6 +1,6 @@
 ---
 name: shopify-plan
-description: Stages 3–5 of /implement. Decide what merchants control and where (the control surface), ask the dev every open question, write the file-by-file plan with its store setup and QA criteria, and get it approved. Use only when /implement's status says the stage is clarify, plan or approve.
+description: Stages 3–5 of /shopify-implement. Decide what merchants control and where (the control surface), ask the dev every open question, write the file-by-file plan with its store setup and QA criteria, and get it approved. Use only when /shopify-implement's status says the stage is clarify, plan or approve.
 user-invocable: false
 ---
 

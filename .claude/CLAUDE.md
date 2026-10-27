@@ -1,7 +1,7 @@
 # Shopify Implementation Kit
 
 This repo is a Shopify theme. It has two commands:
-- `/implement <KEY>` takes a Jira ticket (a winning A/B test, a feature or a bug fix) to a QA'd draft theme.
+- `/shopify-implement <KEY>` takes a Jira ticket (a winning A/B test, a feature or a bug fix) to a QA'd draft theme.
 - `/shopify-investigate <KEY or question>` answers a feasibility check, a bug or a question, read-only and with evidence.
 
 First time in this repo: `/shopify-setup`. Team guide: `.claude/README.md`.
