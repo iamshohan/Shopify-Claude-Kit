@@ -4,6 +4,8 @@
 // Copies the kit's .claude/ files and leaves the repo's own files alone: shopify-kit.json,
 // .env.local, settings.local.json, cli-check.json and logs/. Files a newer kit no longer ships
 // are removed (tracked in .claude/.kit-manifest.json).
+// settings.json is the kit's and is replaced every time; the repo's own permissions, hooks and env
+// live in settings.local.json, which Claude Code merges with it.
 import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
@@ -32,40 +34,115 @@ const dest = join(repo, '.claude');
 function walk(dir, out = []) {
   for (const name of readdirSync(dir)) {
     const p = join(dir, name);
-    if (statSync(p).isDirectory()) { if (name !== 'logs') walk(p, out); } else out.push(relative(KIT, p).replaceAll('\\', '/'));
+    // Only .claude/logs/ is task history; a deeper folder named logs is kit content.
+    if (statSync(p).isDirectory()) { if (p !== join(KIT, 'logs')) walk(p, out); } else out.push(relative(KIT, p).replaceAll('\\', '/'));
   }
   return out;
 }
 const files = walk(KIT).filter((f) => !PER_REPO.has(f));
 
 const sha = (p) => createHash('sha256').update(readFileSync(p)).digest('hex');
+const readJson = (p) => JSON.parse(readFileSync(p, 'utf8'));
 const manifestPath = join(dest, '.kit-manifest.json');
-const manifest = existsSync(manifestPath) ? JSON.parse(readFileSync(manifestPath, 'utf8')) : {};
+const firstInstall = !existsSync(manifestPath);
+let manifest = {};
+try {
+  if (!firstInstall) manifest = readJson(manifestPath);
+} catch {
+  console.warn('Warning: .claude/.kit-manifest.json is unreadable, so files an older kit dropped stay this time.');
+}
 const previous = manifest.files || [];
-
-// settings.json is the repo's own once it differs from what this installer wrote last time
-// (for a manifest from an older installer, which recorded no hash: once it lacks the kit's guard).
-// The kit's version goes beside it, to merge by hand.
-const destSettings = join(dest, 'settings.json');
-const kitSettings = join(KIT, 'settings.json');
-const ownSettings = existsSync(destSettings) && sha(destSettings) !== sha(kitSettings)
-  && (manifest.settingsSha ? sha(destSettings) !== manifest.settingsSha : !readFileSync(destSettings, 'utf8').includes('.claude/hooks/guard.mjs'));
 const stale = previous.filter((f) => !files.includes(f) && !PER_REPO.has(f));
 const version = readFileSync(join(KIT, 'VERSION'), 'utf8').trim();
 const installed = existsSync(join(dest, 'VERSION')) ? readFileSync(join(dest, 'VERSION'), 'utf8').trim() : null;
 
+// ── settings.json ──
+// The kit's file replaces the repo's on every install, so a new hook or deny rule always lands.
+// Whatever the repo's file has beyond the kit's moves to settings.local.json first. Claude Code merges
+// list keys across the two files, and an allow there doesn't outrank the kit's ask or deny rules.
+
+const destSettings = join(dest, 'settings.json');
+const kitSettings = join(KIT, 'settings.json');
+const localSettings = join(dest, 'settings.local.json');
+
+// What `a` has that `b` doesn't: list items `b` lacks, and keys whose values differ, recursively.
+function extras(a, b) {
+  if (Array.isArray(a)) {
+    const have = new Set((Array.isArray(b) ? b : []).map((v) => JSON.stringify(v)));
+    const out = a.filter((v) => !have.has(JSON.stringify(v)));
+    return out.length ? out : undefined;
+  }
+  if (a && typeof a === 'object') {
+    const out = {};
+    for (const [k, v] of Object.entries(a)) {
+      const e = extras(v, b && typeof b === 'object' && !Array.isArray(b) ? b[k] : undefined);
+      if (e !== undefined) out[k] = e;
+    }
+    return Object.keys(out).length ? out : undefined;
+  }
+  return JSON.stringify(a) === JSON.stringify(b) ? undefined : a;
+}
+
+// Adds `add` into `into`: lists gain the items they lack, and a value `into` already sets stays.
+function merge(into, add) {
+  for (const [k, v] of Object.entries(add)) {
+    if (Array.isArray(v)) {
+      const list = Array.isArray(into[k]) ? into[k] : [];
+      into[k] = [...list, ...(extras(v, list) || [])];
+    } else if (v && typeof v === 'object') into[k] = merge(into[k] && typeof into[k] === 'object' ? into[k] : {}, v);
+    else if (!(k in into)) into[k] = v;
+  }
+  return into;
+}
+
+// The kit's settings.json runs the guard; a copy merged in by hand (as older installers asked) would run it twice.
+function withoutGuard(s) {
+  for (const [event, groups] of Object.entries(s.hooks || {})) {
+    if (!Array.isArray(groups)) continue;
+    s.hooks[event] = groups
+      .map((g) => ({ ...g, hooks: (g.hooks || []).filter((h) => !/hooks[\\/]+guard\.mjs/.test(JSON.stringify(h))) }))
+      .filter((g) => g.hooks.length);
+  }
+  return s;
+}
+
+// A file identical to what the installer wrote last time has nothing of the repo's in it.
+const ownSettings = existsSync(destSettings) && sha(destSettings) !== sha(kitSettings) && sha(destSettings) !== manifest.settingsSha;
+let moved;
+let unreadable = false;
+if (ownSettings) {
+  try {
+    moved = extras(withoutGuard(readJson(destSettings)), readJson(kitSettings));
+    if (moved && existsSync(localSettings)) readJson(localSettings);
+  } catch {
+    unreadable = true;
+  }
+}
+
 // Plan every step first, so --dry-run prints the same list without touching the repo.
 const actions = [];
+if (unreadable) {
+  actions.push(['save the repo\'s settings.json as settings.pre-kit.json (it or settings.local.json isn\'t valid JSON)', () => copyFileSync(destSettings, join(dest, 'settings.pre-kit.json'))]);
+} else if (moved) {
+  actions.push([`move the repo's own settings to settings.local.json: ${JSON.stringify(moved)}`, () => {
+    writeFileSync(localSettings, JSON.stringify(merge(existsSync(localSettings) ? readJson(localSettings) : {}, moved), null, 2) + '\n');
+  }]);
+}
+// A first install would silently replace a .claude/CLAUDE.md or README.md the repo already has.
+if (firstInstall) {
+  for (const f of files.filter((f) => f !== 'settings.json' && existsSync(join(dest, f)) && sha(join(dest, f)) !== sha(join(KIT, f)))) {
+    actions.push([`keep the repo's ${f} as ${f}.pre-kit (the kit's replaces it)`, () => copyFileSync(join(dest, f), join(dest, `${f}.pre-kit`))]);
+  }
+}
 for (const f of files) {
-  const to = f === 'settings.json' && ownSettings ? 'settings.kit.json' : f;
-  actions.push([`copy ${f}${to !== f ? ` → ${to} (the repo has its own settings.json)` : ''}`, () => {
-    mkdirSync(dirname(join(dest, to)), { recursive: true });
-    copyFileSync(join(KIT, f), join(dest, to));
+  actions.push([`copy ${f}`, () => {
+    mkdirSync(dirname(join(dest, f)), { recursive: true });
+    copyFileSync(join(KIT, f), join(dest, f));
   }]);
 }
 for (const f of stale) actions.push([`remove ${f} (no longer in the kit)`, () => rmSync(join(dest, f), { force: true })]);
 if (!existsSync(join(dest, '.gitignore'))) actions.push(['write .gitignore (keeps the kit out of git)', () => writeFileSync(join(dest, '.gitignore'), GITIGNORE)]);
-actions.push(['write .kit-manifest.json', () => writeFileSync(manifestPath, JSON.stringify({ version, installedAt: new Date().toISOString(), files, settingsSha: ownSettings ? manifest.settingsSha : sha(kitSettings) }, null, 2))]);
+actions.push(['write .kit-manifest.json', () => writeFileSync(manifestPath, JSON.stringify({ version, installedAt: new Date().toISOString(), files, settingsSha: sha(kitSettings) }, null, 2))]);
 
 console.log(`${installed ? `Updating kit ${installed} → ${version}` : `Installing kit ${version}`} in ${dest}`);
 for (const [what, act] of actions) {
@@ -73,5 +150,6 @@ for (const [what, act] of actions) {
   if (!what.startsWith('copy ') || dry) console.log(`${dry ? '[dry run] ' : ''}${what}`);
 }
 console.log(`${dry ? '[dry run] would copy' : 'Copied'} ${files.length} kit files. Kept: shopify-kit.json, .env.local, settings.local.json, cli-check.json, logs/.`);
-if (ownSettings) console.log('This repo has its own .claude/settings.json: merge the hooks, permissions and env from .claude/settings.kit.json into it.');
+if (moved && !unreadable) console.log('Your own permissions, hooks and env are in .claude/settings.local.json now. Add new ones there: settings.json is replaced on every update.');
+if (unreadable) console.log('Move your own entries from .claude/settings.pre-kit.json into .claude/settings.local.json by hand.');
 console.log(installed ? 'Next: open Claude Code in the repo; /shopify-implement runs the CLI check on its own.' : 'Next: open Claude Code in the repo, trust the folder, and run /shopify-setup.');

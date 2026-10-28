@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- **The installer no longer overwrites a repo's own `settings.json`, and new kit settings always land.** A repo that had its own `.claude/settings.json` at its first install got no hash in the manifest. Once the dev merged the guard hook in (as the installer told them to), the next update read the file as the kit's and replaced it, dropping their own entries. A repo that kept its own file also never got the kit's new hooks or deny rules without a merge by hand. Now `settings.json` is always the kit's; anything a repo's file has beyond it moves to `settings.local.json`, which Claude Code merges with it (list keys combine, and an allow there doesn't outrank the kit's ask or deny). A hand-merged copy of the guard isn't moved, so it doesn't run twice. `settings.kit.json` is gone.
+- **Installer:** a first install keeps a copy of a `.claude/CLAUDE.md` or `README.md` the repo already had (`<file>.pre-kit`); an unreadable `.kit-manifest.json` warns instead of crashing; only `.claude/logs/` is skipped, not every folder named `logs`. e2e: 27 → 31 checks.
+
 ## 0.6.0 — 2026-10-28
 
 - **`/implement` is now `/shopify-implement`**, like `/shopify-investigate`, `/shopify-setup` and `/shopify-update`. Updating a theme repo removes the old command file. Tasks already in progress resume with `/shopify-implement <KEY>`, because the task state keeps its internal kind (`implement`).

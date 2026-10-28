@@ -74,17 +74,44 @@ try {
 
   const install = spawnSync(process.execPath, [join(KIT, 'install.mjs'), repo], { encoding: 'utf8' });
   ok('installer copies the kit, rules included', install.status === 0 && existsSync(join(repo, '.claude', 'kit', 'shopify.mjs')) && existsSync(join(repo, '.claude', 'rules', 'kit-runs.md')), install.stderr);
-  // An update must not overwrite a settings.json the dev has added their own permissions to.
+  // settings.json is always the kit's; the dev's own entries end up in settings.local.json, never lost.
+  const reinstall = () => spawnSync(process.execPath, [join(KIT, 'install.mjs'), repo], { encoding: 'utf8' });
   const settingsPath = join(repo, '.claude', 'settings.json');
-  const again = spawnSync(process.execPath, [join(KIT, 'install.mjs'), repo], { encoding: 'utf8' });
-  ok('an update writes no settings.kit.json while settings.json is the kit\'s own', again.status === 0 && !existsSync(join(repo, '.claude', 'settings.kit.json')), again.stdout);
-  const mine = readFileSync(settingsPath, 'utf8').replace('"allow": [', '"allow": [\n      "Bash(npm run dev:*)",');
-  writeFileSync(settingsPath, mine);
-  const update = spawnSync(process.execPath, [join(KIT, 'install.mjs'), repo], { encoding: 'utf8' });
-  ok('an update keeps a settings.json the dev edited and writes the kit\'s beside it', update.status === 0 && readFileSync(settingsPath, 'utf8') === mine && existsSync(join(repo, '.claude', 'settings.kit.json')), update.stdout);
-  // Back to the kit's own settings, then the config /shopify-setup would write.
-  writeFileSync(settingsPath, readFileSync(join(KIT, '.claude', 'settings.json')));
-  rmSync(join(repo, '.claude', 'settings.kit.json'), { force: true });
+  const localPath = join(repo, '.claude', 'settings.local.json');
+  const manifestPath = join(repo, '.claude', '.kit-manifest.json');
+  const kitSettings = readFileSync(join(KIT, '.claude', 'settings.json'), 'utf8');
+  const local = () => (existsSync(localPath) ? readFileSync(localPath, 'utf8') : '');
+  const again = reinstall();
+  ok('an update leaves no settings.local.json while settings.json is the kit\'s own', again.status === 0 && !existsSync(localPath), again.stdout);
+  writeFileSync(settingsPath, kitSettings.replace('"allow": [', '"allow": [\n      "Bash(npm run dev:*)",'));
+  const update = reinstall();
+  ok('an update moves the dev\'s added permission to settings.local.json and restores the kit\'s settings.json',
+    update.status === 0 && readFileSync(settingsPath, 'utf8') === kitSettings && JSON.parse(local()).permissions.allow.join() === 'Bash(npm run dev:*)', update.stdout);
+  // A repo with its own settings.json before the first install, whose dev then merges the guard in by hand.
+  // The 0.6.0 installer overwrote it on the second install: the manifest had no hash, and the guard string read as "kit's".
+  rmSync(localPath);
+  rmSync(manifestPath);
+  writeFileSync(settingsPath, JSON.stringify({ env: { MY_FLAG: '1' }, permissions: { allow: ['Bash(npm run dev:*)'] } }));
+  writeFileSync(join(repo, '.claude', 'CLAUDE.md'), 'The repo\'s own notes\n');
+  const first = reinstall();
+  const moved = local();
+  ok('a first install moves a repo\'s own settings.json to settings.local.json',
+    first.status === 0 && readFileSync(settingsPath, 'utf8') === kitSettings && /npm run dev/.test(moved) && /MY_FLAG/.test(moved), first.stdout);
+  ok('a first install keeps a copy of the repo\'s own CLAUDE.md',
+    readFileSync(join(repo, '.claude', 'CLAUDE.md.pre-kit'), 'utf8') === 'The repo\'s own notes\n', first.stdout);
+  writeFileSync(settingsPath, JSON.stringify({
+    permissions: { allow: ['Bash(npm run dev:*)'] },
+    hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'node .claude/hooks/guard.mjs' }] }] },
+  }));
+  const merged = reinstall();
+  ok('an update after the dev merged the guard in keeps their entries once and doesn\'t copy the guard',
+    merged.status === 0 && local() === moved && readFileSync(settingsPath, 'utf8') === kitSettings, merged.stdout);
+  writeFileSync(manifestPath, '{');
+  const corrupt = reinstall();
+  ok('an unreadable manifest warns instead of crashing', corrupt.status === 0 && /unreadable/.test(corrupt.stderr), corrupt.stderr);
+  // Back to a clean install, then the config /shopify-setup would write.
+  rmSync(localPath);
+  rmSync(join(repo, '.claude', 'CLAUDE.md.pre-kit'));
   writeFileSync(join(repo, '.claude', 'shopify-kit.json'), JSON.stringify({
     store: 'fake-store.myshopify.com', baseBranch: 'main', protectedBranches: ['main'], branchPattern: '{KEY}', adminApi: true, draftRoute: 'cli', adminApiVersion: '2026-07',
   }));

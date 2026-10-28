@@ -14,7 +14,7 @@ git clone https://github.com/DripDevelopment/Shopify-Claude-Kit.git
 node Shopify-Claude-Kit/install.mjs <path-to-theme-repo>
 ```
 
-Use the installer, not a hand copy. It writes `.claude/.gitignore`, which keeps the kit and your credentials out of the theme repo's git. If the repo already has its own `.claude/settings.json`, the installer writes `settings.kit.json` beside it; merge its `hooks`, `permissions` and `env` into yours.
+Use the installer, not a hand copy. It writes `.claude/.gitignore`, which keeps the kit and your credentials out of the theme repo's git. `.claude/settings.json` is the kit's and is replaced on every update. Put your own permissions, hooks and env in `.claude/settings.local.json`: Claude Code merges the two, and the kit's deny and ask rules still win. If the repo already has its own `settings.json`, the installer moves what it adds beyond the kit's into `settings.local.json` and says so.
 
 Then open Claude Code in the repo, trust the folder, and run **`/shopify-setup`**. It proves the guard is live, checks every tool and login the kit needs (and gives the exact fix for each one missing, including the optional Admin API login), writes `.claude/shopify-kit.json` with you, and tells you when to create `.claude/.env.local`:
 ```
