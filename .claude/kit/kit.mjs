@@ -316,6 +316,8 @@ const EXIT_CHECKS = {
   frame: (key, st) => [
     !st.type && 'record the kind of investigation: kit.mjs set <KEY> type=feasibility|debug|question',
     !filled(key, 'investigation.md', '## Question', undefined, 40) && 'write the precise question and what counts as answered in investigation.md § Question',
+    st.type === 'feasibility' && !tableRows(key, 'investigation.md', '## Requirements').length
+      && 'list each requirement in investigation.md § Requirements (quoted, clear or not, and the dev\'s answer to each open one)',
   ],
   gather: (key, st) => {
     const labelled = tableRows(key, 'investigation.md', '## Evidence').filter((l) => /\b(Confirmed|Inferred|Assumed|Unknown)\b/.test(l));
@@ -331,6 +333,8 @@ const EXIT_CHECKS = {
     const changed = themeChanges(st);
     return [
       !filled(key, 'investigation.md', '## Answer') && 'write investigation.md § Answer',
+      st.type === 'feasibility' && !filled(key, 'investigation.md', '## Estimate')
+        && 'write investigation.md § Estimate: the size (S, M or L), what drives it, what could move it, and your confidence',
       !filled(key, 'investigation.md', '## Could not determine', undefined, 10) && 'fill investigation.md § Could not determine ("Nothing material" only if that is true)',
       !filled(key, 'investigation.md', '## Next step') && 'write investigation.md § Next step',
       !filled(key, 'investigation.md', '## Review') && 'run the evidence-checker agent and record its result in investigation.md § Review',

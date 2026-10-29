@@ -10,9 +10,20 @@
 - **Answered when:**
 - **Debug only:** URL, steps, expected, actual, and where it happens (devices, markets, languages, logged in or not)
 
+## Requirements
+
+<!-- Feasibility only: one row per requirement, quoted from the ticket (or the dev's words). Clear, unclear or conflicting; for each open one, what you asked and the dev's answer verbatim. -->
+
+| # | Requirement (quoted) | Clear? | Asked → the dev's answer |
+| --- | --- | --- | --- |
+
 ## Answer
 
-<!-- One or two sentences first. Then the confidence (high, medium or low) and what it rests on. Feasibility: yes, yes with conditions, or no; then the approaches with their trade-offs and a rough size (S/M/L). -->
+<!-- One or two sentences first. Then the confidence (high, medium or low) and what it rests on. Feasibility: yes, yes with conditions, or no; the limitations; then the approaches with their trade-offs, the recommended one first. -->
+
+## Estimate
+
+<!-- Feasibility only: the recommended approach's size (S, M or L, as the skill defines them), what drives it, what could move it up a size, and the confidence. -->
 
 ## Evidence
 

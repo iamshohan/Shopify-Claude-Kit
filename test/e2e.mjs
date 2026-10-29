@@ -236,6 +236,32 @@ try {
   ok('start --small', kit('kit.mjs', 'start', 'ABC-2', '--small').out.includes('Small lane'));
   ok('lane full switches back before approval', kit('kit.mjs', 'lane', 'ABC-2', 'full').code === 0 && !kit('kit.mjs', 'status', 'ABC-2').out.includes('Small lane'));
 
+  // ── Feasibility ──
+  // A feasibility check must list the requirements (frame) and give an estimate (conclude); other investigation types don't.
+  const fill = (k, heading, text) => {
+    const p = join(repo, '.claude', 'logs', k, 'investigation.md');
+    writeFileSync(p, readFileSync(p, 'utf8').replace(heading, `${heading}\n${text}`));
+  };
+  const question = '\n- **The question, precisely:** can the size chart move into a metaobject the merchant edits per product?';
+  kit('kit.mjs', 'start', 'ABC-3', '--investigate');
+  kit('kit.mjs', 'set', 'ABC-3', 'type=feasibility');
+  fill('ABC-3', '## Question', question);
+  const noReqs = kit('kit.mjs', 'done', 'ABC-3', 'frame');
+  fill('ABC-3', '| --- | --- | --- | --- |', '| 1 | "The merchant edits the chart per product" | clear | none |');
+  const withReqs = kit('kit.mjs', 'done', 'ABC-3', 'frame');
+  ok('feasibility frame waits for § Requirements', noReqs.code !== 0 && /Requirements/.test(noReqs.all) && withReqs.code === 0, noReqs.all + withReqs.all);
+  const invState = join(repo, '.claude', 'logs', 'ABC-3', 'state.json');
+  writeFileSync(invState, JSON.stringify({ ...JSON.parse(readFileSync(invState, 'utf8')), stage: 'conclude' }));
+  const noEstimate = kit('kit.mjs', 'done', 'ABC-3', 'conclude', '--answer', 'Accept');
+  fill('ABC-3', '## Estimate', '\nM: one new section with a metaobject definition and two templates; L if the chart must also show in the cart drawer. Confidence medium.');
+  const withEstimate = kit('kit.mjs', 'done', 'ABC-3', 'conclude', '--answer', 'Accept');
+  ok('feasibility conclude waits for § Estimate', /Estimate/.test(noEstimate.all) && !/Estimate/.test(withEstimate.all), noEstimate.all + withEstimate.all);
+  kit('kit.mjs', 'start', 'ABC-4', '--investigate');
+  kit('kit.mjs', 'set', 'ABC-4', 'type=debug');
+  fill('ABC-4', '## Question', question);
+  const debugFrame = kit('kit.mjs', 'done', 'ABC-4', 'frame');
+  ok('a debug investigation needs no § Requirements', debugFrame.code === 0, debugFrame.all);
+
   // ── Live theme untouched ──
   // The fake CLI logs any write to the live theme in violations.jsonl.
 

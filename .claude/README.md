@@ -4,6 +4,7 @@ A Claude Code setup for Shopify theme repos.
 
 - **`/shopify-implement <KEY>`** takes a Jira ticket (a winning A/B test, a feature or a bug fix) to a QA'd draft theme. It reads the ticket and the code, asks you every open decision, gets a file-by-file plan approved, builds on a task branch, pushes to an unpublished copy of the live theme, and checks the draft with measured values.
 - **`/shopify-investigate <KEY or question>`** answers feasibility, debugging and how-does-it-work questions, read-only and with evidence.
+- **`/shopify-feasibility <KEY>`** is the same flow set up for a ticket nobody has picked up yet: it asks you about unclear requirements, then says whether it can be built, the limitations, the approaches with their trade-offs, and a size (S/M/L) with what drives it.
 
 It never publishes a theme, writes to the live theme, or pushes or merges into the base branch. Merging stays with you.
 
@@ -36,6 +37,7 @@ That file is yours alone: git ignores it, and Claude can't read it.
 /shopify-implement ABC-123 --small      the small lane: one gate before QA, for fixes of at most 3 files
 /shopify-implement                      list tasks in this repo
 /shopify-investigate ABC-123            investigate a ticket
+/shopify-feasibility ABC-123            can it be built, how, and how big? (before picking it up)
 /shopify-investigate why do German menus link to English pages?    a question without a ticket (key INV-…)
 ```
 
@@ -58,9 +60,9 @@ That file is yours alone: git ignores it, and Claude can't read it.
 
 | # | Stage | What happens | Your part |
 | --- | --- | --- | --- |
-| 1 | frame | Picks the type (feasibility, debug, question) and states what counts as answered. | answer if asked |
+| 1 | frame | Picks the type (feasibility, debug, question) and states what counts as answered. Feasibility: lists each requirement and asks you the unclear ones. | answer if asked |
 | 2 | gather | Code and git history, live files, read-only store data, Shopify's docs and the live storefront. Every claim is labelled Confirmed, Inferred, Assumed or Unknown. Bugs are reproduced first. | resize the window if asked |
-| 3 | conclude | The answer, the unknowns, the next step and a Jira comment. A second agent re-checks every Confirmed claim. | **Gate:** accept, dig further, or "wrong question" |
+| 3 | conclude | The answer, the unknowns, the next step and a Jira comment; for feasibility also the limitations, the approaches and the estimate. A second agent re-checks every Confirmed claim. | **Gate:** accept, dig further, or "wrong question" |
 
 Investigations can't change the theme or the store. If the answer is a fix, run `/shopify-implement` on the same key; the investigation becomes its starting context.
 

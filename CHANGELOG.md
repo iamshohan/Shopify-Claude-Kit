@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **`/shopify-feasibility <KEY>`: a feasibility check and estimate before a ticket is picked up.** It's the `/shopify-investigate` flow with the type set to feasibility, under the name devs look for. A feasibility check now also lists each requirement in § Requirements and asks the dev the unclear ones in the frame stage, names the limitations, gives 2–3 approaches with the recommended one first, and ends with § Estimate: a size band (S, M or L, defined in the skill by files, templates and store setup), what drives it, what could move it up a size, and the confidence. No hours: the drivers let the dev put a number on it. `done frame` and `done conclude` refuse without those sections, for feasibility only. If `/shopify-implement` follows, intake copies the requirement answers into § Decided, so clarify doesn't ask them again. e2e: 33 → 36 checks.
 - **A task can no longer pick up a teammate's draft by a longer key.** Draft lookups matched the key anywhere in a theme's name, so `ABC-12` matched a teammate's "ABC-123 hero" and could adopt it, push to it or delete it. The key now has to appear as a whole word (`namesKey` in lib.mjs). The guard also asks before taking over an existing theme (`draft --adopt`, `draft --github --theme N`, `kit.mjs set <KEY> draft.themeId=N`), which the build skill already required in words. Guard self-tests: 213 → 219.
 
 ## 1.0.0 — 2026-10-29

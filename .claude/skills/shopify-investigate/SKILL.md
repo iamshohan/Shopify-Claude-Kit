@@ -1,6 +1,6 @@
 ---
 name: shopify-investigate
-description: The three stages of /shopify-investigate (frame, gather, conclude). A read-only investigation of a Shopify store and theme, for a feasibility check, a bug, or a question. Use only when kit.mjs status names this skill.
+description: The three stages of /shopify-investigate and /shopify-feasibility (frame, gather, conclude). A read-only investigation of a Shopify store and theme, for a feasibility check, a bug, or a question. Use only when kit.mjs status names this skill.
 user-invocable: false
 ---
 
@@ -27,7 +27,8 @@ An investigation ends in an answer backed by evidence, not in a code change. The
 
 1. **Read the input.**
    - A ticket key → `node .claude/kit/jira.mjs <KEY>`, plus up to three related tickets with `--no-comments`. Skip process tickets.
-   - A question from the dev → it's already in § Question.2. **Pick the type** and record it: `node .claude/kit/kit.mjs set <KEY> type=<type>`.
+   - A question from the dev → it's already in § Question.
+2. **Pick the type** and record it: `node .claude/kit/kit.mjs set <KEY> type=<type>`. Started with `/shopify-feasibility`, the type is already `feasibility`.
 
    | type | when |
    | --- | --- |
@@ -41,8 +42,9 @@ An investigation ends in an answer backed by evidence, not in a code change. The
    - **Debug:** the URL, the steps, expected vs actual, and where it happens (devices, markets, languages, logged in or not).
 
    If something is missing, or the request reads two ways that would lead to different work, ask everything in one AskUserQuestion round. Otherwise don't ask.
+4. **Feasibility: check the requirements.** Write § Requirements: one row per acceptance criterion, quoted (for a request without a ticket, the requirements in the dev's words). Mark each one clear, unclear or conflicting. Ask every unclear or conflicting one in the same AskUserQuestion round as step 3, each with 2–4 concrete options and your recommendation first, and record the dev's answer verbatim. Don't ask about what the ticket already settles. If `/shopify-implement` follows, these answers count as decided and aren't asked again.
 
-**Done when:** the type is set and § Question is precise. Run `kit.mjs done <KEY> frame`.
+**Done when:** the type is set and § Question is precise; for feasibility, § Requirements has a row per requirement. Run `kit.mjs done <KEY> frame`.
 
 ## Stage: gather
 
@@ -97,7 +99,17 @@ For each requirement in the ticket, decide which of these it is:
 - needs Plus
 - not possible
 
-Back each one with docs, the store's plan, and the theme's code. Then write the approaches with their trade-offs: merchant control, effort (S/M/L), risk, and page speed.
+Back each one with docs, the store's plan, and the theme's code. Note the limitations as you go: what the platform, the store's plan, the theme or an installed app won't allow, and what would need the merchant or an app vendor.
+
+Then write 2–3 approaches with their trade-offs: merchant control, effort, risk, page speed, and what it costs later (upkeep, app fees). Name the one you recommend and why. Size each with these bands:
+
+| Size | Typically |
+| --- | --- |
+| S | up to 3 theme files, one template, no store setup |
+| M | a new section or block with settings, metafield definitions, or several templates or locales |
+| L | metaobjects across several surfaces, an app, a change to shared layout code, or an unknown that needs a spike first |
+
+Check the size against the theme's code, not the ticket's length: count the files and templates the approach touches.
 
 ### Evidence rules
 
@@ -123,7 +135,8 @@ Back each one with docs, the store's plan, and the theme's code. Then write the 
 **Goal:** an answer the dev can act on, which someone other than you has checked.
 
 1. **Write the answer.**
-   - **§ Answer:** one or two sentences first, then your confidence and what it rests on. Feasibility: yes, yes with conditions, or no, then the approaches table.
+   - **§ Answer:** one or two sentences first, then your confidence and what it rests on. Feasibility: yes, yes with conditions, or no; the limitations; then the approaches table, the recommended one first.
+   - **§ Estimate** (feasibility): the recommended approach's size, the drivers behind it (files and templates touched, store setup, locales, QA effort), what could move it up a size, and your confidence. Give the drivers rather than hours, so the dev can put a number on it.
    - **§ Could not determine:** a report with nothing here usually stopped looking. Write "Nothing material" only if that's true.
    - **§ Next step**, one of:
      - A theme change → `/shopify-implement <KEY>`. The same key continues, with this file as its starting context. An `INV-…` key has no ticket, so say the dev starts `/shopify-implement` with the real ticket and names this log.
@@ -143,4 +156,4 @@ Back each one with docs, the store's plan, and the theme's code. Then write the 
    Record their words: `kit.mjs done <KEY> conclude --answer "<their words>"`. For "dig further" or "wrong question", run `kit.mjs back <KEY> gather` (or `frame`) `--reason "…"` instead.
 5. Tell the dev the next step in one line.
 
-**Done when:** § Answer, § Could not determine, § Next step and § Review are filled, the retro is recorded, theme files are unchanged, and the dev has accepted.
+**Done when:** § Answer, § Could not determine, § Next step and § Review are filled (and § Estimate for feasibility), the retro is recorded, theme files are unchanged, and the dev has accepted.

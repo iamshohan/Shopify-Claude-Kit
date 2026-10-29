@@ -10,7 +10,7 @@ user-invocable: false
 
 **Goal:** `brief.md` § Asked is complete, and the work type and its facts are recorded.
 
-0. **Investigated first?** If `kit.mjs status` says so, read `.claude/logs/<KEY>/investigation.md`. Its question, answer and evidence are this task's starting context. Re-check any code it cites at the current commit before relying on it, and carry its Confirmed findings into `brief.md`.
+0. **Investigated first?** If `kit.mjs status` says so, read `.claude/logs/<KEY>/investigation.md`. Its question, answer and evidence are this task's starting context. After a feasibility check, its § Requirements answers are decisions the dev already made: copy them into `brief.md` § Decided → Questions and answers (citing investigation.md), so clarify doesn't ask them again. Re-check any code it cites at the current commit before relying on it, and carry its Confirmed findings into `brief.md`.
 1. **Read the ticket:** `node .claude/kit/jira.mjs <KEY>`. If the script reports missing credentials, ask the dev to fix `.claude/.env.local` or to paste the ticket text. Don't guess requirements.
 2. **Related tickets.** Read up to three with `node .claude/kit/jira.mjs <KEY> --no-comments`, chosen from the summary, links, parent and `mentionedKeys`.
    - An A/B implementation ticket usually names or links the A/B test ticket ("Implement ABC-120"). That ticket holds the design, the variations and the targeting, so read it. Fetch its comments too if decisions seem to be in them.

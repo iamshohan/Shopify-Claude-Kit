@@ -19,7 +19,7 @@ install.mjs                 installs or updates the kit in a theme repo
   CLAUDE.md                 always-loaded rules
   README.md                 team guide
   settings.json             guard hook, permissions, env
-  commands/                 /shopify-implement, /shopify-investigate, /shopify-setup, /shopify-update
+  commands/                 /shopify-implement, /shopify-investigate, /shopify-feasibility, /shopify-setup, /shopify-update
   rules/kit-runs.md         rules both commands share; loads when Claude touches .claude/logs/
   skills/                   one skill per phase (intake, plan, build, qa, handoff) plus shopify-investigate
   agents/                   theme-recon, abtest-analyst, design-extractor, theme-builder, evidence-checker
