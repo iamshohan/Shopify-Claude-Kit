@@ -1,4 +1,4 @@
-# Shopify Implementation Kit · v0.6.0
+# Shopify Implementation Kit · v1.0.0
 
 A Claude Code setup for Shopify theme repos.
 
@@ -125,6 +125,6 @@ The logs are history, not a knowledge base: every task reads the code fresh.
 | The guard blocks a harmless command that mentions "shopify" | use the Grep tool, or rephrase |
 | You need a CLI command the wrapper doesn't have | run it yourself with `!`; the guard only watches Claude |
 
-## Not in v0.5
+## Not in v1.0
 
 Shopify app development, fetching A/B code from shadow-drip, target themes other than live, posting to Jira or creating PRs, unattended runs, and shared task state between devs.

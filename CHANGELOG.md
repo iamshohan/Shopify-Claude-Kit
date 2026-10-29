@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 1.0.0 — 2026-10-29
+
+The first version presented to the team as ready for use: `/shopify-implement` and `/shopify-investigate` on live theme repos, with the 0.x history below.
 
 - **The installer no longer overwrites a repo's own `settings.json`, and new kit settings always land.** A repo that had its own `.claude/settings.json` at its first install got no hash in the manifest. Once the dev merged the guard hook in (as the installer told them to), the next update read the file as the kit's and replaced it, dropping their own entries. A repo that kept its own file also never got the kit's new hooks or deny rules without a merge by hand. Now `settings.json` is always the kit's; anything a repo's file has beyond it moves to `settings.local.json`, which Claude Code merges with it (list keys combine, and an allow there doesn't outrank the kit's ask or deny). A hand-merged copy of the guard isn't moved, so it doesn't run twice. `settings.kit.json` is gone.
 - **Figma design check, only where it pays.** A feature whose ticket links its Figma design records it at intake (`kit.mjs set <KEY> design.figma=<link>`). At analyze, a new read-only `design-extractor` agent reads the frames' values per viewport into `design.md` (type, colour, size, spacing as rendered distances, and whether a size is fixed or fills its parent), using whatever Figma MCP the dev has. Values that differ from the theme's tokens are asked at Gate 1, the plan turns `design.md` into QA criteria, and QA measures them with the probe within set margins (colour exact, font size ±1px, spacing ±2px). A/B ports and bug fixes skip it, because the winning code is the source; the dev can still ask for a design check at QA. Adapted from shadow-drip-exps' `figma-design-extract` and `style-checker`. e2e: 31 → 32 checks.
