@@ -243,6 +243,10 @@ function wrapperDecision(segs, ctx) {
     if (['push', 'verify'].includes(verb) && call.flags.reconciled !== undefined) {
       return { decision: 'ask', reason: `The dev confirms that live's edits to ${call.flags.reconciled} are already in the task branch (copied by hand: this repo doesn't sync live edits into git). The draft, and live after the merge, get the branch's version of these files. Allow?` };
     }
+    // Taking over an existing theme could be a teammate's draft: every later push overwrites its files.
+    if (verb === 'draft' && (call.flags.adopt || call.flags.theme !== undefined)) {
+      return { decision: 'ask', reason: `Use an existing theme as ${call._[1] ?? 'this task'}'s draft${call.flags.theme !== undefined ? ` (theme ${call.flags.theme})` : ''}? Later pushes overwrite its files, so check it isn't a teammate's draft. (${seg.trim()})` };
+    }
     if (!verb || SAFE_VERBS.has(verb)) continue;
     if (!STORE_VERBS.has(verb)) return { decision: 'ask', reason: `The kit command "${verb}" isn't on the read-only list. Allow it? (${seg.trim()})` };
     // The wrapper reads the same flag the same way, so this is a real dry run.
@@ -276,12 +280,17 @@ function wrapperDecision(segs, ctx) {
   return null;
 }
 
-/** kit.mjs done <KEY> <gate> --answer "…": the gate is the dev's decision, so the dev sees the words the kit will record as theirs. */
+/**
+ * kit.mjs done <KEY> <gate> --answer "…": the gate is the dev's decision, so the dev sees the words the kit will record as theirs.
+ * kit.mjs set <KEY> draft.themeId=N: every later push goes to that theme, so the dev confirms it's this task's.
+ */
 function gateDecision(segs) {
   for (const seg of segs) {
     const { w, i } = program(stripRedirects(seg));
     if (!/^node(\.exe)?$/i.test(w[i] || '') || !/(^|[\\/])kit\.mjs$/i.test(w[i + 1] || '')) continue;
     const call = parseArgs(w.slice(i + 2));
+    const themeId = call._[0] === 'set' && call._.find((a) => /^draft\.themeId=/.test(a));
+    if (themeId) return { decision: 'ask', reason: `Record theme ${themeId.split('=')[1]} as ${call._[1]}'s draft? Every later push writes to it, so check it isn't a teammate's draft.` };
     const answer = typeof call.flags.answer === 'string' ? call.flags.answer : '';
     // Without --answer the kit refuses on its own.
     if (call._[0] !== 'done' || !GATE_STAGES.has(call._[2]) || !answer) continue;
@@ -600,6 +609,13 @@ function selftest() {
     [ps("git commit -m @'\nshopify theme push notes\n'@"), null],
     [bash(`git fetch origin && git switch -c ${K} origin/main`), null],
     [bash(`node .claude/kit/kit.mjs set ${K} base=$(git rev-parse origin/main)`), null],
+    // taking over an existing theme (maybe a teammate's draft) asks
+    [bash(`node .claude/kit/shopify.mjs draft ${K}`), null],
+    [bash(`node .claude/kit/shopify.mjs draft ${K} --adopt`), 'ask'],
+    [bash(`node .claude/kit/shopify.mjs draft ${K} --github --theme 5`), 'ask'],
+    [bash(`node .claude/kit/shopify.mjs draft ${K} --github`), null],
+    [bash(`node .claude/kit/kit.mjs set ${K} draft.themeId=5 draft.route=manual`), 'ask'],
+    [bash(`node .claude/kit/kit.mjs set ${K} draft.previewUrl=https://x`), null],
     [bash('npm run build'), null, ctx(K, { build: 'tailwindcss -i assets/src/theme.css -o assets/theme.css.liquid' })],
     [bash('git log --oneline -5'), null],
     [bash(`node .claude/kit/shopify.mjs mutate ${K} x.graphql --dry-run`), null],

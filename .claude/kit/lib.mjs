@@ -91,6 +91,12 @@ export function normKey(raw) {
   return key;
 }
 
+/** True if a theme name contains the key (or branch) as a whole word: ABC-12 matches "ABC-12 hero", not a teammate's "ABC-123". */
+export function namesKey(name, key) {
+  const esc = String(key).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(^|[^A-Z0-9])${esc}(?![A-Z0-9])`, 'i').test(String(name || ''));
+}
+
 export function slug(text, max = 20) {
   return String(text || 'dev').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, max) || 'dev';
 }

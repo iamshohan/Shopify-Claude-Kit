@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **A task can no longer pick up a teammate's draft by a longer key.** Draft lookups matched the key anywhere in a theme's name, so `ABC-12` matched a teammate's "ABC-123 hero" and could adopt it, push to it or delete it. The key now has to appear as a whole word (`namesKey` in lib.mjs). The guard also asks before taking over an existing theme (`draft --adopt`, `draft --github --theme N`, `kit.mjs set <KEY> draft.themeId=N`), which the build skill already required in words. Guard self-tests: 213 → 219.
+
 ## 1.0.0 — 2026-10-29
 
 The first version presented to the team as ready for use: `/shopify-implement` and `/shopify-investigate` on live theme repos, with the 0.x history below.

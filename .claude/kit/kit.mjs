@@ -10,7 +10,7 @@ import { homedir } from 'node:os';
 import {
   ROOT, KIT_DIR, LOGS, KIT_VERSION, STAGES, stagesFor, THEME_DIRS, MERCHANT_JSON, print, fail, parseArgs, normKey, now, run, git, currentBranch,
   readConfig, readState, writeState, owner, branchFor, protectedBranches, storefrontPath, parseCliJson, diagnosticJson, ignoreMatcher, TEST_SUFFIX,
-  effectiveBase,
+  effectiveBase, namesKey,
 } from './lib.mjs';
 
 // ── Help and settable facts ──
@@ -464,6 +464,8 @@ function selftest() {
   eq('stages investigation', stagesFor({ kind: 'investigation' }).map((x) => x.name), ['frame', 'gather', 'conclude']);
   eq('stages small lane', stagesFor({ lane: 'small' }).map((x) => x.name), ['intake', 'analyze', 'plan', 'approve', 'build', 'draft', 'qa', 'accept', 'handoff']);
   eq('small lane keeps one gate', stagesFor({ lane: 'small' }).filter((x) => x.gate).map((x) => x.name), ['approve', 'accept']);
+  eq('namesKey whole word', ['ABC-12', 'ABC-12 hero', 'kit test ABC-12-kit-test', 'abc-12'].map((n) => namesKey(n, 'ABC-12')), [true, true, true, true]);
+  eq('namesKey not a longer key', ['ABC-123', 'ABC-123 hero', 'XABC-12', 'ABC-12B'].map((n) => namesKey(n, 'ABC-12')), [false, false, false, false]);
   eq('design set', hasDesign({ design: { figma: 'https://www.figma.com/design/abc/x' } }), true);
   eq('design none or unset', [hasDesign({ design: { figma: 'none' } }), hasDesign({})], [false, false]);
   eq('cells', cells('| 3 | a \\| b | PASS |'), ['3', 'a \\| b', 'PASS']);

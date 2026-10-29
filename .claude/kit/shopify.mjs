@@ -10,7 +10,7 @@ import { createHash } from 'node:crypto';
 import {
   ROOT, LOGS, KIT_DIR, THEME_DIRS, MERCHANT_JSON, WIN, print, fail, parseArgs, normKey, now, run, git,
   currentBranch, parseCliJson, diagnosticJson, readConfig, readState, writeState, secret, inTaskFolder, ignoreMatcher,
-  storefrontGet, renderedTheme, storefrontPath, isThemePath, mutationProblems, createdIds, sealDigest, SEAL_FILE, draftNameFor, effectiveBase,
+  storefrontGet, renderedTheme, storefrontPath, isThemePath, mutationProblems, createdIds, namesKey, sealDigest, SEAL_FILE, draftNameFor, effectiveBase,
 } from './lib.mjs';
 
 const HELP = `Usage: node .claude/kit/shopify.mjs <verb> ...
@@ -237,7 +237,7 @@ function assertOwnDraft(key, st, theme) {
   const expected = draftNameFor(key, st);
   if (st.draft.route === 'cli' && theme.name.toUpperCase() !== expected.toUpperCase() && !theme.name.startsWith(`kit/${key}/`)) fail(`Theme ${theme.id} is named "${theme.name}", not ${expected}. Refusing to write to it.`);
   // A typed-in id could be a teammate's copy; a dev-made draft must carry the ticket key in its name.
-  if (st.draft.route !== 'cli' && !theme.name.toUpperCase().includes(key)) {
+  if (st.draft.route !== 'cli' && !namesKey(theme.name, key)) {
     fail(`Theme ${theme.id} is named "${theme.name}", which doesn't contain ${key}. Ask the dev to rename their draft to include ${key}, then record it again.`);
   }
 }
@@ -643,7 +643,7 @@ switch (verb) {
     const name = draftNameFor(key, st);
     const live = themes.find((t) => t.role === 'live') || fail('No live theme found in the store.');
     const same = themes.find((t) => t.name.toUpperCase() === name.toUpperCase() && t.role === 'unpublished');
-    const others = themes.filter((t) => t.role !== 'live' && t !== same && t.name.toUpperCase().includes(key));
+    const others = themes.filter((t) => t.role !== 'live' && t !== same && namesKey(t.name, key));
     const record = (theme, source, route = 'cli') => {
       const handle = storeHandle(cfg.store);
       st.draft = {
@@ -664,7 +664,7 @@ switch (verb) {
       }
       const wanted = typeof flags.theme === 'string' ? Number(flags.theme) : null;
       const candidates = themes.filter((t) => t.role === 'unpublished'
-        && (wanted ? t.id === wanted : t.name.toUpperCase().includes(key) || t.name.toLowerCase().includes(branch.toLowerCase())));
+        && (wanted ? t.id === wanted : namesKey(t.name, key) || namesKey(t.name, branch)));
       if (candidates.length !== 1) {
         const repo = git(['remote', 'get-url', 'origin'], { allowFail: true }).replace(/^.*[:/]([^/:]+\/[^/]+?)(\.git)?$/, '$1');
         print({
@@ -680,7 +680,7 @@ switch (verb) {
         });
         process.exit(2);
       }
-      if (!candidates[0].name.toUpperCase().includes(key)) fail(`Theme ${candidates[0].id} is named "${candidates[0].name}". Ask the dev to rename it to include ${key}, then run this again.`);
+      if (!namesKey(candidates[0].name, key)) fail(`Theme ${candidates[0].id} is named "${candidates[0].name}". Ask the dev to rename it to include ${key}, then run this again.`);
       record(candidates[0], `GitHub-connected to ${branch}`, 'github');
       print({ adopted: true, ...st.draft, next: `shopify.mjs verify ${key}` });
       break;
