@@ -31,6 +31,7 @@ if (!force && !existsSync(join(repo, 'config', 'settings_schema.json')) && !exis
 }
 const dest = join(repo, '.claude');
 
+// returns an array off all the files inside a folder (except the a folder named logs).
 function walk(dir, out = []) {
   for (const name of readdirSync(dir)) {
     const p = join(dir, name);
@@ -39,6 +40,7 @@ function walk(dir, out = []) {
   }
   return out;
 }
+// walks the .claude folder to get an array of all the files inside it using walk(). Then, filter out the PER_REPO files from that array.
 const files = walk(KIT).filter((f) => !PER_REPO.has(f));
 
 const sha = (p) => createHash('sha256').update(readFileSync(p)).digest('hex');
@@ -52,6 +54,7 @@ try {
   console.warn('Warning: .claude/.kit-manifest.json is unreadable, so files an older kit dropped stay this time.');
 }
 const previous = manifest.files || [];
+// find out the files the exist in the theme's .claude but not in the new version
 const stale = previous.filter((f) => !files.includes(f) && !PER_REPO.has(f));
 const version = readFileSync(join(KIT, 'VERSION'), 'utf8').trim();
 const installed = existsSync(join(dest, 'VERSION')) ? readFileSync(join(dest, 'VERSION'), 'utf8').trim() : null;
