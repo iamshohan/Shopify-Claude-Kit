@@ -118,6 +118,17 @@ try {
 
   // ── Task start, branch, baseline ──
   ok('kit start', kit('kit.mjs', 'start', KEY).code === 0);
+  // A Figma design makes analyze wait for design.md; "none" lifts that. The state is put back afterwards.
+  const statePath = join(repo, '.claude', 'logs', KEY, 'state.json');
+  const fresh = readFileSync(statePath, 'utf8');
+  writeFileSync(statePath, JSON.stringify({ ...state(), stage: 'analyze' }));
+  kit('kit.mjs', 'set', KEY, 'design.figma=https://www.figma.com/design/abc/Feature');
+  const withDesign = kit('kit.mjs', 'done', KEY, 'analyze');
+  kit('kit.mjs', 'set', KEY, 'design.figma=none');
+  const noDesign = kit('kit.mjs', 'done', KEY, 'analyze');
+  ok('analyze asks for design.md only while a Figma design is set',
+    withDesign.code !== 0 && /design-extractor/.test(withDesign.all) && !/design-extractor/.test(noDesign.all), withDesign.all + noDesign.all);
+  writeFileSync(statePath, fresh);
   git('switch', '-q', '--no-track', '-c', KEY, 'origin/main');
   const base = git('rev-parse', 'origin/main');
   kit('kit.mjs', 'set', KEY, `branch=${KEY}`, `base=${base}`);

@@ -22,7 +22,7 @@ install.mjs                 installs or updates the kit in a theme repo
   commands/                 /shopify-implement, /shopify-investigate, /shopify-setup, /shopify-update
   rules/kit-runs.md         rules both commands share; loads when Claude touches .claude/logs/
   skills/                   one skill per phase (intake, plan, build, qa, handoff) plus shopify-investigate
-  agents/                   theme-recon, abtest-analyst, theme-builder, evidence-checker
+  agents/                   theme-recon, abtest-analyst, design-extractor, theme-builder, evidence-checker
   hooks/guard.mjs           the safety guard (with --selftest)
   kit/                      scripts: kit.mjs (task state), shopify.mjs (the only CLI wrapper), lib.mjs (shared),
                             jira.mjs, recon.mjs, contract.mjs, compare.mjs, templates/, queries/,

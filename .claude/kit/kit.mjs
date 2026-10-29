@@ -54,6 +54,7 @@ const SETTABLE = {
   'abtest.tool': String,
   'abtest.running': oneOf('yes', 'no', 'unknown'),
   'abtest.reference': String,
+  'design.figma': String, // a Figma link, or "none"
   featurePrefix: String,
   buildOutputs: list,
   'qa.paths': (v) => list(v).map(storefrontPath),
@@ -103,6 +104,7 @@ const cells = (row) => row.replace(/^\|/, '').replace(/\|\s*$/, '').split(/(?<!\
 const staleFails = (rows = {}, head) => Object.entries(rows).filter(([, r]) => r.verdict === 'FAIL' && r.commit && head && r.commit !== head).map(([n]) => n);
 const saysNone = (key, file, heading, within) => /^(none|n\/a|—)\b/i.test(added(key, file, heading, within).join(' ').replace(/^[-*]\s*/, ''));
 const NO_RECOMMENDED = /\(Recommended\)/i;
+const hasDesign = (st) => Boolean(st.design?.figma) && st.design.figma !== 'none';
 
 // ── Brief and plan checks ──
 // Helpers for the clarify and plan exits below; reach() also backs the reach verb.
@@ -251,6 +253,8 @@ const EXIT_CHECKS = {
     !filled(key, 'brief.md', '### Render path', '## Found') && 'fill brief.md § Found → Render path',
     !filled(key, 'brief.md', '### Closest existing pattern', '## Found') && 'fill brief.md § Found → Closest existing pattern',
     st.type === 'abtest' && !filled(key, 'brief.md', '### A/B inventory', '## Found') && 'fill brief.md § Found → A/B inventory',
+    hasDesign(st) && !tableRows(key, 'design.md', '## Elements').length
+      && 'run the design-extractor agent and write .claude/logs/<KEY>/design.md from .claude/kit/templates/design.md (or kit.mjs set <KEY> design.figma=none to skip the design check)',
   ],
   clarify: (key) => [
     !tableRows(key, 'brief.md', '### Control surface', '## Decided').length && !/no dynamic|none/i.test(added(key, 'brief.md', '### Control surface', '## Decided').join(' '))
@@ -398,6 +402,7 @@ function summaryLines(key, st, cfg) {
     if (st.draft.editorUrl) lines.push(`Editor: ${st.draft.editorUrl}`);
   }
   if (st.type === 'abtest') lines.push(`A/B: variation ${st.abtest?.variation || '?'} · code ${st.abtest?.path || '?'} · tool ${st.abtest?.tool || '?'} · running ${st.abtest?.running || '?'}${st.abtest?.reference ? ` · force link ${st.abtest.reference}` : ''}`);
+  if (hasDesign(st)) lines.push(`Design: Figma ${st.design.figma} (values in design.md)`);
   if (cfg?.draftRoute === 'github' && !st.test && !st.draft?.themeId) lines.push('Draft route: GitHub-connected (draftRoute in shopify-kit.json). The dev connects the task branch; the kit adopts it with shopify.mjs draft <KEY> --github.');
   if (st.mutations?.length) lines.push(`Store mutations run: ${st.mutations.length} (ids: kit.mjs status ${key} --json)`);
   lines.push(`Logs: .claude/logs/${key}/ (brief.md, plan.md, report.md)`);
@@ -459,6 +464,8 @@ function selftest() {
   eq('stages investigation', stagesFor({ kind: 'investigation' }).map((x) => x.name), ['frame', 'gather', 'conclude']);
   eq('stages small lane', stagesFor({ lane: 'small' }).map((x) => x.name), ['intake', 'analyze', 'plan', 'approve', 'build', 'draft', 'qa', 'accept', 'handoff']);
   eq('small lane keeps one gate', stagesFor({ lane: 'small' }).filter((x) => x.gate).map((x) => x.name), ['approve', 'accept']);
+  eq('design set', hasDesign({ design: { figma: 'https://www.figma.com/design/abc/x' } }), true);
+  eq('design none or unset', [hasDesign({ design: { figma: 'none' } }), hasDesign({})], [false, false]);
   eq('cells', cells('| 3 | a \\| b | PASS |'), ['3', 'a \\| b', 'PASS']);
   eq('cells empty last', cells('| Icons | AC 18 | winner SVGs | |'), ['Icons', 'AC 18', 'winner SVGs', '']);
   const theme = new Map([

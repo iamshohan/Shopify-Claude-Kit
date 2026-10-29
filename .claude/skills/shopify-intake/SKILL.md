@@ -44,7 +44,7 @@ user-invocable: false
 
    Record everything; `done` refuses without it: `kit.mjs set <KEY> abtest.variation=<V> abtest.path=<path> abtest.tool=<tool> abtest.running=<yes|no|unknown>`.
 6. **Bug fixes only.** Make sure you have the steps to reproduce, the page URL, and expected vs actual. Ask for whatever is missing.
-7. **Features only.** Note the Figma links. If the design is the main source of truth, note which frames. Pixel-level design extraction happens in the plan stage, with the Figma MCP's own skill if it's installed.
+7. **Figma.** `jira.mjs` lists the ticket's Figma links (`figmaLinks`). A **feature** whose ticket links its design: record it with `kit.mjs set <KEY> design.figma=<link>`; if it links several files, ask which is final. A/B ports and bug fixes skip this: the winning code is the source. A design check can still be added at QA if the dev doubts the draft matches.
 8. **Write `brief.md` § Asked**, using the headings already in the file:
    - type, tickets, and the winning variation with its code location (A/B ports)
    - a summary of three lines at most
@@ -62,6 +62,7 @@ user-invocable: false
 1. Spawn these in **one message, so they run in parallel**:
    - `theme-recon`, with: KEY, type, target pages/templates, and the selectors, classes or sections the A/B code touches. For a bug fix, add the reproduction.
    - `abtest-analyst` (A/B ports only), with: KEY, the A/B code path, the winning variation, and the acceptance criteria.
+   - `design-extractor` (when status shows a Figma design), with: KEY, the Figma link and frames, the target pages, the viewports in scope, and the acceptance criteria.
 2. **Write § Found** from the reports, under its headings:
    - the commit stamp from recon
    - the A/B inventory table (ports)
@@ -71,6 +72,8 @@ user-invocable: false
    - risks
 
    Keep the citations. Cut what the plan won't need, and keep the section under about 150 lines.
-3. If a report says something is missing or unclear (A/B code incomplete, target template not found, src and build disagree), ask the dev now rather than planning around a guess.
+3. **Write `design.md`** (Figma design only). Copy `.claude/kit/templates/design.md` to `.claude/logs/<KEY>/design.md` and fill it from the extractor's report. Then fill § Differs from the theme or the A/B code yourself, from the recon and analyst reports: a Figma colour that isn't in the theme's colour schemes, a size off the theme's type scale, a value the winning variation changed. In § Found, add one line: "Design: design.md, N elements, M spacing checks".
+   - **`NO FIGMA ACCESS`:** ask the dev whether to connect Figma and run the extractor again, to paste the key values per viewport (you write `design.md` from those), or to skip the design check (`kit.mjs set <KEY> design.figma=none`).
+4. If a report says something is missing or unclear (A/B code incomplete, target template not found, src and build disagree), ask the dev now rather than planning around a guess.
 
-**Done when:** § Found has the render path, the closest pattern and the risks, plus the inventory for A/B ports. Then run `kit.mjs done <KEY> analyze`.
+**Done when:** § Found has the render path, the closest pattern and the risks, plus the inventory for A/B ports and `design.md` for a Figma design. Then run `kit.mjs done <KEY> analyze`.

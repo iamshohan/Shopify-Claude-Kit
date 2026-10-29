@@ -38,6 +38,7 @@ user-invocable: false
    - missing copy per locale
    - the placement choice and each setting's default
    - risky findings
+   - each row of `design.md` § Differs from the theme or the A/B code: follow Figma, or keep the theme's value (or the winner's). Group rows of one kind into one question ("Figma's greys are 1–2 shades off the colour scheme: use the scheme?").
 
    - **each value you'd keep in code that an editability line reaches**: one question per value, never folded into another question. Name the AC: "AC 18 says the client manages the menu without a developer. Keep the six utility icons in code anyway?"
 
@@ -82,6 +83,7 @@ Fill each heading in `plan.md`. Write **At a glance** last, from the finished de
   - the exact change
   - the **anchor**: the symbol it attaches to, e.g. a `case block.type` branch, a `render` call, a schema `blocks` array or a function name. Never a line number; Shopify sync commits move lines.
   - the data flow: where the value comes from and how it reaches the markup
+  - for styling with a Figma design: "values from design.md", or the theme token Gate 1 chose instead
 - **Schema details.** Every setting: id, type, label (or `t:` key), default, options or range, info, `visible_if`. For each section, say whether it has presets and where it may be added (`enabled_on` / `disabled_on`).
 - **Store setup.**
   - **Definitions to create.** For each: owner, namespace.key, type, validations, translatable, not pinned, and "reuse: none fits because …".
@@ -109,6 +111,7 @@ Fill each heading in `plan.md`. Write **At a glance** last, from the finished de
   - mobile and desktop, at sizes Chrome's device toolbar offers as presets (390×844, 375×667, 1440×900): `kit-browser` sets any size, but without it the dev sets them by hand
   - the customizer contract: name, presets, where it can be added, labels and defaults (checked by `contract.mjs`)
   - untouched pages for the regression check
+  - **the design** (when `design.md` exists): one row per element group and viewport, and one per spacing group. Expected quotes the values with their Figma node ("Figma 12:34: 16px/24px 600 #1d1d1b"), or the theme value Gate 1 chose. Name the element by the class the plan creates. A size that fills or flexes becomes behaviour ("fills its column at 390"), not a pixel value.
 - **QA setup.**
   - Placement on the draft. If the merchant places the feature after merge, the draft needs preview overrides that place it.
   - A feature CSS class prefix that appears nowhere else in the theme (check with Grep). Record it: `kit.mjs set <KEY> featurePrefix=<prefix>`.

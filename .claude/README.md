@@ -44,7 +44,7 @@ That file is yours alone: git ignores it, and Claude can't read it.
 | # | Stage | What happens | Your part |
 | --- | --- | --- | --- |
 | 1 | intake | Reads the ticket and linked tickets; decides A/B port, feature or bug fix. | answer; for A/B ports, put the code in `.claude/logs/<KEY>/abtest/` |
-| 2 | analyze | One agent reads the theme fresh; another turns the A/B code into a list of behaviours. | — |
+| 2 | analyze | One agent reads the theme fresh; another turns the A/B code into a list of behaviours. For a feature with a Figma design, a third reads the frames' values into `design.md`, and QA measures the draft against them. | — |
 | 3 | clarify | Decides what merchants control and where, and asks every open question at once. A value kept in code that the ticket says the client must be able to change gets its own question. | **Gate 1:** answer |
 | 4 | plan | At a glance (25 lines) on top: first what **needs your attention** (anything that can affect what already exists: store writes, merchant JSON, shared code, changed behaviour), then file by file. Below it the builder detail, store setup and QA criteria. | — |
 | 5 | approve | Shows At a glance and what changed since Gate 1. | **Gate 2:** approve, change or reject |
@@ -73,6 +73,7 @@ Investigations can't change the theme or the store. If the answer is a fix, run 
 | `report.md` | **You must still do** first; then QA results, PR text, admin steps and the Jira comment |
 | `kit-notes.md` | only when the kit itself got in the way: one line per problem |
 | `contract.md` | what the merchant sees in the customizer |
+| `design.md` | Figma values to match: features with a design, or a design check you ask for at QA |
 | `investigation.md` | investigations: the question, answer, evidence and next step |
 | `state.json` | machine state for resuming; managed by `kit.mjs` |
 
