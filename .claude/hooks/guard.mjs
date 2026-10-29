@@ -4,7 +4,7 @@
 // security boundary: GitHub branch protection and store staff permissions are the real limits.
 // Flow: Claude Code sends the tool call as JSON on stdin → decide() → enforceMode() → emit() allow, ask or deny.
 // Self-test: node .claude/hooks/guard.mjs --selftest · Mode check: node .claude/hooks/guard.mjs --mode-probe
-import { readFileSync, existsSync, appendFileSync, mkdirSync, writeFileSync, readdirSync } from 'node:fs';
+import { readFileSync, existsSync, appendFileSync, mkdirSync, writeFileSync, readdirSync, rmSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { dirname, join, resolve, relative, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -29,6 +29,9 @@ const CLI_TOPICS = 'theme|store|app|auth|hydrogen|organization|config|upgrade|ve
 const CLI_WORD = new RegExp(`(^|[\\s;&|(\`'"=])shopify(\\.cmd|\\.ps1|\\.exe)?['"]?\\s+(${CLI_TOPICS}|-)`, 'i');
 const CLI_PATH = new RegExp(`[\\\\/]shopify(\\.cmd|\\.ps1|\\.exe)?['"]?\\s+(${CLI_TOPICS})\\b`, 'i');
 const CLI_PKG = /@shopify\/(cli|theme|app|create-app)\b|SHOPIFY_FLAG_|SHOPIFY_CLI_THEME_TOKEN|SHOPIFY_CLI_PARTNERS_TOKEN/i;
+// Writing to or publishing over the live theme has no protection on Shopify's side, so these words are blocked whatever
+// runs them: $(which shopify), a variable, a script's argument list. Not --live: the wrapper's read-only fetch uses it.
+const LIVE_THEME = /\btheme\b[\s'",\]]+(publish|push|delete)\b|--allow-live\b/i;
 const THEMEKIT = /^theme(\.exe)?\s+(deploy|watch|open|replace|upload|remove|download|get|new|configure|publish|update)\b/;
 // .env files, Theme Kit's config.yml, and the Shopify CLI's session folders (shopify-cli-kit-nodejs/…), whose tokens can publish themes.
 const SECRET_FILE = /(^|[\s'"=\\/])(\.env(\.[\w.-]+)?|config\.yml)(?=$|[\s'"`;&|)])|shopify-cli-[\w-]+[\\/]/;
@@ -333,7 +336,9 @@ function decideCommand(raw, ctx, depth = 0, cwd = null) {
     return /^node(\.exe)?$/i.test(w[i] || '') && /(^|[\\/])kit\.mjs$/i.test(w[i + 1] || '') && !/[$`]/.test(s);
   };
   const scanned = segs.filter((s) => !isText(s)).join(' ; ').replace(WRAPPER_PATH, ' KIT_WRAPPER ');
-  if (CLI_WORD.test(scanned) || CLI_PATH.test(scanned) || CLI_PKG.test(scanned)) return { decision: 'deny', reason: USE_WRAPPER };
+  // The shell joins shop""ify back into shopify, so empty quote pairs can't split a word.
+  const joined = scanned.replace(/""|''/g, '');
+  if (CLI_WORD.test(joined) || CLI_PATH.test(joined) || CLI_PKG.test(joined) || LIVE_THEME.test(joined)) return { decision: 'deny', reason: USE_WRAPPER };
   if (segs.some((s) => { const { w, i } = program(s); return THEMEKIT.test(w.slice(i).join(' ')); })) {
     return { decision: 'deny', reason: 'Theme Kit (the "theme" command) can deploy to live themes. Use node .claude/kit/shopify.mjs, or ask the dev to run it.' };
   }
@@ -479,6 +484,17 @@ export function decide(input, ctx = defaultCtx) {
 
 // ── After the decision: seal, block log, permission mode ──
 
+/**
+ * A seal is good only for the very next guarded call. The guard can't see the dev's answer, so after a No the seal
+ * would otherwise stay valid for 15 minutes; any call in between (writing a helper, running it) now voids it.
+ */
+function clearSeals() {
+  try {
+    const logs = join(ROOT, '.claude', 'logs');
+    for (const k of readdirSync(logs)) rmSync(join(logs, k, SEAL_FILE), { force: true });
+  } catch { /* no logs yet */ }
+}
+
 /** What the dev is about to be shown, for the wrapper to compare with what it runs. */
 function writeSeal({ key, ...seal }) {
   try {
@@ -609,6 +625,14 @@ function selftest() {
     [ps('& shopify theme push -t 123'), 'deny'],
     [ps('& "C:\\Users\\x\\AppData\\Roaming\\npm\\shopify.cmd" theme delete -t 1'), 'deny'],
     [ps('cmd /c "shopify theme publish"'), 'deny'],
+    // live-theme words, however the program is spelled
+    [bash('$(which shopify) theme publish -t 1'), 'deny'],
+    [bash('S=shopify; $S theme publish -t 1'), 'deny'],
+    [bash('shop""ify theme publish -t 1'), 'deny'],
+    [bash(`python -c "import subprocess; subprocess.run(['shopify','theme','publish'])"`), 'deny'],
+    [bash('x theme push -t 123 --allow-live'), 'deny'],
+    [bash(`node .claude/kit/shopify.mjs fetch ${K} cart --live`), null],
+    [bash(`git commit -m "docs: never run theme publish"`), null],
     [ps("Start-Process shopify -ArgumentList 'theme','publish'"), 'deny'],
     [ps('$env:SHOPIFY_FLAG_ALLOW_LIVE = "1"; node x.js'), 'deny'],
     [bash('theme deploy --env=production'), 'deny'],
@@ -812,6 +836,7 @@ else {
     try {
       const result = enforceMode(decide(input), input);
       logBlock(input, result);
+      clearSeals();
       if (result?.seal) writeSeal(result.seal);
       emit(result);
     } catch (e) {

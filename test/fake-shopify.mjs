@@ -102,7 +102,8 @@ switch (cmd) {
     if (/\bmutation\b/.test(text)) {
       if (!flags['allow-mutations']) die('Mutations need --allow-mutations');
       appendFileSync(join(DIR, 'mutations.jsonl'), `${JSON.stringify({ text })}\n`);
-      out({ data: { metafieldDefinitionCreate: { createdDefinition: { id: 'gid://shopify/MetafieldDefinition/901' }, userErrors: [] } } });
+      // A nested reference: the kit must not record it as created by the task.
+      out({ data: { metafieldDefinitionCreate: { createdDefinition: { id: 'gid://shopify/MetafieldDefinition/901', standardTemplate: { id: 'gid://shopify/Metaobject/77' } }, userErrors: [] } } });
     } else out({ data: {} });
     break;
   }

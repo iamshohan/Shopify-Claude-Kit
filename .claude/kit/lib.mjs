@@ -335,10 +335,21 @@ export function renderedTheme(html) {
 // Every new rule or bypass gets a self-test or e2e case.
 
 // The mutations the kit runs: definitions and QA values at the draft stage, their cleanup at handoff.
-const KIT_MUTATIONS = ['metafieldDefinitionCreate', 'metaobjectDefinitionCreate', 'metafieldsSet', 'metaobjectCreate', 'metaobjectUpsert',
+// No metaobjectUpsert: an upsert that hits a merchant's entry returns its id, which would then count as this task's.
+const KIT_MUTATIONS = ['metafieldDefinitionCreate', 'metaobjectDefinitionCreate', 'metafieldsSet', 'metaobjectCreate',
   'metafieldsDelete', 'metafieldDefinitionDelete', 'metaobjectDefinitionDelete', 'metaobjectDelete'];
 // These delete by id, and the id must be one this task created.
 const DELETES_BY_ID = ['metafieldDefinitionDelete', 'metaobjectDefinitionDelete', 'metaobjectDelete'];
+
+/**
+ * The ids a mutation response says this call created or set: each payload's own object, never nested references
+ * or owners, which belong to the merchant and must not become deletable as "created by this task".
+ */
+export function createdIds(response) {
+  const payloads = Object.values(response?.data ?? response ?? {});
+  return [...new Set(payloads.flatMap((p) => [p?.createdDefinition, p?.metaobjectDefinition, p?.metaobject, ...(Array.isArray(p?.metafields) ? p.metafields : [])])
+    .map((o) => o?.id).filter((id) => typeof id === 'string' && id.startsWith('gid://shopify/')))];
+}
 
 /** Tokens with comments dropped and strings blanked, so neither can hide a field; code keeps strings (they hold ids). */
 function gqlScan(text) {

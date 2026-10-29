@@ -10,7 +10,7 @@ import { createHash } from 'node:crypto';
 import {
   ROOT, LOGS, KIT_DIR, THEME_DIRS, MERCHANT_JSON, WIN, print, fail, parseArgs, normKey, now, run, git,
   currentBranch, parseCliJson, diagnosticJson, readConfig, readState, writeState, secret, inTaskFolder, ignoreMatcher,
-  storefrontGet, renderedTheme, storefrontPath, isThemePath, mutationProblems, sealDigest, SEAL_FILE, draftNameFor, effectiveBase,
+  storefrontGet, renderedTheme, storefrontPath, isThemePath, mutationProblems, createdIds, sealDigest, SEAL_FILE, draftNameFor, effectiveBase,
 } from './lib.mjs';
 
 const HELP = `Usage: node .claude/kit/shopify.mjs <verb> ...
@@ -870,7 +870,7 @@ switch (verb) {
     consumeSeal(key, { verb: 'mutate', sha: sealDigest(text, varsText) });
     const data = storeExecute(cfg.store, abs, vars, { mutate: true });
     const userErrors = collect(data, (k, v) => k === 'userErrors' && Array.isArray(v) && v.length).flat();
-    const ids = [...new Set(collect(data, (k, v) => typeof v === 'string' && /^gid:\/\/shopify\//.test(v)))];
+    const ids = createdIds(data);
     st.mutations.push({ at: now(), file: relative(ROOT, abs).replaceAll('\\', '/'), vars: vars ? relative(ROOT, vars).replaceAll('\\', '/') : null, ids, userErrors });
     writeState(key, st);
     print({ ok: userErrors.length === 0, ids, userErrors, data: data?.data ?? data });

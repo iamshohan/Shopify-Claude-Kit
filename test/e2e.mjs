@@ -220,8 +220,17 @@ try {
   });
   ok('the guard asks the dev, showing the mutation', /"permissionDecision":"ask"/.test(hook.stdout) && /metafieldDefinitionCreate/.test(hook.stdout), hook.stdout + hook.stderr);
   const sealed = kit('shopify.mjs', 'mutate', KEY, mfile);
-  ok('mutate runs once after the guard\'s prompt', sealed.code === 0 && state().mutations.at(-1)?.ids.includes('gid://shopify/MetafieldDefinition/901'), sealed.all);
+  ok('mutate runs once after the guard\'s prompt, recording only the id it created',
+    sealed.code === 0 && state().mutations.at(-1)?.ids.join() === 'gid://shopify/MetafieldDefinition/901', sealed.all);
   ok('the seal is single-use', kit('shopify.mjs', 'mutate', KEY, mfile).code === 1);
+  // The guard can't see a No. Any guarded call after the prompt (a helper script, say) voids the seal.
+  const guardSees = (command) => spawnSync(process.execPath, [join(repo, '.claude', 'hooks', 'guard.mjs')], {
+    cwd: repo, env, encoding: 'utf8', input: JSON.stringify({ tool_name: 'Bash', tool_input: { command }, cwd: repo }),
+  });
+  guardSees(`node .claude/kit/shopify.mjs mutate ${KEY} ${mfile}`);
+  guardSees('node helper.mjs');
+  const afterNo = kit('shopify.mjs', 'mutate', KEY, mfile);
+  ok('another guarded call after the prompt voids the seal', afterNo.code === 1 && /wasn't shown/.test(afterNo.err), afterNo.all);
 
   // ── Lanes ──
   ok('start --small', kit('kit.mjs', 'start', 'ABC-2', '--small').out.includes('Small lane'));
