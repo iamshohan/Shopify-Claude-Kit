@@ -1,14 +1,16 @@
 ---
 name: shopify-plan
-description: Stages 3–5 of /shopify-implement. Decide what merchants control and where (the control surface), ask the dev every open question, write the file-by-file plan with its store setup and QA criteria, and get it approved. Use only when /shopify-implement's status says the stage is clarify, plan or approve.
+description: Stages 3–4 of /shopify-implement. Decide what merchants control and where (the control surface), ask the dev every open question, write the file-by-file plan with its store setup and QA criteria, and get it approved. Use only when /shopify-implement's status says the stage is plan or approve.
 user-invocable: false
 ---
 
-# Clarify, plan, approve
+# Plan and approve
 
-## Stage: clarify (Gate 1)
+## Stage: plan
 
-**Goal:** every open question answered by the dev, and the answers recorded in `brief.md` § Decided.
+**Goal:** every open question answered by the dev and recorded in `brief.md` § Decided, then a `plan.md` that the dev can approve from At a glance, and that the builder can follow without guessing.
+
+### First: decide and ask
 
 0. **Start from the ticket's editability lines** (`brief.md` § Asked → What the tickets say should be editable). A line about who may change something covers **everything visible in what it names**. "The client manages the mobile navigation without developer support" covers every item, label, link, order, image and icon in that navigation, not only the part a nearby AC mentions. A hard-coded value is only acceptable where no such line reaches it, or where the dev has agreed to it in a question about that value alone.
 1. **Control surface.** List every dynamic candidate (from the A/B inventory, or the requirements for features and fixes) and decide where each one lives. Prefer what the theme already does (§ Found).
@@ -48,27 +50,19 @@ user-invocable: false
 5. **Write § Decided:**
    - **Merchant can change:** one row per value, or "none".
    - **Stays in code:** one row per value. Name the editability AC it touches, or "none". When it touches one, cite the question in which the dev agreed (Q#). `kit.mjs done` refuses a row that touches an AC without a Q#.
-   - **Questions and answers:** the dev's choice verbatim, without the "(Recommended)" tag. How you apply it goes in "Applied as". If "Applied as" stretches the choice beyond what the option said, ask again instead. A "Why" cell that cites the dev (Qn) is only allowed when Qn's options named that exact value.
-6. **Record the gate:** `kit.mjs done <KEY> clarify --answer "<the dev's answers, one short line>"`.
+   - **Questions and answers:** the dev's choice verbatim. How you apply it goes in "Applied as". If "Applied as" stretches the choice beyond what the option said, ask again instead. A "Why" cell that cites the dev (Qn) is only allowed when Qn's options named that exact value.
 
-If there are genuinely no open questions, still ask the confirm question in step 4.
+If there are genuinely no open questions, still ask the confirm question in step 4. A task investigated first has its § Requirements answers in § Decided already: don't ask them again.
 
-## Stage: plan
+### Then: write the plan
 
-**Goal:** a `plan.md` that the dev can approve from its first 25 lines, and that the builder can follow without guessing. Aim for 300 lines or fewer.
+Aim for 300 lines or fewer. A small fix gets a short plan: write "none" under a heading that doesn't apply. Fill each heading in `plan.md`. Write **At a glance** last, from the finished detail:
 
-**Small lane** (status says "Small lane"): there was no clarify stage.
-1. If anything is open that would change the plan, ask it first, in one AskUserQuestion round, and record it in `brief.md` § Decided → Questions and answers as clarify would. Nothing open: don't ask.
-2. Write the same plan, shorter: At a glance, Approach, Files, QA criteria (at least 2) and Risks. For Schema details and Store setup, write "none" if that's true.
-3. `done plan` checks that the work still fits the lane (no A/B port, no editability lines, at most 3 files, no merchant JSON, no store writes). If it refuses, tell the dev in one line why, run `kit.mjs lane <KEY> full`, and continue with clarify. Don't trim the plan to make it fit.
-
-Fill each heading in `plan.md`. Write **At a glance** last, from the finished detail:
-
-- **At a glance** (at most 25 lines, checked by `kit.mjs done`). The dev reads only this at Gate 2.
-  - **Needs your attention** comes first. It lists where this change can affect what already exists, most impact first, in at most 6 points. Most of a plan is new code only the feature uses; these points are what the dev actually has to weigh. Each point, in about 30 words: what's touched, what could go wrong for what already uses it, and how the plan contains it or what to watch.
+- **At a glance** (about 25 lines). The dev reads only this at Gate 1.
+  - **Needs your attention** comes first. It lists where this change can affect what already exists, most impact first, in about 6 points at most. Most of a plan is new code only the feature uses; these points are what the dev actually has to weigh. Each point, in about 30 words: what's touched, what could go wrong for what already uses it, and how the plan contains it or what to watch.
     - **Store writes:** what gets created or set on the shared store, and whether it shows on live before the merge.
     - **Merchant-owned JSON** (`templates/*.json`, section groups, `settings_data.json`): the merge overwrites admin edits made on live since the base.
-    - **Shared code:** the layout, theme settings, and snippets, sections and assets used beyond this feature. After writing § Files, run `node .claude/kit/kit.mjs reach <KEY>`: it lists these files and how far each reaches, and `done plan` refuses until each one is named here.
+    - **Shared code:** the layout, theme settings, and snippets, sections and assets used beyond this feature. After writing § Files, run `node .claude/kit/kit.mjs reach <KEY>`: it lists these files and how far each reaches, and `done plan` refuses until each one is named here. It also lists planned files the repo's `.shopifyignore` excludes: push can't upload them, so say how each reaches the store (an admin step, or out of `.shopifyignore`).
     - **Behaviour that changes for what exists today:** a removed fallback, a changed default, markup that other code or an app reads.
     - **Apps, the A/B tool or third-party scripts** the change touches, and anything else the dev must act on or watch.
 
@@ -83,7 +77,7 @@ Fill each heading in `plan.md`. Write **At a glance** last, from the finished de
   - the exact change
   - the **anchor**: the symbol it attaches to, e.g. a `case block.type` branch, a `render` call, a schema `blocks` array or a function name. Never a line number; Shopify sync commits move lines.
   - the data flow: where the value comes from and how it reaches the markup
-  - for styling with a Figma design: "values from design.md", or the theme token Gate 1 chose instead
+  - for styling with a Figma design: "values from design.md", or the theme token the dev chose instead (§ Decided)
 - **Schema details.** Every setting: id, type, label (or `t:` key), default, options or range, info, `visible_if`. For each section, say whether it has presets and where it may be added (`enabled_on` / `disabled_on`).
 - **Store setup.**
   - **Definitions to create.** For each: owner, namespace.key, type, validations, translatable, not pinned, and "reuse: none fits because …".
@@ -104,30 +98,30 @@ Fill each heading in `plan.md`. Write **At a glance** last, from the finished de
   - **QA test data.** Which products. Ask the dev to name them; never pick live products yourself.
   - **Merchant steps after merge:** placement, entries, Translate & Adapt.
 - **Conventions to follow,** from § Found. For example: "CSS via `stylesheet_tag` in the snippet, like `snippets/product-badges.liquid`".
-- **QA criteria.** Numbered, one table row each. Each has an expected value quoted from a ticket or decided at Gate 1, plus the page or template, the viewports, and the data state or locale. Always include:
+- **QA criteria.** Numbered, one table row each. Each has an expected value quoted from a ticket or from § Decided, plus the page or template, the viewports, and the data state or locale. Always include:
   - defaults equal the winner (A/B ports)
   - each empty state
   - every locale in scope
-  - mobile and desktop, at sizes Chrome's device toolbar offers as presets (390×844, 375×667, 1440×900): `kit-browser` sets any size, but without it the dev sets them by hand
+  - mobile and desktop, e.g. 390×844 and 1440×900
   - the customizer contract: name, presets, where it can be added, labels and defaults (checked by `contract.mjs`)
   - untouched pages for the regression check
-  - **the design** (when `design.md` exists): one row per element group and viewport, and one per spacing group. Expected quotes the values with their Figma node ("Figma 12:34: 16px/24px 600 #1d1d1b"), or the theme value Gate 1 chose. Name the element by the class the plan creates. A size that fills or flexes becomes behaviour ("fills its column at 390"), not a pixel value.
+  - **bug fixes:** one row that reproduces the bug, its Criterion starting "Repro:", and Expected saying what live shows today (the failure) and what the draft must show. `done plan` refuses a bug fix without it.
+  - **the design** (when `design.md` exists): one row per element group and viewport, and one per spacing group. Expected quotes the values with their Figma node ("Figma 12:34: 16px/24px 600 #1d1d1b"), or the theme value the dev chose. Name the element by the class the plan creates. A size that fills or flexes becomes behaviour ("fills its column at 390"), not a pixel value.
 - **QA setup.**
   - Placement on the draft. If the merchant places the feature after merge, the draft needs preview overrides that place it.
   - A feature CSS class prefix that appears nowhere else in the theme (check with Grep). Record it: `kit.mjs set <KEY> featurePrefix=<prefix>`.
   - Untouched paths, without leading slashes, because Git Bash rewrites arguments that start with "/": `kit.mjs set <KEY> qa.paths=home,collections/x,products/y,cart`.
-  - Test products: `kit.mjs set <KEY> qa.products=<handles>`.
 - **Risks,** and how the plan handles each one.
 
-**Done when:** every heading is filled. Then run `kit.mjs done <KEY> plan`.
+**Done when:** § Decided records the answers and every plan heading is filled. Then run `kit.mjs done <KEY> plan`.
 
-## Stage: approve (Gate 2)
+## Stage: approve (Gate 1)
 
-1. Show the dev `plan.md` § At a glance as it is, plus one line: "Same as Gate 1 except: …", or "No change from Gate 1". In the small lane there was no Gate 1: list the questions you asked and the answers instead, or "No open questions". Nothing else: no file anchors, no restated criteria, no method notes. The path `.claude/logs/<KEY>/plan.md` is for the detail.
+1. Show the dev `plan.md` § At a glance as it is. Nothing else: no file anchors, no restated criteria, no method notes. The path `.claude/logs/<KEY>/plan.md` is for the detail.
 2. AskUserQuestion: "Approve the plan for <KEY>?", naming what the approval covers when there is any: "…including 4 store writes and 3 values kept in code?" The options are **Approve**, **Approve with changes** (they type the changes), and **Reject**.
 3. Then:
    - **Approve** → `kit.mjs done <KEY> approve --answer "<their words>"`.
    - **Approve with changes** → edit `plan.md` and ask again.
-   - **Reject** → `kit.mjs back <KEY> clarify --reason "<their words>"`, or `back <KEY> plan`, depending on what they say.
+   - **Reject** → `kit.mjs back <KEY> plan --reason "<their words>"`.
 
-After approval, `plan.md` is frozen. Later changes go under **Amendments**, with the date and the reason. An amendment also marks each At a glance line it changes, e.g. "(A1: icons now from the metaobject)", so the top of the plan stays true. The detail tables stay as approved.
+**Approve with changes** edits the plan at the gate, so `done approve` runs the plan's checks again. After approval, change `plan.md` only when the work needs it, under **Amendments** with the date and the reason. `done approve` keeps a copy; `done build` and Gate 2 list every change since, and every changed file § Files doesn't name.

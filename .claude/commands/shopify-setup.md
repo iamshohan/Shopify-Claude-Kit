@@ -76,7 +76,7 @@ Work through these checks in order. Report each one as ✓ or ✗ with the exact
      ```
      ! claude mcp add kit-browser --scope user -- npx -y @playwright/mcp@0.0.83 --isolated --headless
      ```
-     Don't substitute the dev's own Playwright server: it may drive their logged-in Chrome (`--extension`). Without `kit-browser`, storefront QA runs in Chrome and the dev sets each viewport by hand.
+     Don't substitute the dev's own Playwright server: it may drive their logged-in Chrome (`--extension`). Storefront QA needs `kit-browser`: without it, the qa stage stops and asks for it.
    - **Admin and theme editor: Claude in Chrome.** Check that the `mcp__claude-in-chrome__*` tools are available.
    - The dev must be logged into the store admin in that Chrome profile.
    - The extension needs site access to the storefront domain and `admin.shopify.com`.

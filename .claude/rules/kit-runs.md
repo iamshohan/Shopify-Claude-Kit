@@ -8,6 +8,7 @@ paths:
 - **Gates are the dev's decisions.** Ask with AskUserQuestion, wait for the answer, and record their words. Never infer an answer. Silence is not approval.
 - **`--answer` is one line of at most 200 characters, in the dev's words, without quotes, backticks or `$`** (they break shell quoting). The full answers go in the documents.
 - **You write the task documents** in `.claude/logs/<KEY>/`. Agents return reports; you put what matters into the documents.
+- **Long verbs take minutes:** `shopify.mjs draft`, `push`, `verify` and `check`, and `compare.mjs`. The kit's settings give Bash enough time; wait for them.
 - **Two failed attempts at the same thing → stop**, say what you tried and what you saw, and ask the dev.
 - **How you talk to the dev.** The documents hold the detail; chat carries what the dev has to act on.
   - Open with what needs the dev, or "Nothing needed from you".

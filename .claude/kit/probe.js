@@ -3,9 +3,10 @@
  * Margins collapse, gaps override, ancestors clip, media queries miss.
  * getBoundingClientRect is the source of truth; getComputedStyle is a hint.
  *
- *   __qa.env()                  viewport/url/zoom — proves the state you think you're in
+ *   __qa.env()                  viewport/url/zoom/Shopify.theme — proves the state you think you're in
  *   __qa.live('TOKEN')          is the change actually in this page at all
  *   __qa.see('.cta')            visible, or hidden/clipped/covered — and by what
+ *   __qa.text('.cta')           textContent (the copy), innerText (as rendered) and text-transform
  *   __qa.css('.cta', ['color','font-size'])      normalised computed values
  *   __qa.why('.cta','height')   which rule won; whether yours is declared at all
  *   __qa.gap('.a','.b')         rendered distance between two elements
@@ -86,10 +87,18 @@
 
   const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+  // Which theme rendered the page: the URL can't say, the preview cookie survives redirects.
+  // role 'main' is the live theme; a draft is 'unpublished'.
+  const theme = () => {
+    const t = window.Shopify && window.Shopify.theme;
+    return t ? { id: t.id, name: t.name, role: t.role } : null;
+  };
+
   // innerWidth includes the scrollbar, clientWidth does not. Media queries use
   // clientWidth, so a ~15px gap here explains "the breakpoint didn't fire".
   const env = () => ({
     url: location.href,
+    theme: theme(),
     innerWidth: innerWidth, clientWidth: document.documentElement.clientWidth,
     innerHeight: innerHeight, dpr: devicePixelRatio,
     // visualViewport.scale is real pinch-zoom. outerWidth/innerWidth is NOT —
@@ -101,6 +110,7 @@
     bodyClass: (document.body.className || '').slice(0, 200),
     caveats: [
       document.readyState !== 'complete' ? 'page still loading — geometry will move' : null,
+      !theme() ? 'no Shopify.theme — not loaded yet, or not a Shopify storefront page' : null,
       reduced() ? 'prefers-reduced-motion is ACTIVE — animation checks may correctly read as static' : null,
     ].filter(Boolean),
   });
@@ -162,6 +172,23 @@
       }
       return { i, el: tag(el), box: r, covered, verdict: why.length ? 'HIDDEN' : 'VISIBLE', why };
     }) };
+  };
+
+  // Copy is compared with textContent: innerText applies text-transform, so a CSS-uppercased
+  // "Add to cart" reads as "ADD TO CART" and fails a criterion that quotes the ticket.
+  const text = (sel, max = 3) => {
+    const els = all(sel);
+    if (!els.length) return miss(sel);
+    const clip = (s) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+    const instances = els.slice(0, max).map((el, i) => ({
+      i, el: tag(el), textContent: clip(el.textContent), innerText: clip(el.innerText),
+      textTransform: getComputedStyle(el).textTransform,
+    }));
+    // Not a caveat: the copy check itself is sound, as long as it reads textContent.
+    const transformed = instances.some((x) => x.textTransform !== 'none' && x.textContent !== x.innerText);
+    return { sel, found: els.length, instances,
+             note: transformed ? 'innerText is text-transformed — compare copy with textContent' : null,
+             caveats: els.length > max ? ['checked ' + max + ' of ' + els.length + ' matches — the rest are UNTESTED'] : [] };
   };
 
   const css = (sel, props, max = 3) => {
@@ -460,7 +487,8 @@
     if ('vertical' in r) return `vertical=${r.vertical}px horizontal=${r.horizontal}px overlaps=${r.overlaps}`;
     if ('container' in r) return `top=${r.top} right=${r.right} bottom=${r.bottom} left=${r.left}`;
     if ('viewport' in r) return `gutters l=${r.left} r=${r.right} t=${r.top} b=${r.bottom}`;
-    if ('innerWidth' in r) return `${r.clientWidth}x${r.innerHeight} rm=${r.reducedMotion} ${r.url}`;
+    if ('innerWidth' in r)
+      return `${r.clientWidth}x${r.innerHeight} rm=${r.reducedMotion} theme=${r.theme ? r.theme.id + '/' + r.theme.role : 'none'} ${r.url}`;
     const { caveats, ...rest } = r;
     return JSON.stringify(rest).slice(0, 120);
   };
@@ -492,7 +520,7 @@
   // ── window.__qa ──
   // Every probe goes through record(), so the ledger sees it; report, reset, tag and box are not recorded.
 
-  const api = { env, live, see, css, why, gap, pad, gutter, overflow, shift, motion, snap, diff, errors };
+  const api = { env, live, see, text, css, why, gap, pad, gutter, overflow, shift, motion, snap, diff, errors };
   const wrapped = {};
   for (const k of Object.keys(api)) wrapped[k] = record(k, api[k]);
 

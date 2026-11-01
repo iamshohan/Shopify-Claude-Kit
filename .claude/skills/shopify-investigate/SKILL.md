@@ -1,6 +1,6 @@
 ---
 name: shopify-investigate
-description: The three stages of /shopify-investigate and /shopify-feasibility (frame, gather, conclude). A read-only investigation of a Shopify store and theme, for a feasibility check, a bug, or a question. Use only when kit.mjs status names this skill.
+description: The two stages of /shopify-investigate and /shopify-feasibility (gather, conclude). A read-only investigation of a Shopify store and theme, for a feasibility check, a bug, or a question. Use only when kit.mjs status names this skill.
 user-invocable: false
 ---
 
@@ -21,9 +21,11 @@ An investigation ends in an answer backed by evidence, not in a code change. The
 - **JavaScript in the page:** read only. Inspect the DOM, computed styles and globals, and make GET requests such as `fetch('/cart.js')` or `?view=` and `.json` URLs. The only POSTs allowed are cart add and change, when reproducing a cart bug.
 - **If a fix becomes obvious:** finish the investigation, and put the fix in § Next step.
 
-## Stage: frame
+## Stage: gather
 
-**Goal:** a precise question, and an agreed definition of "answered".
+**Goal:** a precise question with an agreed definition of "answered", then enough labelled evidence to answer it. For debug, also a reproduction and at least two hypotheses.
+
+### First: the question
 
 1. **Read the input.**
    - A ticket key → `node .claude/kit/jira.mjs <KEY>`, plus up to three related tickets with `--no-comments`. Skip process tickets.
@@ -44,11 +46,7 @@ An investigation ends in an answer backed by evidence, not in a code change. The
    If something is missing, or the request reads two ways that would lead to different work, ask everything in one AskUserQuestion round. Otherwise don't ask.
 4. **Feasibility: check the requirements.** Write § Requirements: one row per acceptance criterion, quoted (for a request without a ticket, the requirements in the dev's words). Mark each one clear, unclear or conflicting. Ask every unclear or conflicting one in the same AskUserQuestion round as step 3, each with 2–4 concrete options and your recommendation first, and record the dev's answer verbatim. Don't ask about what the ticket already settles. If `/shopify-implement` follows, these answers count as decided and aren't asked again.
 
-**Done when:** the type is set and § Question is precise; for feasibility, § Requirements has a row per requirement. Run `kit.mjs done <KEY> frame`.
-
-## Stage: gather
-
-**Goal:** enough labelled evidence to answer. For debug, also a reproduction and at least two hypotheses.
+### Then: the evidence
 
 ### Where to look
 
@@ -128,11 +126,11 @@ Check the size against the theme's code, not the ticket's length: count the file
 - about 40 tool calls haven't moved you closer to the answer
 - the same attempt has failed twice
 
-**Done when:** § Evidence has a labelled row for every claim the answer rests on, at least one of them Confirmed. For debug, § Hypotheses has at least two rows and § Reproduction is filled. Run `kit.mjs done <KEY> gather`.
+**Done when:** the type is set and § Question is precise (feasibility: § Requirements has a row per requirement), and § Evidence has a labelled row for every claim the answer rests on, at least one of them Confirmed. For debug, § Hypotheses has at least two rows and § Reproduction is filled. Run `kit.mjs done <KEY> gather`.
 
 ## Stage: conclude
 
-**Goal:** an answer the dev can act on, which someone other than you has checked.
+**Goal:** an answer the dev can act on; for feasibility, checked by someone other than you.
 
 1. **Write the answer.**
    - **§ Answer:** one or two sentences first, then your confidence and what it rests on. Feasibility: yes, yes with conditions, or no; the limitations; then the approaches table, the recommended one first.
@@ -143,17 +141,16 @@ Check the size against the theme's code, not the ticket's length: count the file
      - A store or app setting → exact steps for the dev or merchant. The kit doesn't change them.
      - Nothing to do → say why.
    - **§ Jira comment:** text the dev can post. The kit doesn't write to Jira.
-2. **Independent check.** Spawn the `evidence-checker` agent with the path to `investigation.md`.
+2. **Independent check (feasibility only).** Spawn the `evidence-checker` agent with the path to `investigation.md`.
    - It re-checks every Confirmed claim against its source and looks for an explanation that fits the evidence better.
    - Apply what it finds: downgrade labels it couldn't confirm, and change the answer if it found a better one.
    - Record its verdict and your changes in § Review.
-3. **Retro on the kit.** Run `kit.mjs retro <KEY>` and do what its `ask` says.
-4. **Gate.** Show the dev the answer and the next step, then ask with AskUserQuestion:
+3. **Gate.** Show the dev the answer and the next step, then ask with AskUserQuestion:
    - Accept
    - Dig further (what?)
    - Wrong question
 
-   Record their words: `kit.mjs done <KEY> conclude --answer "<their words>"`. For "dig further" or "wrong question", run `kit.mjs back <KEY> gather` (or `frame`) `--reason "…"` instead.
-5. Tell the dev the next step in one line.
+   Record their words: `kit.mjs done <KEY> conclude --answer "<their words>"`. For "dig further" or "wrong question", run `kit.mjs back <KEY> gather --reason "…"` instead.
+4. Tell the dev the next step in one line.
 
-**Done when:** § Answer, § Could not determine, § Next step and § Review are filled (and § Estimate for feasibility), the retro is recorded, theme files are unchanged, and the dev has accepted.
+**Done when:** § Answer, § Could not determine and § Next step are filled (feasibility: also § Estimate and § Review), theme files are unchanged, and the dev has accepted.

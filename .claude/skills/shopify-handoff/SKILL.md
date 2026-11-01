@@ -1,6 +1,6 @@
 ---
 name: shopify-handoff
-description: Stage 10 of /shopify-implement. Push the task branch, write the PR text (with the run summary), admin steps, go-live order and the Jira comment into report.md, and offer cleanup. Use only when /shopify-implement's status says the stage is handoff.
+description: Stage 9 of /shopify-implement. Push the task branch, write the PR text (with the run summary), admin steps, go-live order and the Jira comment into report.md, and offer cleanup. Use only when /shopify-implement's status says the stage is handoff.
 user-invocable: false
 ---
 
@@ -39,11 +39,10 @@ The kit prepares everything and merges nothing. Creating the PR, merging, postin
 4. **Cleanup.** Ask with AskUserQuestion:
    - **The draft theme:** keep it until client and AC review end (recommended), delete it after merge, or delete it now. Deleting uses `shopify.mjs delete-draft <KEY>`, and the dev approves it.
    - **QA test values** (in the summary's store changes): keep or remove? Each removal is a mutation the dev approves.
-     - Order: `metafieldsDelete` first, then a definition the kit created with `deleteAllAssociatedMetafields: true`, metaobject definitions last.
-     - Never delete anything the kit didn't create.
-5. **Retro on the kit, not the ticket.** Run `kit.mjs retro <KEY>` and do what its `ask` says. One line per note, specific enough that the kit maintainer can act without the transcript: "Gate 1 offered 'icons in code' although AC 18 makes the menu merchant-editable → clarify should not offer options that contradict an editability AC".
-6. Run `kit.mjs done <KEY> handoff`.
-7. Tell the dev:
+     - Order: `metafieldsDelete` first (only on owners this task created, such as its metaobjects), then a definition the kit created with `deleteAllAssociatedMetafields: true` (its values go with it), metaobject definitions last.
+     - Never delete anything the kit didn't create. QA values set under a merchant's own definition (on their products, for example) are the dev's to remove in the admin; the kit refuses those deletes. List them in Open points.
+5. Run `kit.mjs done <KEY> handoff`. It refuses when the branch moved past the commit QA measured (or the draft isn't at the branch head): go back to qa as it says; a commit QA never saw doesn't reach the PR unmeasured.
+6. Tell the dev:
    - The branch is pushed.
    - The PR text, admin steps and Jira comment are in `.claude/logs/<KEY>/report.md`.
    - The next steps are theirs: create the PR, merge, follow the go-live order.

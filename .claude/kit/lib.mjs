@@ -3,10 +3,10 @@
 // Reads .claude/shopify-kit.json, .claude/VERSION and secrets; writes only .claude/logs/<KEY>/state.json.
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync, mkdtempSync, copyFileSync, rmSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { homedir, hostname } from 'node:os';
+import { homedir, hostname, tmpdir } from 'node:os';
 
 // ── Paths and theme files ──
 // Located from this file, not from cwd: commands may run from a subfolder.
@@ -15,7 +15,14 @@ export const CLAUDE_DIR = resolve(KIT_DIR, '..');
 export const ROOT = resolve(CLAUDE_DIR, '..');
 export const LOGS = join(CLAUDE_DIR, 'logs');
 export const CONFIG_PATH = join(CLAUDE_DIR, 'shopify-kit.json');
-export const KIT_VERSION = readFileSync(join(CLAUDE_DIR, 'VERSION'), 'utf8').trim();
+const VERSION = readFileSync(join(CLAUDE_DIR, 'VERSION'), 'utf8').trim();
+/** The build: VERSION stays put between releases, so add the kit commit the installer recorded. The kit's own repo has no manifest. */
+export const KIT_VERSION = (() => {
+  try {
+    const m = JSON.parse(readFileSync(join(CLAUDE_DIR, '.kit-manifest.json'), 'utf8'));
+    return m.commit ? `${VERSION}+${String(m.commit).slice(0, 7)}${m.uncommitted ? '-dirty' : ''}` : VERSION;
+  } catch { return VERSION; }
+})();
 export const WIN = process.platform === 'win32';
 
 export const THEME_DIRS = ['assets', 'blocks', 'config', 'layout', 'locales', 'sections', 'snippets', 'templates'];
@@ -25,34 +32,30 @@ export const isThemePath = (p) => new RegExp(`^(${THEME_DIRS.join('|')})/.`).tes
 export const MERCHANT_JSON = /^(templates\/.+\.json|sections\/[^/]+\.json|config\/settings_data\.json)$/i;
 
 // ── Pipeline stages ──
-// Source of truth for the pipeline. Human-readable copies: commands/shopify-implement.md and README.md.
+// Source of truth for the pipeline. Human-readable copy: README.md.
 export const STAGES = [
   { name: 'intake', skill: 'shopify-intake' },
   { name: 'analyze', skill: 'shopify-intake' },
-  { name: 'clarify', skill: 'shopify-plan', gate: 'Gate 1: the dev answers the open questions' },
   { name: 'plan', skill: 'shopify-plan' },
-  { name: 'approve', skill: 'shopify-plan', gate: 'Gate 2: the dev approves the plan' },
+  { name: 'approve', skill: 'shopify-plan', gate: 'Gate 1: the dev approves the plan' },
   { name: 'build', skill: 'shopify-build' },
   { name: 'draft', skill: 'shopify-build' },
   { name: 'qa', skill: 'shopify-qa' },
-  { name: 'accept', skill: 'shopify-qa', gate: 'Gate 3: the dev accepts the QA result' },
+  { name: 'accept', skill: 'shopify-qa', gate: 'Gate 2: the dev accepts the QA result' },
   { name: 'handoff', skill: 'shopify-handoff' },
 ];
 
 // /shopify-investigate: read-only, ends in an answer instead of a draft theme.
+// The guard knows the gate by its name, so it stays "conclude".
 export const INVESTIGATION_STAGES = [
-  { name: 'frame', skill: 'shopify-investigate' },
   { name: 'gather', skill: 'shopify-investigate' },
   { name: 'conclude', skill: 'shopify-investigate', gate: 'the dev accepts the answer or asks for more' },
 ];
 
-// The small lane (kit.mjs start <KEY> --small): no separate clarify gate. Open questions are asked in the plan
-// stage, and done plan refuses work that needs Gate 1 (an A/B port, editability lines, store writes,
-// merchant JSON).
-export const SMALL_STAGES = STAGES.filter((s) => s.name !== 'clarify')
-  .map((s) => (s.name === 'approve' ? { ...s, gate: 'the dev approves the plan (small lane: decisions and plan in one gate)' } : s));
+export const stagesFor = (st) => (st?.kind === 'investigation' ? INVESTIGATION_STAGES : STAGES);
 
-export const stagesFor = (st) => (st?.kind === 'investigation' ? INVESTIGATION_STAGES : st?.lane === 'small' ? SMALL_STAGES : STAGES);
+// Stages kit 1.0.0 dropped, and where a task that was in one resumes: teams have tasks in flight.
+const RETIRED_STAGES = { clarify: 'plan', frame: 'gather' };
 
 // ── Output and arguments ──
 
@@ -67,9 +70,11 @@ export function fail(message, code = 1) {
   process.exit(code);
 }
 
-// Flags that never take a value. Any other --flag swallows the next argument unless it starts with --,
+// Flags that never take a value. Any other --flag swallows the next argument unless it looks like a flag,
 // so a new boolean flag must be listed here.
-const BOOLEAN_FLAGS = new Set(['dry-run', 'baseline', 'json', 'help', 'force', 'no-comments', 'selftest', 'investigate', 'live', 'github', 'none', 'all', 'adopt', 'test', 'small']);
+const BOOLEAN_FLAGS = new Set(['dry-run', 'json', 'help', 'force', 'no-comments', 'selftest', 'investigate', 'live', 'github', 'none', 'all', 'adopt', 'test', 'check', 'skip-ignored']);
+// A value can start with "--" too (QA measures CSS custom properties: --measured "--gap: 16px").
+const looksLikeFlag = (a) => /^--[A-Za-z][\w-]*(=|$)/.test(a);
 
 export function parseArgs(argv) {
   const out = { _: [], flags: {} };
@@ -78,7 +83,7 @@ export function parseArgs(argv) {
     if (a.startsWith('--')) {
       const eq = a.indexOf('=');
       if (eq !== -1) out.flags[a.slice(2, eq)] = a.slice(eq + 1);
-      else if (!BOOLEAN_FLAGS.has(a.slice(2)) && i + 1 < argv.length && !argv[i + 1].startsWith('--')) out.flags[a.slice(2)] = argv[++i];
+      else if (!BOOLEAN_FLAGS.has(a.slice(2)) && i + 1 < argv.length && !looksLikeFlag(argv[i + 1])) out.flags[a.slice(2)] = argv[++i];
       else out.flags[a.slice(2)] = true;
     } else out._.push(a);
   }
@@ -109,7 +114,9 @@ export function slug(text, max = 20) {
  * here and characters cmd.exe would interpret are refused.
  */
 export function run(cmd, args = [], { cwd = ROOT, env = {}, input, timeout = 600000, shell = false } = {}) {
-  const opts = { cwd, env: { ...process.env, ...env }, input, encoding: 'utf8', timeout, maxBuffer: 64 * 1024 * 1024 };
+  // The CLI reads SHOPIFY_FLAG_* as flags (SHOPIFY_FLAG_LIVE, _THEME, _STORE…): one left in the shell would retarget a call the wrapper built.
+  const inherited = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^SHOPIFY_FLAG_/i.test(k)));
+  const opts = { cwd, env: { ...inherited, ...env }, input, encoding: 'utf8', timeout, maxBuffer: 64 * 1024 * 1024 };
   let res;
   if (shell && WIN) {
     for (const a of args) if (/["%^&|<>!\r\n]/.test(a)) throw new Error(`Refusing to pass ${JSON.stringify(a)} through cmd.exe.`);
@@ -123,6 +130,7 @@ export function run(cmd, args = [], { cwd = ROOT, env = {}, input, timeout = 600
     code: res.status ?? 1,
     stdout: res.stdout || '',
     stderr: (res.stderr || '') + (res.error ? `\n${res.error.message}` : ''),
+    timedOut: res.error?.code === 'ETIMEDOUT',
   };
 }
 
@@ -137,12 +145,29 @@ export function currentBranch() {
 }
 
 /**
- * The commit this task's changes are measured from: where HEAD meets origin/<baseBranch> now, as a PR diff is.
- * st.base is only where the branch started. Once the base branch is merged in, measuring from st.base
+ * The commit this task's changes are measured from: where the branch (HEAD by default) meets origin/<baseBranch> now, as a
+ * PR diff is. st.base is only where the branch started. Once the base branch is merged in, measuring from st.base
  * counts the merged-in work as this task's, and keeps flagging live edits the merge already brought in.
  */
-export function effectiveBase(st, cfg) {
-  return git(['merge-base', 'HEAD', `origin/${cfg?.baseBranch || 'main'}`], { allowFail: true }) || st.base;
+export function effectiveBase(st, cfg, head = 'HEAD') {
+  return git(['merge-base', head, `origin/${cfg?.baseBranch || 'main'}`], { allowFail: true }) || st.base;
+}
+
+/**
+ * A digest of the theme folders as the working tree has them, from git's tree ids: the same content gives the same value
+ * whether it is committed or not. Built in a copy of the index (its stat cache spares re-hashing), so git's own is untouched.
+ */
+export function themeDigest() {
+  const dirs = THEME_DIRS.filter((d) => existsSync(join(ROOT, d)));
+  const tmp = mkdtempSync(join(tmpdir(), 'kit-index-'));
+  try {
+    const env = { GIT_INDEX_FILE: join(tmp, 'index') };
+    const index = resolve(ROOT, git(['rev-parse', '--git-path', 'index'], { allowFail: true }) || '.git/index');
+    if (existsSync(index)) copyFileSync(index, env.GIT_INDEX_FILE);
+    if (run('git', ['add', '-A', '--', ...dirs], { env }).code !== 0) return null;
+    const tree = run('git', ['write-tree'], { env }).stdout.trim();
+    return tree ? createHash('sha256').update(run('git', ['ls-tree', tree, '--', ...dirs]).stdout).digest('hex').slice(0, 16) : null;
+  } finally { rmSync(tmp, { recursive: true, force: true }); }
 }
 
 /**
@@ -222,7 +247,9 @@ export function readConfig({ required = true } = {}) {
 
 // Branches the kit never pushes or merges into. hooks/guard.mjs enforces the same list.
 export function protectedBranches(cfg) {
-  return [...new Set(['main', 'master', cfg?.baseBranch, ...(cfg?.protectedBranches || [])].filter(Boolean))];
+  // "release" as a string, not a list, would spread into single letters and protect nothing.
+  const extra = [].concat(cfg?.protectedBranches || []).flatMap((b) => String(b).split(','));
+  return [...new Set(['main', 'master', cfg?.baseBranch, ...extra].map((b) => String(b || '').trim()).filter(Boolean))];
 }
 
 // A test run (kit.mjs start <KEY> --test) names its branch and draft with this suffix,
@@ -258,7 +285,9 @@ export function readState(key, { required = true } = {}) {
     if (!required) return null;
     fail(`${key} hasn't been started. Run: node .claude/kit/kit.mjs start ${key}`);
   }
-  return JSON.parse(readFileSync(p, 'utf8'));
+  const st = JSON.parse(readFileSync(p, 'utf8'));
+  if (RETIRED_STAGES[st.stage]) { st.resumedFrom = st.stage; st.stage = RETIRED_STAGES[st.stage]; }
+  return st;
 }
 
 /** Write to a temp file and rename, so a crash never leaves half a state file. */
@@ -273,18 +302,47 @@ export function writeState(key, state) {
 
 // ── Storefront paths and .shopifyignore ──
 
+let msysRoot;
+/** Where Git Bash's "/" is (cygpath -m /), asked once and only when a value looks rewritten. */
+function gitBashRoot() {
+  if (msysRoot === undefined) {
+    const r = WIN && process.env.MSYSTEM ? run('cygpath', ['-m', '/'], { timeout: 5000 }) : null;
+    msysRoot = r?.code === 0 ? r.stdout.trim().replace(/[\\/]+$/, '') : null;
+  }
+  return msysRoot;
+}
+
 /**
- * A storefront path like /cart. Git Bash on Windows rewrites arguments that start with "/"
- * into "C:/Program Files/Git/cart" before the script sees them, so undo that, and accept
- * paths written without the leading slash.
+ * Git Bash on Windows rewrites an argument (or the value after "name=") that starts with "/" into
+ * "<Git's root>/…" before the script sees it; this puts the "/" back. The root comes from cygpath, since a
+ * Scoop install's root (…/scoop/apps/git/current) isn't a folder named Git. Without cygpath: lazy up to the
+ * first Git folder, so a later "/Git/" in the text survives; [\s\S] because free text can span lines.
+ */
+export const unMsys = (s) => unMsysFrom(s, /^[A-Za-z]:[\\/]/.test(String(s)) ? gitBashRoot() : null);
+
+export function unMsysFrom(s, root) {
+  const text = String(s);
+  if (root && text.slice(0, root.length + 1).replaceAll('\\', '/').toLowerCase() === `${root.toLowerCase()}/`) return text.slice(root.length).replace(/^\\/, '/');
+  const m = text.match(/^[A-Za-z]:[\\/](?:[^\r\n]*?[\\/])?Git[\\/]([\s\S]*)$/i);
+  return m ? `/${m[1]}` : s;
+}
+
+/**
+ * A storefront path like /cart, with Git Bash's rewrite undone (unMsys). Paths written
+ * without the leading slash are accepted too.
  */
 export function storefrontPath(p) {
-  let s = String(p || '').trim();
-  const msys = s.match(/^[A-Za-z]:[\\/](?:.*[\\/])?Git[\\/](.*)$/i);
-  if (msys) s = msys[1].replaceAll('\\', '/');
-  else if (/^[A-Za-z]:[\\/]/.test(s)) fail(`"${p}" looks like a file path, not a storefront path. Git Bash may have rewritten it: pass it without the leading slash, e.g. cart or products/x.`);
+  let s = unMsys(String(p || '').trim());
+  if (/^[A-Za-z]:[\\/]/.test(s)) fail(`"${p}" looks like a file path, not a storefront path. Git Bash may have rewritten it: pass it without the leading slash, e.g. cart or products/x.`);
+  s = s.replaceAll('\\', '/');
   if (s === 'home') s = '';
   return '/' + s.replace(/^\/+/, '');
+}
+
+/** The repo's .shopifyignore as a matcher: the CLI skips those files without an error. */
+export function shopifyIgnore() {
+  const p = join(ROOT, '.shopifyignore');
+  return existsSync(p) ? ignoreMatcher(readFileSync(p, 'utf8')) : () => false;
 }
 
 /** Matcher for .shopifyignore content: one plain glob or /regex/ per line. */
@@ -358,14 +416,15 @@ export function createdIds(response) {
 }
 
 /** Tokens with comments dropped and strings blanked, so neither can hide a field; code keeps strings (they hold ids). */
-function gqlScan(text) {
+export function gqlScan(text) {
   const tokens = [];
   let code = '';
   const word = /[A-Za-z_]\w*|-?\d[\w.+-]*/y;
   let i = 0;
   while (i < text.length) {
     const start = i;
-    if (text[i] === '#') { while (i < text.length && text[i] !== '\n') i++; continue; }
+    // A lone CR ends a comment or a string too, as GraphQL servers read it; "#\rmutation" is a mutation.
+    if (text[i] === '#') { while (i < text.length && text[i] !== '\n' && text[i] !== '\r') i++; continue; }
     if (text.startsWith('"""', i)) {
       i += 3;
       while (i < text.length && !text.startsWith('"""', i)) i += text.startsWith('\\"""', i) ? 4 : 1;
@@ -373,7 +432,7 @@ function gqlScan(text) {
       tokens.push('""');
     } else if (text[i] === '"') {
       i++;
-      while (i < text.length && text[i] !== '"' && text[i] !== '\n') i += text[i] === '\\' ? 2 : 1;
+      while (i < text.length && text[i] !== '"' && text[i] !== '\n' && text[i] !== '\r') i += text[i] === '\\' ? 2 : 1;
       i++;
       tokens.push('""');
     } else if (text.startsWith('...', i)) {
@@ -430,10 +489,31 @@ export function mutationProblems(text, varsText = '', createdIds = []) {
   if (type !== 'mutation' || !fields.length) return ['This file has no mutation.'];
   const problems = fields.filter((f) => !KIT_MUTATIONS.includes(f))
     .map((f) => `"${f}" isn't a mutation the kit runs. It runs ${KIT_MUTATIONS.join(', ')}; the dev does anything else in the admin.`);
+  // Ids as Shopify reads them: string escapes decoded (gid:\/\/… and gid are a gid), and the variables parsed as JSON.
+  const strings = [...code.matchAll(/"(?:[^"\\\r\n]|\\.)*"/g)].map((m) => { try { return JSON.parse(m[0]); } catch { return m[0]; } });
+  let vars = null;
+  try { vars = varsText.trim() ? JSON.parse(varsText) : null; } catch { if (varsText.trim()) problems.push('The variables file isn\'t valid JSON.'); }
+  const varStrings = [];
+  const walk = (v, key) => { if (typeof v === 'string') varStrings.push({ key, v }); else if (v && typeof v === 'object') for (const [k, x] of Object.entries(v)) walk(x, Array.isArray(v) ? key : k); };
+  walk(vars, null);
+  const all = [code, ...strings, ...varStrings.map((s) => s.v)].join('\n');
   if (fields.some((f) => DELETES_BY_ID.includes(f))) {
-    const ids = [...`${code}\n${varsText}`.matchAll(/gid:\/\/shopify\/(?:MetafieldDefinition|MetaobjectDefinition|Metaobject)\/\d+/g)].map((m) => m[0]);
+    // An identifier (owner type, namespace, key) can name a merchant's definition while an owned id elsewhere passes the check.
+    if (t.includes('identifier')) problems.push('A delete names the id it deletes, not an identifier.');
+    const ids = [...all.matchAll(/gid:\/\/shopify\/(?:MetafieldDefinition|MetaobjectDefinition|Metaobject)\/\d+/g)].map((m) => m[0]);
     if (!ids.length) problems.push('A delete names the id it deletes (an identifier isn\'t enough), in the file or its variables.');
     for (const id of new Set(ids)) if (!createdIds.includes(id)) problems.push(`${id} wasn't created by this task, so the kit won't delete it.`);
+  }
+  // metafieldsDelete names owner, namespace and key, not a metafield id: only metafields on owners this task created.
+  // Values under a definition the kit created go with deleteAllAssociatedMetafields; anything else is the dev's, in the admin.
+  if (fields.includes('metafieldsDelete')) {
+    // "ownerId: $o" takes its value from a variable or its default, which the owner list below can't see:
+    // one owned literal elsewhere would let it through.
+    if (t.some((x, j) => x === 'ownerId' && t[j + 1] === ':' && t[j + 2] === '$')) problems.push('metafieldsDelete: write each ownerId as a literal "gid://…", in the file or under an "ownerId" key in the variables, not as ownerId: $variable.');
+    const owners = [...code.matchAll(/ownerId\s*:\s*"([^"]*)"/g)].map((m) => { try { return JSON.parse(`"${m[1]}"`); } catch { return m[1]; } })
+      .concat(varStrings.filter((s) => s.key === 'ownerId').map((s) => s.v));
+    if (!owners.length) problems.push('metafieldsDelete names the ownerId of each metafield it deletes, in the file or its variables.');
+    for (const o of new Set(owners)) if (!createdIds.includes(o)) problems.push(`${o} wasn't created by this task, so the kit won't delete its metafields. Remove a merchant's values in the admin.`);
   }
   return problems;
 }

@@ -1,6 +1,6 @@
 ---
 name: shopify-qa
-description: Stages 8–9 of /shopify-implement. Check the task's draft theme against the plan's QA criteria with measured values (storefront, settings previews, customizer contract and editor, regression), write report.md, and get the dev's acceptance. QA failures go back to the builder. Use only when /shopify-implement's status says the stage is qa or accept.
+description: Stages 7–8 of /shopify-implement. Check the task's draft theme against the plan's QA criteria with measured values (storefront, settings previews, customizer contract and editor, regression), write report.md, and get the dev's acceptance. QA failures go back to the builder. Use only when /shopify-implement's status says the stage is qa or accept.
 user-invocable: false
 ---
 
@@ -25,32 +25,33 @@ Never write "QA passed" while any row is FAIL, NOT TESTED or BLOCKED.
 2. Copy every row of `plan.md` § QA criteria into `report.md` § Criteria, filling the Expected column and leaving Measured empty. Do this before measuring anything, so that results can't shape the expectations.
 3. **Write each row's result into `report.md` as soon as you've measured it**, not at the end. A compaction then loses nothing.
    Use `kit.mjs qa-row <KEY> <#> --measured "…" --how "…" --verdict PASS`. It edits one row safely; don't rewrite the table with heredocs or regex scripts.
+   - PASS and FAIL need `--measured` and `--how` in the same call, and a draft at HEAD. The row records the commit, the draft, the time and the plan's text for the criterion.
+   - `done qa` wants a qa-row verdict for every numbered plan criterion, shown as recorded in report.md, so never type, edit or blank a verdict in the table. A criterion changed in `plan.md` after it was measured gets measured again.
+   - **QA resumed from an earlier kit version:** if `done qa` names rows qa-row has no matching record for, re-measure each and record it with qa-row on the draft at HEAD.
 4. **Browsers: two, each for what it's safe for.**
    - **Storefront (the draft, live for comparison): the `kit-browser` tools** (`mcp__kit-browser__*`, an isolated Playwright browser that `/shopify-setup` adds). It isn't logged in anywhere, so nothing it does can reach the admin.
    - **Theme editor and admin pages: Chrome** (load the `claude-in-chrome` skill, then open a new tab and keep it in front: background tabs freeze animations and timers). Chrome runs as the dev's admin account.
-   - **No `kit-browser` tools?** Do the storefront in Chrome too, with the Chrome fallback under step 5.
-5. **Viewports.**
-   - **kit-browser:** `browser_resize` to each width × height the criteria need, then read `innerWidth` back. No device toolbar and nothing for the dev to do. `browser_click` is a real pointer click on the element. Touch-only behaviour (swipes, `touchstart` handlers) stays a by-hand row.
-   - **Chrome fallback: ask once, up front.** `resize_window` can't change the viewport of a maximized window. Chrome's device toolbar (devtools responsive mode) can, but only the dev can turn it on, and it stays per tab. So list every viewport the criteria need, as device-toolbar presets (e.g. iPhone 12 Pro 390×844, iPhone SE 375×667), and ask the dev in one message, in the order you'll use them. Then measure everything for one viewport before asking for the next. In device-toolbar mode, real clicks from the Chrome MCP can time out: trigger the theme's own control with `element.click()` in `javascript_tool`, record that in How, and leave a by-hand row only for what needs a real tap.
+   - **No `kit-browser` tools?** Stop and ask the dev to add the server (the command is in `/shopify-setup`, step 8) and restart Claude Code. The storefront isn't measured in Chrome: it can't set the viewport.
+5. **Viewports.** `browser_resize` to each width × height the criteria need, then read `innerWidth` back. `browser_click` is a real pointer click on the element. Touch-only behaviour (swipes, `touchstart` handlers) stays a by-hand row.
 6. **Plan the order.** Work page by page, then viewport by viewport, and measure every criterion for that page and width before navigating again.
 7. **Plain HTML checks** (does the draft render X, which theme served it) don't need the browser: `node .claude/kit/shopify.mjs fetch <KEY> <path> --find <text>`.
 
 ### On every page, before measuring
 
 1. **Probe loaded.**
-   - **kit-browser:** once per session, before opening the first storefront page, run `browser_run_code_unsafe` with `filename: ".claude/kit/probe.init.js"` (no `code`). The file only adds the probe to every page; the prompt names it, so the dev can see what runs. From the next navigation on, each page defines `window.__qa` before its own scripts, so `__qa.errors()` and `__qa.shift()` include the load. Check with `browser_evaluate` `() => typeof __qa`. Measure with `browser_evaluate` too, e.g. `() => __qa.see('.x')`. If the init file is refused, use the Chrome steps below through `browser_evaluate`.
-   - **Chrome:** on the first page of a storefront origin, read `.claude/kit/probe.inject.js` and run its contents with `javascript_tool`. It defines `window.__qa` and keeps the source in the tab's `sessionStorage`. After every navigation or reload, run only this one line:
+   - Once per session, before opening the first storefront page, run `browser_run_code_unsafe` with `filename: ".claude/kit/probe.init.js"` (no `code`). The file only adds the probe to every page; the prompt names it, so the dev can see what runs. From the next navigation on, each page defines `window.__qa` before its own scripts, so `__qa.errors()` and `__qa.shift()` include the load. Check with `browser_evaluate` `() => typeof __qa`. Measure with `browser_evaluate` too, e.g. `() => __qa.see('.x')`.
+   - **The init file is refused:** on the first page, run the contents of `.claude/kit/probe.inject.js` with `browser_evaluate`. It keeps the source in the tab's `sessionStorage`; after every navigation or reload, run only this one line:
      ```js
      sessionStorage.getItem('__qaSrc') ? ((0, eval)(sessionStorage.getItem('__qaSrc')), 'probe ready') : 'NO PROBE: inject probe.inject.js'
      ```
-     If eval is refused on a page, inject `.claude/kit/probe.js` directly.
-2. **Right theme.** Run `__qa.env()`, plus `Shopify.theme.id`, which must equal the draft id. A URL alone doesn't prove it, because the preview cookie survives redirects. Read it once `document.readyState` is `complete`; earlier, `Shopify.theme` can still be unset, and null means "not loaded yet", not a wrong theme.
+2. **Right theme.** Run `__qa.env()`. Its `theme.id` must equal the draft id. A URL alone doesn't prove it, because the preview cookie survives redirects. When comparing with live, `theme.role` must be `main`. Read it once `document.readyState` is `complete`; earlier, `Shopify.theme` can still be unset, and null means "not loaded yet", not a wrong theme.
 3. **Right width.** Read `window.innerWidth` after every reload. If it isn't the viewport you asked for, ask the dev; never record a mobile result measured at desktop width.
 4. **Change present.** `__qa.live('<prefix>')` must find the feature where it should render.
 
 | The criterion is about | Call |
 | --- | --- |
 | visible / exists | `__qa.see(sel)` |
+| copy (text) | `__qa.text(sel)`: compare its `textContent`. `innerText` comes back CSS-uppercased under `text-transform` |
 | size, position, spacing | `__qa.gap(a, b)`, `__qa.pad(container, child)`, `__qa.gutter(sel)` |
 | colours, fonts, values | `__qa.css(sel, ['color', 'font-size'])` |
 | a style that isn't applying | `__qa.why(sel, prop)` |
@@ -64,6 +65,7 @@ Never write "QA passed" while any row is FAIL, NOT TESTED or BLOCKED.
 
 1. **Storefront.** Cover each target page in the plan, at each viewport, in each locale in scope (locale paths such as `/de/…`), and in each data state (metafield set and unset on the agreed products).
    - A/B ports: compare with the live winner through the force link in status (`abtest.reference`). Without one, a geo-targeted test is invisible from outside its markets: mark that row BLOCKED and say so, rather than comparing with control.
+   - **Bug fixes:** measure the "Repro:" row on live too. It must fail there and pass on the draft; record both in Measured ("live: …; draft: …"). A repro that doesn't fail on live proves nothing about the fix, and `done qa` refuses a PASS without both.
    - Check that the experiment isn't running on the draft (its body class or init attribute, from the A/B inventory). If it is, stop and ask the dev: its code rewrites the new markup.
    - **Design rows** (values from `design.md`): measure at the Figma frame's width, with `__qa.css` for values and `__qa.gap`, `__qa.pad` and `__qa.gutter` for spacing. They pass within these margins: colours, font family and weight exact; font size ±1px; line height, spacing and radius ±2px; fixed width and height ±5px; "fills its parent" within 2px of the parent's width.
    - **A design check on request:** if the dev doubts the draft matches a Figma design that wasn't part of the plan, run the `design-extractor` agent on the frames they name, write `design.md` as analyze does, and add its rows to report.md § Criteria marked "(design)".
@@ -80,33 +82,26 @@ Never write "QA passed" while any row is FAIL, NOT TESTED or BLOCKED.
    1. **Contract (script).** Run `node .claude/kit/contract.mjs <KEY>`. It writes `.claude/logs/<KEY>/contract.md` from the changed schemas, locales and templates: names, presets, where each section can be added, and every setting's label, type, default, options/range, info and `visible_if`.
       - Compare it row by row with `plan.md` § Schema details. Each mismatch is a FAIL.
       - Each entry in its "Problems" list is a FAIL: missing `t:` keys, a default that isn't an option, an off-range default, unknown preset blocks.
-   2. **Presence (screenshots).** Go section by section:
-      1. Get the section's id from the **draft** storefront HTML, e.g. `shopify-section-template--<n>__<key>`. Ids differ per theme copy, so never take them from live.
-      2. Navigate to `<editorUrl>?previewPath=<page>&section=template--<n>__<key>`.
-      3. Wait 10 seconds and take a screenshot. Repeat until the settings panel shows the section, for up to 60 seconds; the editor took 8–40 s to load in tests. Zoom on the top right. It must show the draft's name with the **Draft** badge, and a greyed-out **Save** button. A login or 2FA page means BLOCKED; stop.
-      4. Read the settings panel from the screenshot.
-      5. Record each contract line you can see in contract.md's "Seen in editor" column: the label is present and the value is right. The panel shows stored values, which on a fresh placement are the defaults. Cite the screenshot in the How column.
-      6. For a section with presets, open the right group's "Add section", take a screenshot, check the entry is there (or absent) as `enabled_on`/`disabled_on` says, then press **Escape**. Never click an entry, and never type into the search box.
-      7. Before leaving, zoom on Save again. If it's enabled, something changed: don't navigate away; ask the dev to discard the changes.
-
-      Never click the preview's floating toolbar or the eye icons. Labels appear in the admin user's language.
+   2. **Loads in the editor (one screenshot per task).** Navigate to `<editorUrl>?previewPath=<a target page>`, wait about 30 seconds (the editor took 8–40 s to load in tests), and take one screenshot. It must show the draft's name with the **Draft** badge, a greyed-out **Save** button, and the feature in the preview. A login or 2FA page means BLOCKED; stop. Cite the screenshot in the How column of the customizer row. Never click in the editor.
    3. **By hand (dev checklist).** Add these as BLOCKED rows with "dev checks by hand":
+      - each setting's label and value in the editor panel, and each section's entry (or its absence) in "Add section": contract.md lists them, with a "Seen in editor" column for the dev
       - the dynamic-source picker shows the metafield
       - a value change re-renders live in the preview
       - image, colour and url pickers open
       - blocks can be added, removed and reordered
+      - placing a section or block by drag in the theme or checkout editor (synthetic drag events there aren't reliable)
       - app blocks still work
       - the mobile preview toggle
       - Translate & Adapt texts
       - anything judged by eye
-4. **Regression.** Run `node .claude/kit/compare.mjs <KEY>`. It compares live with the draft on the untouched paths, checking the section lists and the feature prefix.
+4. **Regression.** Run `node .claude/kit/compare.mjs <KEY>`. It compares live with the draft on the untouched paths: the section lists and the feature prefix decide its verdict. `htmlDiffers` lists sections whose HTML differs, often per-request content (stock, recommendations): look at the ones the branch touches.
    - DIFFERS: rule out live edits made after the draft was copied (`draftCreatedAt`) before calling it a regression.
    - BLOCKED (password page, bot protection, wrong theme): report it as BLOCKED.
 5. **Console errors** on each target page: `__qa.errors()`.
 
 ### The report
 
-- **§ You must still do** (top of the report): one numbered line per BLOCKED or NOT TESTED row, saying where and how the dev checks it: "#22 Replace the FAQ icon in Content → Metaobjects → Mobile menu image, reload the draft, restore it." Add any ticket AC that isn't delivered.
+- **§ You must still do** (top of the report): one numbered line per BLOCKED or NOT TESTED row, saying where and how the dev checks it: "#22 Replace the FAQ icon in Content → Metaobjects → Mobile menu image, reload the draft, restore it." Add any ticket AC that isn't delivered, and each file status lists under "Live edits since the base": live's own edit there is replaced at merge unless the branch carries it.
 - **§ Criteria:** one row per criterion, with the columns `#`, criterion, expected, measured, how, and verdict. Keep Measured and How to about 15 words each: the probe call or command and the number that decided it. Longer evidence goes in a file under `.claude/logs/<KEY>/` that the cell names.
 - **§ Summary:**
   - "N criteria: x PASS, y FAIL, z NOT TESTED, w BLOCKED."
@@ -116,14 +111,15 @@ Never write "QA passed" while any row is FAIL, NOT TESTED or BLOCKED.
   - "The draft is a copy of live plus this branch."
 - **Screenshots** only for things a human must judge visually, saved in `.claude/logs/<KEY>/screenshots/`.
 
-**Done when:** every criterion has a verdict and the summary is written. Then run `kit.mjs done <KEY> qa`.
+**Done when:** every criterion has a verdict recorded with qa-row, the draft is at the branch head, and the summary is written. Then run `kit.mjs done <KEY> qa`.
 
-## Stage: accept (Gate 3)
+## Stage: accept (Gate 2)
 
 1. Show the dev, and nothing more:
    - one verdict line: "20 PASS, 0 FAIL, 5 for you to check"
    - each FAIL with what was measured
    - § You must still do, as written in the report
+   - "Since the plan was approved" from `kit.mjs status <KEY>`: changed files the plan didn't name, and the plan's changes. Say "none" when both are none.
    - anything noticed that the dev should decide about, at most three lines
 2. AskUserQuestion: "QA result for <KEY>". Options: **Accept, I'll do the N checks** (or **Accept** when nothing is open), **Fix the failures**, and **I'll test more first**.
 3. Then:
@@ -131,5 +127,5 @@ Never write "QA passed" while any row is FAIL, NOT TESTED or BLOCKED.
    - **Fix the failures** → `kit.mjs back <KEY> build --reason "<the failing rows>"`. Then:
      1. Follow the build stage in fix mode: the builder gets the failing rows. Then commit.
      2. Run the draft stage again (push).
-     3. Run the qa stage again. Re-measure the failed rows, the rows on pages the fix touched, and the regression check. Earlier rows stay, with the date they were measured.
+     3. Run the qa stage again. Re-measure the failed rows, the rows on pages the fix touched, and the regression check. `done qa` lists the PASS rows measured before the fix changed theme files: re-measure each, or keep the ones the fix can't reach with `kit.mjs qa-row <KEY> <#,#,…> --carry "<why>"`.
    - **I'll test more first** → wait. When the dev reports issues, add them as rows and treat them as fixes.

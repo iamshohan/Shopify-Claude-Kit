@@ -1,6 +1,6 @@
 # {{KEY}} · Brief
 
-> Why this task exists and what was decided. Filled in three passes: Asked (intake), Found (analyze), Decided (clarify). Quote tickets; don't paraphrase them.
+> Why this task exists and what was decided. Filled in three passes: Asked (intake), Found (analyze), Decided (plan). Quote tickets; don't paraphrase them.
 
 ## Asked
 

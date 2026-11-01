@@ -1,12 +1,77 @@
 #!/usr/bin/env node
-// Reads a Jira ticket (read-only) and prints compact JSON for /shopify-implement.
+// Generated from shared/jira.mjs by scripts/sync-shared.mjs: edit that file, then run node scripts/sync-shared.mjs.
+// Reads a Jira ticket (read-only) and prints compact JSON for the kit's commands. Writes nothing.
 // Custom fields are reported by their display names, so any Jira project works without field ids.
-// Credentials via lib.mjs secret() (.claude/.env.local); the site from JIRA_BASE_URL or jiraBaseUrl. Writes nothing.
+// Credentials: JIRA_USER and JIRA_API_TOKEN from the environment, .claude/.env.local or ~/.claude/.env. The site: JIRA_BASE_URL
+// from those files, else jiraBaseUrl from the kit's settings (or JIRA_BASE_URL from the environment), atlassian.net only.
+// Self-contained: the same file ships in the theme kit and the app kit, and finds its kit from where it sits.
 const HELP = `Usage:
   node .claude/kit/jira.mjs <KEY>                ticket, links, mentioned keys, estimates, comments
   node .claude/kit/jira.mjs <KEY> --no-comments  the same without comments (for related tickets)
   node .claude/kit/jira.mjs --check              which credentials would be used (never prints the token)`;
-import { print, fail, normKey, readConfig, secret, secretSource, git } from './lib.mjs';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { homedir } from 'node:os';
+import { spawnSync } from 'node:child_process';
+
+// ── The kit around this file ──
+
+const KIT_DIR = dirname(fileURLToPath(import.meta.url));
+const CLAUDE_DIR = resolve(KIT_DIR, '..');
+const ROOT = resolve(CLAUDE_DIR, '..');
+// The app kit has kit/app.mjs; the theme kit has kit/kit.mjs.
+const APP = existsSync(join(KIT_DIR, 'app.mjs'));
+const CONFIG_REL = APP ? '.claude/app-kit.json' : '.claude/shopify-kit.json';
+const SETUP = APP ? '/app-setup' : '/shopify-setup';
+
+const print = (value) => process.stdout.write(`${typeof value === 'string' ? value : JSON.stringify(value, null, 2)}\n`);
+function fail(message, code = 1) {
+  process.stderr.write(`${String(message).trimEnd()}\n`);
+  process.exit(code);
+}
+function normKey(raw) {
+  const key = String(raw || '').trim().toUpperCase();
+  if (!/^[A-Z][A-Z0-9]+-\d+$/.test(key)) fail(`"${raw}" is not a Jira key (expected something like ABC-123).`);
+  return key;
+}
+function readConfig() {
+  try { return JSON.parse(readFileSync(join(ROOT, CONFIG_REL), 'utf8')); } catch { return null; }
+}
+function git(args) {
+  const r = spawnSync('git', args, { cwd: ROOT, encoding: 'utf8' });
+  return r.status === 0 ? r.stdout.trim() : '';
+}
+
+// ── Secrets ──
+
+// KEY=value lines, with an optional export prefix and matching quotes. No escapes or multi-line values.
+function readEnvFile(path) {
+  const out = {};
+  let text = '';
+  try { text = existsSync(path) ? readFileSync(path, 'utf8') : ''; } catch { /* unreadable: nothing */ }
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    const eq = line.indexOf('=');
+    if (!line || line.startsWith('#') || eq === -1) continue;
+    let val = line.slice(eq + 1).trim();
+    if (val.length > 1 && /^(['"]).*\1$/.test(val)) val = val.slice(1, -1);
+    out[line.slice(0, eq).trim().replace(/^export\s+/, '')] = val;
+  }
+  return out;
+}
+const LOCAL = join(CLAUDE_DIR, '.env.local');
+const GLOBAL = join(homedir(), '.claude', '.env');
+/** A secret from the dev's own files only: what the agent can't set by prefixing a command. */
+const fromFiles = (name) => readEnvFile(LOCAL)[name] || readEnvFile(GLOBAL)[name] || '';
+const secret = (name) => process.env[name] || fromFiles(name);
+
+/** Where each secret comes from (they can come from different places), or null if any is missing. */
+function secretSource(names) {
+  const from = names.map((n) => (process.env[n] ? 'process environment' : readEnvFile(LOCAL)[n] ? LOCAL : readEnvFile(GLOBAL)[n] ? GLOBAL : null));
+  if (from.some((f) => !f)) return null;
+  return [...new Set(from)].join(' + ');
+}
 
 // ── Jira values to text ──
 
@@ -76,30 +141,32 @@ function urls(v, acc = new Set()) {
 
 // ── Credentials and requests ──
 
-// JIRA_BASE_URL from the dev's own env wins over the repo's jiraBaseUrl; hostProblem says why that matters.
+// JIRA_BASE_URL from the dev's own files wins over the repo's jiraBaseUrl; hostProblem says why that matters.
 function creds() {
-  const cfg = readConfig({ required: false });
-  const own = secret('JIRA_BASE_URL');
-  let base = (own || cfg?.jiraBaseUrl || '').trim().replace(/\/+$/, '');
+  const cfg = readConfig();
+  const own = fromFiles('JIRA_BASE_URL');
+  let base = (own || process.env.JIRA_BASE_URL || cfg?.jiraBaseUrl || '').trim().replace(/\/+$/, '');
   if (base && !/^https?:\/\//.test(base)) base = 'https://' + base;
   return { base, baseProblem: base ? hostProblem(base, Boolean(own)) : null, user: secret('JIRA_USER'), token: secret('JIRA_API_TOKEN'), source: secretSource(['JIRA_USER', 'JIRA_API_TOKEN']) };
 }
 
 /**
- * The token goes wherever the base URL points. jiraBaseUrl lives in a repo file the agent can edit,
- * so from there only an atlassian.net site gets it; another host must come from the dev's own .env.local.
+ * The token goes wherever the base URL points. jiraBaseUrl lives in a repo file the agent can edit, and the agent can
+ * prefix a command with JIRA_BASE_URL=…, so from either only an atlassian.net site gets it; another host must come from
+ * the dev's own .env.local (or ~/.claude/.env).
  */
 function hostProblem(base, own) {
   let url;
   try { url = new URL(base); } catch { return `"${base}" isn't a URL.`; }
   if (url.protocol !== 'https:') return `${base} isn't https, so the token isn't sent.`;
-  if (!own && !url.hostname.endsWith('.atlassian.net')) return `jiraBaseUrl in .claude/shopify-kit.json points at ${url.hostname}, not an atlassian.net site, so the token isn't sent. For a self-hosted Jira, put JIRA_BASE_URL in .claude/.env.local.`;
+  if (!own && !url.hostname.endsWith('.atlassian.net')) return `The Jira URL (jiraBaseUrl in ${CONFIG_REL}, or JIRA_BASE_URL in the environment) points at ${url.hostname}, not an atlassian.net site, so the token isn't sent. For a self-hosted Jira, put JIRA_BASE_URL in .claude/.env.local.`;
   return null;
 }
 
-// null on 404; refused credentials and other errors end the script.
+// null on 404; refused credentials and other errors end the script. A redirect isn't followed: the token goes only to base.
 async function get(c, path) {
   const res = await fetch(c.base + path, {
+    redirect: 'error',
     headers: { Authorization: 'Basic ' + Buffer.from(`${c.user}:${c.token}`).toString('base64'), Accept: 'application/json' },
   });
   if (res.status === 401 || res.status === 403) fail(`Jira refused the credentials (HTTP ${res.status}). The API token may be expired or lack access. Source: ${c.source}`);
@@ -131,7 +198,7 @@ if (argv.includes('--check')) {
 // ── Fetch and filter the ticket ──
 
 const key = normKey(argv.find((a) => !a.startsWith('--')));
-if (!c.base) fail('No Jira URL. Set jiraBaseUrl in .claude/shopify-kit.json (run /shopify-setup).');
+if (!c.base) fail(`No Jira URL. Set jiraBaseUrl in ${CONFIG_REL} (run ${SETUP}).`);
 if (c.baseProblem) fail(c.baseProblem);
 if (!c.user || !c.token) fail('No Jira credentials. Create .claude/.env.local with JIRA_USER and JIRA_API_TOKEN (see .claude/README.md), or paste the ticket text instead.');
 

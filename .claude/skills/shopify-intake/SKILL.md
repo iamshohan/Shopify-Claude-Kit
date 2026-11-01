@@ -10,14 +10,12 @@ user-invocable: false
 
 **Goal:** `brief.md` § Asked is complete, and the work type and its facts are recorded.
 
-0. **Investigated first?** If `kit.mjs status` says so, read `.claude/logs/<KEY>/investigation.md`. Its question, answer and evidence are this task's starting context. After a feasibility check, its § Requirements answers are decisions the dev already made: copy them into `brief.md` § Decided → Questions and answers (citing investigation.md), so clarify doesn't ask them again. Re-check any code it cites at the current commit before relying on it, and carry its Confirmed findings into `brief.md`.
+0. **Investigated first?** If `kit.mjs status` says so, read `.claude/logs/<KEY>/investigation.md`. Its question, answer and evidence are this task's starting context. After a feasibility check, its § Requirements answers are decisions the dev already made: copy them into `brief.md` § Decided → Questions and answers (citing investigation.md), so the plan stage doesn't ask them again. Re-check any code it cites at the current commit before relying on it, and carry its Confirmed findings into `brief.md`.
 1. **Read the ticket:** `node .claude/kit/jira.mjs <KEY>`. If the script reports missing credentials, ask the dev to fix `.claude/.env.local` or to paste the ticket text. Don't guess requirements.
 2. **Related tickets.** Read up to three with `node .claude/kit/jira.mjs <KEY> --no-comments`, chosen from the summary, links, parent and `mentionedKeys`.
    - An A/B implementation ticket usually names or links the A/B test ticket ("Implement ABC-120"). That ticket holds the design, the variations and the targeting, so read it. Fetch its comments too if decisions seem to be in them.
    - Skip process tickets such as "Resolve a new Comment in …", "… is ready for Client Review" and "… is Ready to Launch".
    - If you can't tell which ticket is the A/B test, ask.
-
-   Record them: `node .claude/kit/kit.mjs set <KEY> tickets=<KEY>,<AB-KEY>`.
 3. **Work type.** Pick one and record it with `node .claude/kit/kit.mjs set <KEY> type=<type>`:
 
    | type | when |
@@ -28,7 +26,7 @@ user-invocable: false
 
    Tell the dev the type you picked. If two types fit, ask.
 
-   **Small lane.** If status doesn't say "Small lane" but the ticket is a bug fix or feature with no editability lines, no store data, and looks like at most 3 files, offer it once, in the same message: "This looks small: one gate instead of two. `kit.mjs lane <KEY> small`?" Switch only if the dev says yes. The kit only implements tickets that change theme code. For a feasibility check, a debugging task or a question, suggest `/shopify-investigate <KEY>` and stop. App development and content-only work are out of scope.
+   The kit only implements tickets that change theme code. For a feasibility check, a debugging task or a question, suggest `/shopify-investigate <KEY>` and stop. App development and content-only work are out of scope.
 4. **Which theme.** The kit builds on a copy of the **live** theme. If the ticket targets another theme (e.g. a campaign theme), say that it's out of scope for the kit, and stop.
 5. **A/B ports only.** Ask in one AskUserQuestion round, skipping anything the tickets already state:
    - Which variation won? (offer the variations named in the ticket)
@@ -42,7 +40,7 @@ user-invocable: false
 
    Prefer the built bundle (`build/*.js`, `build/*.css`), because that's what actually ran. Note whether only source code was provided.
 
-   Record everything; `done` refuses without it: `kit.mjs set <KEY> abtest.variation=<V> abtest.path=<path> abtest.tool=<tool> abtest.running=<yes|no|unknown>`.
+   The variation and the code's location go in `brief.md` § Asked. Record the rest; `done` refuses without it: `kit.mjs set <KEY> abtest.tool=<tool> abtest.running=<yes|no|unknown>`.
 6. **Bug fixes only.** Make sure you have the steps to reproduce, the page URL, and expected vs actual. Ask for whatever is missing.
 7. **Figma.** `jira.mjs` lists the ticket's Figma links (`figmaLinks`). A **feature** whose ticket links its design: record it with `kit.mjs set <KEY> design.figma=<link>`; if it links several files, ask which is final. A/B ports and bug fixes skip this: the winning code is the source. A design check can still be added at QA if the dev doubts the draft matches.
 8. **Write `brief.md` § Asked**, using the headings already in the file:
@@ -51,7 +49,7 @@ user-invocable: false
    - **numbered acceptance criteria quoted from the tickets, not paraphrased**; mark any you inferred with "(inferred)"
    - scope: pages and templates, locales and markets, devices
    - **what the tickets say should be editable**: one table row per line about who may change what, quoted in full with its AC number. Don't narrow a line to the part a neighbouring AC mentions: "manage the mobile navigation without developer support" covers the whole navigation, including images, icons and the utility links. Write "none" if no line says so.
-   - what's unclear (list it only; questions are asked at clarify). Don't list as unclear what an editability line already settles.
+   - what's unclear (list it only; questions are asked in the plan stage). Don't list as unclear what an editability line already settles.
 
 **Done when:** § Asked has the quoted criteria and the type and its facts are recorded. Then run `kit.mjs done <KEY> intake`.
 

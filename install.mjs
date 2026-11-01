@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Installs or updates the Shopify Implementation Kit in a theme repo.
 //   node install.mjs <path-to-theme-repo> [--dry-run] [--force]
+//   node install.mjs <path-to-app-repo> --app [--dry-run] [--force]   hands over to the app kit's installer (app/)
 // Copies the kit's .claude/ files and leaves the repo's own files alone: shopify-kit.json,
 // .env.local, settings.local.json, cli-check.json and logs/. Files a newer kit no longer ships
 // are removed (tracked in .claude/.kit-manifest.json).
@@ -10,6 +11,30 @@ import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { kitFiles, kitCommit, compareVersions, staleFiles, olderBuild } from './shared/installer-core.mjs';
+
+// The app kit is a separate product in app/ with its own installer. Without --app, everything below runs as before.
+{
+  const argv = process.argv.slice(2);
+  const target = argv.find((a) => !a.startsWith('--'));
+  if (argv.includes('--app')) {
+    if (argv.includes('--theme')) {
+      console.error('Pass --theme or --app, not both.');
+      process.exit(1);
+    }
+    await import('./app/install.mjs');
+    process.exit();
+  }
+  // Only the app kit's manifest names its kit; a theme kit's has no `kit` field.
+  let kit;
+  try {
+    kit = target && JSON.parse(readFileSync(join(resolve(target), '.claude', '.kit-manifest.json'), 'utf8')).kit;
+  } catch {}
+  if (kit === 'app') {
+    console.error(`${resolve(target)} holds the app kit. Update it with: node install.mjs <path> --app`);
+    process.exit(1);
+  }
+}
 
 const KIT = join(dirname(fileURLToPath(import.meta.url)), '.claude');
 // Files each theme repo owns: never copied over, never removed. The installer writes the last two itself.
@@ -29,6 +54,11 @@ if (!force && !existsSync(join(repo, 'config', 'settings_schema.json')) && !exis
   console.error(`${repo} doesn't look like a Shopify theme (no config/settings_schema.json or sections/). Use --force if it is one.`);
   process.exit(1);
 }
+// Installing over the kit repo would replace the kit with itself and write a manifest that ends maintainer mode.
+if ([resolve(KIT, '..'), resolve(KIT, '..', 'app')].includes(repo)) {
+  console.error('That is the kit\'s own repo.');
+  process.exit(1);
+}
 const dest = join(repo, '.claude');
 
 // returns an array off all the files inside a folder (except the a folder named logs).
@@ -40,8 +70,9 @@ function walk(dir, out = []) {
   }
   return out;
 }
-// walks the .claude folder to get an array of all the files inside it using walk(). Then, filter out the PER_REPO files from that array.
-const files = walk(KIT).filter((f) => !PER_REPO.has(f));
+// The kit's files as git has them (a file never added isn't released), without the PER_REPO files.
+const source = kitFiles(KIT, () => walk(KIT));
+const files = source.files.filter((f) => !PER_REPO.has(f));
 
 const sha = (p) => createHash('sha256').update(readFileSync(p)).digest('hex');
 const readJson = (p) => JSON.parse(readFileSync(p, 'utf8'));
@@ -53,11 +84,20 @@ try {
 } catch {
   console.warn('Warning: .claude/.kit-manifest.json is unreadable, so files an older kit dropped stay this time.');
 }
-const previous = manifest.files || [];
-// find out the files the exist in the theme's .claude but not in the new version
-const stale = previous.filter((f) => !files.includes(f) && !PER_REPO.has(f));
+// Files an older kit shipped that this one doesn't; only paths inside the kit's own folders (see staleFiles).
+const stale = staleFiles(dest, manifest.files, files, PER_REPO);
 const version = readFileSync(join(KIT, 'VERSION'), 'utf8').trim();
 const installed = existsSync(join(dest, 'VERSION')) ? readFileSync(join(dest, 'VERSION'), 'utf8').trim() : null;
+// Going back a version would delete the newer kit's files as "stale".
+if (installed && compareVersions(installed, version) > 0 && !force) {
+  console.error(`${dest} has kit ${installed}, newer than this checkout's ${version}. Update this kit repo (git pull), or pass --force to go back.`);
+  process.exit(1);
+}
+const behind = installed && compareVersions(installed, version) === 0 && olderBuild(KIT, manifest.commit);
+if (behind && !force) {
+  console.error(`${dest} has a newer build of kit ${version}: ${behind}. Or pass --force to go back.`);
+  process.exit(1);
+}
 
 // ── settings.json ──
 // The kit's file replaces the repo's on every install, so a new hook or deny rule always lands.
@@ -116,6 +156,12 @@ let unreadable = false;
 if (ownSettings) {
   try {
     moved = extras(withoutGuard(readJson(destSettings)), readJson(kitSettings));
+    // Carried over as is, disableAllHooks would switch the kit's guard off from settings.local.json.
+    if (moved && 'disableAllHooks' in moved) {
+      delete moved.disableAllHooks;
+      console.warn('Warning: the repo\'s settings.json had disableAllHooks; it is not carried over, so the guard stays on.');
+      if (!Object.keys(moved).length) moved = undefined;
+    }
     if (moved && existsSync(localSettings)) readJson(localSettings);
   } catch {
     unreadable = true;
@@ -145,9 +191,10 @@ for (const f of files) {
 }
 for (const f of stale) actions.push([`remove ${f} (no longer in the kit)`, () => rmSync(join(dest, f), { force: true })]);
 if (!existsSync(join(dest, '.gitignore'))) actions.push(['write .gitignore (keeps the kit out of git)', () => writeFileSync(join(dest, '.gitignore'), GITIGNORE)]);
-actions.push(['write .kit-manifest.json', () => writeFileSync(manifestPath, JSON.stringify({ version, installedAt: new Date().toISOString(), files, settingsSha: sha(kitSettings) }, null, 2))]);
+actions.push(['write .kit-manifest.json', () => writeFileSync(manifestPath, JSON.stringify({ version, commit: kitCommit(KIT), uncommitted: source.dirty.length > 0, installedAt: new Date().toISOString(), files, settingsSha: sha(kitSettings) }, null, 2))]);
 
 console.log(`${installed ? `Updating kit ${installed} → ${version}` : `Installing kit ${version}`} in ${dest}`);
+if (source.dirty.length) console.warn(`Warning: this kit checkout has uncommitted changes (${source.dirty.slice(0, 5).join(', ')}${source.dirty.length > 5 ? ' …' : ''}); they ship as they are, not as a release.${source.untracked.length ? ` Not shipped because git doesn't have them: ${source.untracked.slice(0, 5).join(', ')}.` : ''}`);
 for (const [what, act] of actions) {
   if (!dry) { mkdirSync(dest, { recursive: true }); act(); }
   if (!what.startsWith('copy ') || dry) console.log(`${dry ? '[dry run] ' : ''}${what}`);

@@ -8,6 +8,6 @@ disable-model-invocation: true
 
 This is `/shopify-investigate` with the type fixed to `feasibility`: one flow under a name devs look for before picking up a ticket. Read `.claude/commands/shopify-investigate.md` and follow its steps and rules exactly, with these differences:
 
-1. **After starting** (`kit.mjs start <KEY> --investigate`), and whenever status shows the frame stage with no type yet, run `node .claude/kit/kit.mjs set <KEY> type=feasibility`.
+1. **After starting** (`kit.mjs start <KEY> --investigate`), and whenever status shows the gather stage with no type yet, run `node .claude/kit/kit.mjs set <KEY> type=feasibility`.
 2. **An existing investigation of another type** (debug or question): tell the dev, and continue it as it is with `/shopify-investigate <KEY>` rather than changing its type midway.
 3. **At the end,** tell the dev in one line: the verdict, the recommended approach and its size, and that `/shopify-implement <KEY>` would start from this report.

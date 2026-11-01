@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // End-to-end test of the kit's scripts, offline: installs the kit into a temporary theme repo
 // (with a bare "origin"), puts test/fake-shopify.mjs on PATH as `shopify`, and drives install → draft → push →
-// live drift → merge → push → check → contract → reconcile → mutate → lanes through the real scripts and guard.
+// live drift → merge → push → check → contract → reconcile → mutate → stage exits through the real scripts and guard.
 //   node test/e2e.mjs [--keep]      --keep leaves the temp folder for inspection
 // Exits 1 if any check fails.
 import { spawnSync, execFileSync } from 'node:child_process';
@@ -109,6 +109,26 @@ try {
   writeFileSync(manifestPath, '{');
   const corrupt = reinstall();
   ok('an unreadable manifest warns instead of crashing', corrupt.status === 0 && /unreadable/.test(corrupt.stderr), corrupt.stderr);
+  // A manifest is a file anyone can edit: an entry pointing out of .claude/ must not delete the repo's files.
+  writeFileSync(join(repo, 'keep-me.txt'), 'x');
+  writeFileSync(manifestPath, JSON.stringify({ ...JSON.parse(readFileSync(manifestPath, 'utf8')), files: ['../keep-me.txt', '../sections/main-product.liquid', 'kit/gone.mjs'] }));
+  writeFileSync(join(repo, '.claude', 'kit', 'gone.mjs'), '');
+  const traversal = reinstall();
+  ok('an update removes only kit files the kit dropped, never a path outside .claude/', traversal.status === 0 && existsSync(join(repo, 'keep-me.txt')) && !existsSync(join(repo, '.claude', 'kit', 'gone.mjs')), traversal.stdout + traversal.stderr);
+  rmSync(join(repo, 'keep-me.txt'));
+  // VERSION stays put between releases, so the build is the commit: one this checkout lacks came from a newer clone.
+  const built = JSON.parse(readFileSync(manifestPath, 'utf8'));
+  writeFileSync(manifestPath, JSON.stringify({ ...built, commit: 'deadbeef'.repeat(5) }));
+  const olderBuild = reinstall();
+  ok('an install refuses to replace a build from a commit this checkout lacks, at the same VERSION', olderBuild.status === 1 && /newer build/.test(olderBuild.stderr), olderBuild.stderr);
+  writeFileSync(manifestPath, JSON.stringify(built));
+  writeFileSync(join(repo, '.claude', 'VERSION'), '99.0.0\n');
+  const downgrade = reinstall();
+  ok('an install refuses to go back from a newer kit without --force', downgrade.status === 1 && /newer than this checkout/.test(downgrade.stderr), downgrade.stderr);
+  ok('the installer refuses the kit\'s own repo', spawnSync(process.execPath, [join(KIT, 'install.mjs'), KIT, '--force', '--dry-run'], { encoding: 'utf8' }).status === 1);
+  ok('the code both kits share is in step with shared/', spawnSync(process.execPath, [join(KIT, 'scripts', 'sync-shared.mjs'), '--check'], { encoding: 'utf8' }).status === 0);
+  writeFileSync(join(repo, '.claude', 'VERSION'), readFileSync(join(KIT, '.claude', 'VERSION'), 'utf8'));
+  reinstall();
   // Back to a clean install, then the config /shopify-setup would write.
   rmSync(localPath);
   rmSync(join(repo, '.claude', 'CLAUDE.md.pre-kit'));
@@ -116,7 +136,7 @@ try {
     store: 'fake-store.myshopify.com', baseBranch: 'main', protectedBranches: ['main'], branchPattern: '{KEY}', adminApi: true, draftRoute: 'cli', adminApiVersion: '2026-07',
   }));
 
-  // ── Task start, branch, baseline ──
+  // ── Task start, branch ──
   ok('kit start', kit('kit.mjs', 'start', KEY).code === 0);
   // A Figma design makes analyze wait for design.md; "none" lifts that. The state is put back afterwards.
   const statePath = join(repo, '.claude', 'logs', KEY, 'state.json');
@@ -132,8 +152,6 @@ try {
   git('switch', '-q', '--no-track', '-c', KEY, 'origin/main');
   const base = git('rev-parse', 'origin/main');
   kit('kit.mjs', 'set', KEY, `branch=${KEY}`, `base=${base}`);
-  const baseline = kit('shopify.mjs', 'check', KEY, '--baseline');
-  ok('theme-check baseline on a clean tree', baseline.code === 0, baseline.all);
 
   // ── The feature, a draft, a first push ──
   write('sections/feature.liquid', '<div class="e2e-feature"></div>\n');
@@ -176,7 +194,20 @@ try {
   ok('check doesn\'t count a merged-in offense as introduced', check1.code === 0 && json(check1).introducedErrors === 0, check1.all);
   write('sections/feature.liquid', '<div class="e2e-feature">OFFENSE</div>\n');
   commit('feature with an offense');
-  ok('check counts an offense the branch adds', json(kit('shopify.mjs', 'check', KEY)).introducedErrors === 1);
+  // A dev's git config can change the diff's "+++ b/" prefix; check sets its own.
+  const prefixed = ['diff.mnemonicPrefix', 'diff.noprefix'].map((c) => {
+    git('config', c, 'true');
+    const n = json(kit('shopify.mjs', 'check', KEY)).introducedErrors;
+    git('config', '--unset', c);
+    return n;
+  });
+  ok('check counts an offense the branch adds, whatever diff prefixes git is set to use',
+    json(kit('shopify.mjs', 'check', KEY)).introducedErrors === 1 && prefixed.join() === '1,1', prefixed.join());
+  // git quotes a non-ASCII name unless told not to; a new, uncommitted file is how the builder leaves its work.
+  write('sections/größe-neu.liquid', '<div>OFFENSE</div>\n');
+  const unicodeNew = json(kit('shopify.mjs', 'check', KEY)).introducedErrors;
+  rmSync(join(repo, 'sections', 'größe-neu.liquid'));
+  ok('check counts an offense in a new, uncommitted file with a non-ASCII name', unicodeNew === 2, String(unicodeNew));
   write('sections/feature.liquid', '<div class="e2e-feature"></div>\n');
   commit('fix the offense');
 
@@ -198,15 +229,58 @@ try {
   ok('a later live edit to the same file is refused again', kit('shopify.mjs', 'push', KEY).code === 3);
   setLive('templates/product.json', product('A', 'D3'));
 
+  // ── Live drift in code ──
+  // A hotfix in live's code editor is listed for the report, not refused: only merchant JSON is.
+  setLive('sections/header.liquid', '<header class="hotfix"></header>\n');
+  write('sections/header.liquid', '<header class="hotfix"><nav></nav></header>\n');
+  commit('header nav, with live\'s hotfix copied in');
+  const codeDrift = kit('shopify.mjs', 'push', KEY);
+  ok('push lists a Liquid file live changed, without refusing it', codeDrift.code === 0 && json(codeDrift).liveEditedSinceBase?.join() === 'sections/header.liquid'
+    && state().draft.liveEdits?.join() === 'sections/header.liquid' && /Live edits since the base.*header\.liquid/.test(kit('kit.mjs', 'status', KEY).out), codeDrift.all);
+
+  // ── The base branch ahead of live ──
+  // A teammate's merged, undeployed edit to merchant JSON the branch also changes: live holds main's earlier version, not an admin edit.
+  git('switch', '-q', 'main');
+  write('templates/index.json', '{ "order": ["v1"] }\n');
+  commit('index v1');
+  setLive('templates/index.json', '{ "order": ["v1"] }\n');
+  write('templates/index.json', '{ "order": ["v2"] }\n');
+  commit('index v2, merged and not deployed');
+  git('push', '-q', 'origin', 'main');
+  git('switch', '-q', KEY);
+  git('fetch', '-q', 'origin');
+  git('merge', '-q', '--no-edit', 'origin/main');
+  write('templates/index.json', '{ "order": ["v2", "feature"] }\n');
+  commit('feature on the home page');
+  const ahead = kit('shopify.mjs', 'push', KEY);
+  ok('push lets merchant JSON through when live only lags the base branch', ahead.code === 0 && json(ahead).baseAheadOfLive?.join() === 'templates/index.json', ahead.all);
+
   // ── Verify, and never write to live ──
 
   ok('verify: the draft matches HEAD', kit('shopify.mjs', 'verify', KEY).code === 0);
+
+  // A GitHub-connected draft is never pushed, so verify runs the drift check there: a refused one isn't a verified draft.
+  git('push', '-q', '-u', 'origin', KEY);
+  const verifiedAt = state().draft.verifiedCommit;
+  writeFileSync(statePath, JSON.stringify({ ...state(), draft: { ...state().draft, route: 'github', verifiedCommit: null } }));
+  setLive('templates/product.json', product('A', 'D5'));
+  const ghVerify = kit('shopify.mjs', 'verify', KEY, '--wait', '0');
+  ok('verify on a GitHub-connected draft doesn\'t record it as verified while live drift is refused', ghVerify.code === 3 && state().draft.verifiedCommit === null, ghVerify.all);
+  setLive('templates/product.json', product('A', 'D3'));
+  writeFileSync(statePath, JSON.stringify({ ...state(), draft: { ...state().draft, route: 'cli', verifiedCommit: verifiedAt } }));
 
   // The wrapper never writes to a theme that isn't an unpublished draft, even if the state points at live.
   kit('kit.mjs', 'set', KEY, 'draft.themeId=1');
   const toLive = kit('shopify.mjs', 'push', KEY);
   ok('push refuses a state that points at the live theme', toLive.code === 1 && /not unpublished/.test(toLive.err), toLive.all);
   kit('kit.mjs', 'set', KEY, 'draft.themeId=2');
+  // Nor to a CLI draft named other than the key; the kit/<KEY>/… names from before kit 0.2.0 included.
+  const themesJson = join(store, 'themes.json');
+  const themesBefore = readFileSync(themesJson, 'utf8');
+  writeFileSync(themesJson, JSON.stringify(JSON.parse(themesBefore).map((t) => (t.id === 2 ? { ...t, name: `kit/${KEY}/feature` } : t))));
+  const oldName = kit('shopify.mjs', 'push', KEY);
+  writeFileSync(themesJson, themesBefore);
+  ok('push refuses a CLI draft not named after the key, an old kit/<KEY>/ name included', oldName.code === 1 && /not ABC-1/.test(oldName.err), oldName.all);
 
   // ── Mutations ──
   // Mutations run only after the guard showed them to the dev, and only once.
@@ -232,12 +306,140 @@ try {
   const afterNo = kit('shopify.mjs', 'mutate', KEY, mfile);
   ok('another guarded call after the prompt voids the seal', afterNo.code === 1 && /wasn't shown/.test(afterNo.err), afterNo.all);
 
-  // ── Lanes ──
-  ok('start --small', kit('kit.mjs', 'start', 'ABC-2', '--small').out.includes('Small lane'));
-  ok('lane full switches back before approval', kit('kit.mjs', 'lane', 'ABC-2', 'full').code === 0 && !kit('kit.mjs', 'status', 'ABC-2').out.includes('Small lane'));
+  // ── Stage exits: approve → build → draft → qa → accept → handoff ──
+  const logFile = (k, f) => join(repo, '.claude', 'logs', k, f);
+  const edit = (k, f, from, to) => writeFileSync(logFile(k, f), readFileSync(logFile(k, f), 'utf8').replace(from, to));
+  const head = () => git('rev-parse', 'HEAD');
+  edit(KEY, 'plan.md', '### Needs your attention\n', '### Needs your attention\n\n- `templates/product.json` (merchant-owned): sets section a\'s title; the merge overwrites admin edits made since the base.\n- Store: one metafield definition, created at the draft stage; it shows in the admin, not on live.\n');
+  edit(KEY, 'plan.md', '| --- | --- | --- | --- | --- |\n', '| --- | --- | --- | --- | --- |\n| `sections/feature.liquid` | create | the feature | — | — |\n| `templates/product.json` | modify | title A2 | sections.a | — |\n');
+  edit(KEY, 'plan.md', '| --- | --- | --- | --- | --- | --- |\n', '| --- | --- | --- | --- | --- | --- |\n| 1 | Feature renders | present | product | 390 | — |\n| 2 | Title | A2 | product | 390 | — |\n| 3 | Header nav | present | home | 390 | — |\n');
+
+  // .shopifyignore: a planned file it excludes is flagged at plan, and push skips it only when the dev agreed.
+  writeFileSync(join(repo, '.shopifyignore'), 'templates/product.json\n');
+  const ignoredReach = kit('kit.mjs', 'reach', KEY);
+  const ignoredPush = kit('shopify.mjs', 'push', KEY);
+  const skipPush = kit('shopify.mjs', 'push', KEY, '--skip-ignored');
+  ok('a planned file .shopifyignore excludes is flagged at plan, refused by push, and skipped and listed with --skip-ignored',
+    /templates\/product\.json[^\n]*\n[^\n]*shopifyignore excludes it/.test(ignoredReach.out) && ignoredPush.code === 1 && /--skip-ignored/.test(ignoredPush.err)
+    && skipPush.code === 0 && json(skipPush).notOnDraftShopifyignore?.join() === 'templates/product.json' && /Not on the draft.*product\.json/.test(kit('kit.mjs', 'status', KEY).out),
+    ignoredReach.all + ignoredPush.all + skipPush.all);
+  rmSync(join(repo, '.shopifyignore'));
+  ok('a push with nothing ignored clears that list', kit('shopify.mjs', 'push', KEY).code === 0 && !state().draft.ignoredFiles.length);
+
+  // Approve runs the plan's checks again: "Approve with changes" edits the plan at the gate.
+  writeFileSync(statePath, JSON.stringify({ ...state(), stage: 'approve', type: 'feature' }));
+  const unchecked = kit('kit.mjs', 'done', KEY, 'approve', '--answer', 'Approve');
+  edit(KEY, 'brief.md', '| Value | Where the merchant changes it | Type, options, default | Empty state | Why |\n| --- | --- | --- | --- | --- |\n',
+    '| Value | Where the merchant changes it | Type, options, default | Empty state | Why |\n| --- | --- | --- | --- | --- |\n| Title | section a setting | text, "A2" | hidden | per placement |\n');
+  edit(KEY, 'brief.md', '#### Stays in code (the merchant can\'t change it)\n', '#### Stays in code (the merchant can\'t change it)\n\nnone\n');
+  // The "(Recommended)" tag in the dev's choice is no longer refused.
+  edit(KEY, 'brief.md', '| # | Question | The dev\'s choice (verbatim) | Applied as | Date |\n| --- | --- | --- | --- | --- |\n',
+    '| # | Question | The dev\'s choice (verbatim) | Applied as | Date |\n| --- | --- | --- | --- | --- |\n| Q1 | Control surface OK? | OK (Recommended) | as listed | 2026-11-01 |\n');
+  edit(KEY, 'plan.md', '| File | What happens |\n| --- | --- |\n', '| File | What happens |\n| --- | --- |\n| `sections/feature.liquid` | the new feature section |\n');
+  ok('approve runs the plan checks, and keeps a copy of the plan it approved', unchecked.code === 1 && /Control surface/.test(unchecked.err)
+    && kit('kit.mjs', 'done', KEY, 'approve', '--answer', 'Approve').code === 0 && existsSync(logFile(KEY, 'plan.approved.md')), unchecked.all);
+
+  // Build: the last theme check decides, on the content it checked; files outside the plan and plan edits are listed, not refused.
+  const build0 = kit('kit.mjs', 'done', KEY, 'build');
+  ok('build refuses a theme check that ran on other content than the branch has', build0.code === 1 && /ran on other theme files/.test(build0.err) && !/errors this branch introduced/.test(build0.err), build0.all);
+  write('sections/feature.liquid', '<div class="e2e-feature">OFFENSE</div>\n');
+  kit('shopify.mjs', 'check', KEY);
+  const build1 = kit('kit.mjs', 'done', KEY, 'build');
+  write('sections/feature.liquid', '<div class="e2e-feature"></div>\n');
+  ok('build refuses while the last theme check found errors the branch introduced', build1.code === 1 && /found 1 errors this branch introduced/.test(build1.err) && !/other theme files/.test(build1.err), build1.all);
+  const check2 = kit('shopify.mjs', 'check', KEY);
+  ok('check records its result', check2.code === 0 && state().check?.head === head() && state().check.introducedErrors === 0 && !state().check.dirty, check2.all);
+  // A theme check that gives no report is recorded, so done build doesn't wait on it forever.
+  const broken = join(tmp, 'broken-bin');
+  mkdirSync(broken);
+  if (process.platform === 'win32') writeFileSync(join(broken, 'shopify.cmd'), '@echo theme check crashed 1>&2\r\n@exit /b 1\r\n');
+  else { writeFileSync(join(broken, 'shopify'), '#!/bin/sh\necho theme check crashed >&2\nexit 1\n'); chmodSync(join(broken, 'shopify'), 0o755); }
+  const crashed = spawnSync(process.execPath, [join(repo, '.claude', 'kit', 'shopify.mjs'), 'check', KEY], { cwd: repo, env: { ...env, [pathKey]: `${broken}${delimiter}${process.env[pathKey]}` }, encoding: 'utf8' });
+  ok('a crashing theme check is reported and recorded', crashed.status === 2 && /crashed/.test(crashed.stderr) && Boolean(state().check?.crashed), crashed.stdout + crashed.stderr);
+  edit(KEY, 'plan.md', '## Approach\n', '## Approach\n\nRewritten after approval.\n');
+  const build2 = kit('kit.mjs', 'done', KEY, 'build');
+  ok('build passes, listing unplanned files, the plan\'s changes since approval, the shared files and the crashed check',
+    build2.code === 0 && /doesn't name: .*sections\/header\.liquid/.test(build2.out) && /\+Rewritten after approval\./.test(build2.out)
+    && /Shared files.*templates\/product\.json/.test(build2.out) && /theme check didn't run/.test(build2.out), build2.all);
+  ok('draft passes: the draft is at HEAD', kit('kit.mjs', 'done', KEY, 'draft').code === 0);
+
+  // QA: every plan criterion recorded with qa-row, on a draft that is the branch.
+  edit(KEY, 'report.md', '| --- | --- | --- | --- | --- | --- |\n', '| --- | --- | --- | --- | --- | --- |\n| 1 | Feature renders | present | | | |\n| 2 | Title | A2 | | | |\n| 3 | Header nav | present | | | |\n');
+  edit(KEY, 'report.md', '## Summary\n', '## Summary\n\n3 criteria: 3 PASS, 0 FAIL, 0 NOT TESTED, 0 BLOCKED.\n');
+  const bare = kit('kit.mjs', 'qa-row', KEY, '1', '--verdict', 'PASS');
+  ok('qa-row refuses a PASS without --measured and --how', bare.code === 1 && /needs what was measured/.test(bare.err), bare.all);
+  // As Git Bash hands over "--measured /products/x: 1 match".
+  const row1 = kit('kit.mjs', 'qa-row', KEY, '1', '--measured', 'C:/Program Files/Git/products/x: 1 match', '--how', "__qa.see('.e2e-feature')", '--verdict', 'PASS');
+  const r1 = state().qa.rows[1];
+  ok('qa-row records the measurement, commit, draft and the plan\'s criterion text', row1.code === 0 && r1.commit === head() && r1.themeId === 2
+    && r1.criterion === 'Feature renders | present | product | 390 | —', row1.all + JSON.stringify(r1));
+  ok('qa-row undoes Git Bash\'s rewrite of a leading "/"', r1.measured === '/products/x: 1 match', JSON.stringify(r1));
+  kit('kit.mjs', 'qa-row', KEY, '2', '--measured', 'A', '--how', 'fetch --find A', '--verdict', 'FAIL');
+  kit('kit.mjs', 'qa-row', KEY, '2', '--measured', '--gap: 16px', '--how', "__qa.css('.t', ['--gap'])", '--verdict', 'PASS');
+  const r2 = state().qa.rows[2];
+  ok('a re-measured row replaces the measurement, and a value may start with --', r2.verdict === 'PASS' && r2.measured === '--gap: 16px' && !('earlier' in r2), JSON.stringify(r2));
+  edit(KEY, 'report.md', '| 3 | Header nav | present | | | |', '| 3 | Header nav | present | 1 nav | looked | PASS |');
+  const handQa = kit('kit.mjs', 'done', KEY, 'qa');
+  ok('done qa refuses a hand-written verdict and names the plan criterion qa-row never recorded',
+    handQa.code === 1 && /rows 3 in report\.md don't show/.test(handQa.err) && /plan criteria 3 have no verdict/.test(handQa.err), handQa.all);
+  kit('kit.mjs', 'qa-row', KEY, '3', '--measured', '1 nav', '--how', "__qa.see('header nav')", '--verdict', 'PASS');
+  write('sections/feature.liquid', '<div class="e2e-feature" data-v="2"></div>\n');
+  commit('feature v2');
+  const behindRow = kit('kit.mjs', 'qa-row', KEY, '3', '--measured', '1 nav', '--how', 'see', '--verdict', 'PASS');
+  const behindQa = kit('kit.mjs', 'done', KEY, 'qa');
+  ok('qa-row and done qa refuse while the draft isn\'t the branch head', behindRow.code === 1 && /draft isn't at HEAD/.test(behindRow.err) && behindQa.code === 1 && /draft isn't at the branch head/.test(behindQa.err), behindRow.all + behindQa.all);
+  kit('shopify.mjs', 'push', KEY);
+  const staleQa = kit('kit.mjs', 'done', KEY, 'qa');
+  ok('done qa refuses passes measured before theme files changed', staleQa.code === 1 && /rows 1, 2, 3 passed on an earlier commit/.test(staleQa.err), staleQa.all);
+  const carried = kit('kit.mjs', 'qa-row', KEY, '2,3', '--carry', 'title and header don\'t render the feature section');
+  // A blanked verdict, and a criterion the dev changed after it was measured, have no measurement behind them.
+  edit(KEY, 'report.md', /^(\| 1 \|.*\| )PASS \|$/m, '$1 |');
+  edit(KEY, 'plan.md', '| 3 | Header nav | present |', '| 3 | Header nav | two links |');
+  const blanked = kit('kit.mjs', 'done', KEY, 'qa');
+  ok('done qa refuses a blanked verdict and a criterion the plan changed after it was measured',
+    blanked.code === 1 && /rows 1 in report\.md don't show/.test(blanked.err) && /plan criteria 3 changed/.test(blanked.err), blanked.all);
+  edit(KEY, 'plan.md', '| 3 | Header nav | two links |', '| 3 | Header nav | present |');
+  kit('kit.mjs', 'qa-row', KEY, '1', '--measured', '1 match', '--how', "__qa.see('.e2e-feature')", '--verdict', 'PASS');
+  // A row recorded before qa-row kept the criterion's text still counts (tasks in flight).
+  const { criterion, ...oldRow } = state().qa.rows[2];
+  writeFileSync(statePath, JSON.stringify({ ...state(), qa: { ...state().qa, rows: { ...state().qa.rows, 2: oldRow } } }));
+  const qaDone = kit('kit.mjs', 'done', KEY, 'qa');
+  ok('rows carried with a reason, a re-measured row and an older record pass done qa, which records the QA\'d commit and shows what changed since approval',
+    carried.code === 0 && /carried to .*: title and header/.test(readFileSync(logFile(KEY, 'report.md'), 'utf8')) && Boolean(criterion)
+    && qaDone.code === 0 && state().qa.commit === head() && /Since the plan was approved/.test(qaDone.out), carried.all + qaDone.all);
+  // Gate 2's list is the task branch's, whatever is checked out (a new session may start on main).
+  git('switch', '-q', 'main');
+  const offBranch = kit('kit.mjs', 'status', KEY);
+  git('switch', '-q', KEY);
+  ok('the since-approval list at Gate 2 doesn\'t depend on the checkout', /doesn't name: [^\n]*sections\/header\.liquid/.test(offBranch.out), offBranch.all);
+  kit('kit.mjs', 'done', KEY, 'accept', '--answer', 'Accept');
+
+  // Handoff: the pushed branch is the commit QA measured. No retro needed.
+  edit(KEY, 'report.md', '### PR\n', '### PR\n\nABC-1: add the e2e feature section and the product title; QA 3 PASS; preview on draft 2; merge after AC review.\n');
+  git('push', '-q', '-u', 'origin', KEY);
+  write('sections/feature.liquid', '<div class="e2e-feature" data-v="3"></div>\n');
+  commit('after QA');
+  const lateHandoff = kit('kit.mjs', 'done', KEY, 'handoff');
+  ok('handoff refuses commits QA didn\'t check', lateHandoff.code === 1 && /commits QA didn't check/.test(lateHandoff.err) && /draft isn't at the branch head/.test(lateHandoff.err), lateHandoff.all);
+  git('reset', '-q', '--hard', 'HEAD~1');
+  const handoff = kit('kit.mjs', 'done', KEY, 'handoff');
+  ok('handoff passes on the QA\'d commit, without a retro', handoff.code === 0 && state().stage === 'done', handoff.all);
+
+  // Handover: status names the owner and warns another git identity.
+  const mine = kit('kit.mjs', 'status', KEY).out;
+  writeFileSync(statePath, JSON.stringify({ ...state(), owner: { name: 'Ana', email: 'ana@example.invalid' } }));
+  const theirs = kit('kit.mjs', 'status', KEY).out;
+  ok('status shows the owner, and warns when git user.email is someone else', /Owner: e2e <e2e@example\.invalid>/.test(mine) && !/WARNING/.test(mine) && /Owner: Ana .*WARNING/.test(theirs), mine + theirs);
+
+  // ── Tasks in flight at a stage this kit version folded away ──
+  kit('kit.mjs', 'start', 'ABC-2');
+  const st2 = join(repo, '.claude', 'logs', 'ABC-2', 'state.json');
+  writeFileSync(st2, JSON.stringify({ ...JSON.parse(readFileSync(st2, 'utf8')), stage: 'clarify', lane: 'small' }));
+  const resumed2 = kit('kit.mjs', 'status', 'ABC-2');
+  ok('a task at the old clarify stage resumes at plan', /stage 3\/9: plan/.test(resumed2.out) && /was at "clarify"/.test(resumed2.out), resumed2.all);
 
   // ── Feasibility ──
-  // A feasibility check must list the requirements (frame) and give an estimate (conclude); other investigation types don't.
+  // A feasibility check must list the requirements and give an estimate, checked by the evidence-checker; other investigation types don't.
   const fill = (k, heading, text) => {
     const p = join(repo, '.claude', 'logs', k, 'investigation.md');
     writeFileSync(p, readFileSync(p, 'utf8').replace(heading, `${heading}\n${text}`));
@@ -246,21 +448,99 @@ try {
   kit('kit.mjs', 'start', 'ABC-3', '--investigate');
   kit('kit.mjs', 'set', 'ABC-3', 'type=feasibility');
   fill('ABC-3', '## Question', question);
-  const noReqs = kit('kit.mjs', 'done', 'ABC-3', 'frame');
+  const noReqs = kit('kit.mjs', 'done', 'ABC-3', 'gather');
   fill('ABC-3', '| --- | --- | --- | --- |', '| 1 | "The merchant edits the chart per product" | clear | none |');
-  const withReqs = kit('kit.mjs', 'done', 'ABC-3', 'frame');
-  ok('feasibility frame waits for § Requirements', noReqs.code !== 0 && /Requirements/.test(noReqs.all) && withReqs.code === 0, noReqs.all + withReqs.all);
+  const withReqs = kit('kit.mjs', 'done', 'ABC-3', 'gather');
+  ok('feasibility gather waits for § Requirements', noReqs.code !== 0 && /Requirements/.test(noReqs.all) && !/Requirements/.test(withReqs.all), noReqs.all + withReqs.all);
   const invState = join(repo, '.claude', 'logs', 'ABC-3', 'state.json');
   writeFileSync(invState, JSON.stringify({ ...JSON.parse(readFileSync(invState, 'utf8')), stage: 'conclude' }));
   const noEstimate = kit('kit.mjs', 'done', 'ABC-3', 'conclude', '--answer', 'Accept');
   fill('ABC-3', '## Estimate', '\nM: one new section with a metaobject definition and two templates; L if the chart must also show in the cart drawer. Confidence medium.');
   const withEstimate = kit('kit.mjs', 'done', 'ABC-3', 'conclude', '--answer', 'Accept');
-  ok('feasibility conclude waits for § Estimate', /Estimate/.test(noEstimate.all) && !/Estimate/.test(withEstimate.all), noEstimate.all + withEstimate.all);
+  ok('feasibility conclude waits for § Estimate and the evidence-checker', /Estimate/.test(noEstimate.all) && /evidence-checker/.test(noEstimate.all) && !/Estimate/.test(withEstimate.all), noEstimate.all + withEstimate.all);
   kit('kit.mjs', 'start', 'ABC-4', '--investigate');
   kit('kit.mjs', 'set', 'ABC-4', 'type=debug');
   fill('ABC-4', '## Question', question);
-  const debugFrame = kit('kit.mjs', 'done', 'ABC-4', 'frame');
-  ok('a debug investigation needs no § Requirements', debugFrame.code === 0, debugFrame.all);
+  const st4 = join(repo, '.claude', 'logs', 'ABC-4', 'state.json');
+  writeFileSync(st4, JSON.stringify({ ...JSON.parse(readFileSync(st4, 'utf8')), stage: 'frame' }));
+  const debugGather = kit('kit.mjs', 'done', 'ABC-4', 'gather');
+  writeFileSync(st4, JSON.stringify({ ...JSON.parse(readFileSync(st4, 'utf8')), stage: 'conclude' }));
+  const debugConclude = kit('kit.mjs', 'done', 'ABC-4', 'conclude', '--answer', 'Accept');
+  ok('an investigation at the old frame stage resumes at gather; a debug one needs no § Requirements and no evidence-checker',
+    /hypotheses/.test(debugGather.err) && !/Requirements|current stage/.test(debugGather.all) && !/evidence-checker/.test(debugConclude.all), debugGather.all + debugConclude.all);
+
+  // ── Bug fixes reproduce the bug ──
+  kit('kit.mjs', 'start', 'ABC-6');
+  kit('kit.mjs', 'set', 'ABC-6', 'type=bugfix');
+  const st6 = join(repo, '.claude', 'logs', 'ABC-6', 'state.json');
+  writeFileSync(st6, JSON.stringify({ ...JSON.parse(readFileSync(st6, 'utf8')), stage: 'plan' }));
+  const noRepro = kit('kit.mjs', 'done', 'ABC-6', 'plan');
+  const qaHeader = '| --- | --- | --- | --- | --- | --- |\n';
+  const plan6 = join(repo, '.claude', 'logs', 'ABC-6', 'plan.md');
+  writeFileSync(plan6, readFileSync(plan6, 'utf8').replace(qaHeader, `${qaHeader}| 1 | Repro: cart total after removing a line | live shows the old total; the draft the new one | cart | 390 | — |\n`)
+    .replace('### QA test data\n', '### QA test data\n\nproducts/shirt and products/mug as they are: nothing is set on them.\n'));
+  const withRepro = kit('kit.mjs', 'done', 'ABC-6', 'plan');
+  ok('a bug fix\'s plan needs a criterion that reproduces the bug on live', /reproduces the bug/.test(noRepro.err) && !/reproduces the bug/.test(withRepro.err), noRepro.all + withRepro.all);
+  mkdirSync(join(repo, '.claude', 'logs', 'ABC-6', 'mutations'));
+  writeFileSync(join(repo, '.claude', 'logs', 'ABC-6', 'mutations', '01-value.graphql'), 'mutation { metafieldsSet(metafields: []) { userErrors { message } } }\n');
+  const withWrites = kit('kit.mjs', 'done', 'ABC-6', 'plan');
+  ok('QA data on existing products isn\'t a store write to name; a mutation file the plan wrote is',
+    !/store writes/.test(withRepro.err) && /name the store writes/.test(withWrites.err), withRepro.all + withWrites.all);
+
+  // ── State, verbs and flags this kit version dropped ──
+  kit('kit.mjs', 'start', 'ABC-7');
+  kit('kit.mjs', 'set', 'ABC-7', 'type=abtest', 'abtest.tool=VWO', 'abtest.running=no');
+  const intake7 = kit('kit.mjs', 'done', 'ABC-7', 'intake');
+  const dropped7 = ['tickets=ABC-7', 'qa.products=shirt', 'abtest.variation=B', 'abtest.path=x'].filter((v) => kit('kit.mjs', 'set', 'ABC-7', v).code === 0);
+  ok('an A/B port records the tool and running state; the variation, code path, tickets and QA products live in the documents',
+    intake7.code === 1 && /acceptance criteria/.test(intake7.err) && !/abtest\./.test(intake7.err) && !dropped7.length, intake7.all + dropped7.join());
+  ok('note --none needs no retro first; the themes verb is gone', kit('kit.mjs', 'note', 'ABC-7', '--none').code === 0 && kit('shopify.mjs', 'themes').code === 1);
+
+  // ── Draft: a timed-out duplicate, a draft deleted in the admin, abandon ──
+  const themesFile = join(store, 'themes.json');
+  const themesNow = () => JSON.parse(readFileSync(themesFile, 'utf8'));
+  kit('kit.mjs', 'start', 'ABC-5');
+  const st5 = join(repo, '.claude', 'logs', 'ABC-5', 'state.json');
+  const state5 = () => JSON.parse(readFileSync(st5, 'utf8'));
+  writeFileSync(themesFile, JSON.stringify([...themesNow(), { id: 50, name: 'ABC-5', role: 'unpublished' }]));
+  cpSync(join(store, 'themes', '1'), join(store, 'themes', '50'), { recursive: true });
+  const stranger = kit('shopify.mjs', 'draft', 'ABC-5');
+  ok('draft refuses a same-named theme it didn\'t start', stranger.code === 3, stranger.all);
+  writeFileSync(st5, JSON.stringify({ ...state5(), draft: { pending: { name: 'ABC-5', at: new Date().toISOString() } } }));
+  const resumed = kit('shopify.mjs', 'draft', 'ABC-5');
+  ok('draft adopts the copy a timed-out run started', resumed.code === 0 && state5().draft.themeId === 50 && state5().draft.route === 'cli' && !state5().draft.pending, resumed.all);
+  writeFileSync(themesFile, JSON.stringify(themesNow().filter((t) => t.id !== 50)));
+  const gone = kit('shopify.mjs', 'delete-draft', 'ABC-5');
+  ok('delete-draft on a draft deleted in the admin records it, without suggesting a new draft',
+    gone.code === 0 && /no longer in the store/.test(gone.out) && !/shopify\.mjs draft/.test(gone.all) && Boolean(state5().draft.deletedAt), gone.all);
+  ok('list doesn\'t claim a deleted draft exists', !/ABC-5.*draft/.test(kit('kit.mjs', 'list').out));
+  const dropped = kit('kit.mjs', 'abandon', 'ABC-5', '--reason', 'client dropped it');
+  ok('abandon runs the retro and asks for a note', dropped.code === 0 && /kit\.mjs note/.test(json(dropped).retro?.ask || '') && state5().history.some((e) => e.event === 'retro'), dropped.all);
+
+  // ── cli-check's cache, and compare's section check ──
+  // A home without the plugin registry, so the full check never reaches the real plugin.
+  const cliCheck = () => spawnSync(process.execPath, [join(repo, '.claude', 'kit', 'shopify.mjs'), 'cli-check'], { cwd: repo, env: { ...env, USERPROFILE: tmp, HOME: tmp }, encoding: 'utf8' });
+  cliCheck();
+  const checkFile = join(repo, '.claude', 'cli-check.json');
+  const lastCheck = JSON.parse(readFileSync(checkFile, 'utf8'));
+  writeFileSync(checkFile, JSON.stringify({ ...lastCheck, ok: true }));
+  const cached = cliCheck();
+  writeFileSync(checkFile, JSON.stringify({ ...lastCheck, ok: true, kitVersion: '0.0.1' }));
+  const rerun = cliCheck();
+  ok('cli-check reuses its last result only for the same kit and Admin API version',
+    lastCheck.adminApiVersion === '2026-07' && /unchanged since/.test(cached.stdout) && !/unchanged since/.test(rerun.stdout), cached.stdout + rerun.stdout);
+  // VERSION stays put between releases, so the build id carries the kit commit the installer recorded.
+  const installed = JSON.parse(readFileSync(manifestPath, 'utf8'));
+  const buildId = `${readFileSync(join(KIT, '.claude', 'VERSION'), 'utf8').trim()}+${installed.commit.slice(0, 7)}${installed.uncommitted ? '-dirty' : ''}`;
+  ok('the build id is VERSION plus the kit commit, in cli-check and in a task\'s state',
+    json({ out: cached.stdout }).kitVersion === buildId && JSON.parse(readFileSync(st5, 'utf8')).kitVersion === buildId, `${buildId}\n${cached.stdout}`);
+  // build-probe --check: the generated probe files match probe.js, and stop matching once it changes.
+  const probeOk = kit('kit.mjs', 'build-probe', '--check');
+  writeFileSync(join(repo, '.claude', 'kit', 'probe.js'), `${readFileSync(join(repo, '.claude', 'kit', 'probe.js'), 'utf8')}\n// changed\n`);
+  const probeStale = kit('kit.mjs', 'build-probe', '--check');
+  ok('build-probe --check passes on the shipped files and fails once probe.js changes', probeOk.code === 0 && probeStale.code === 1 && /don't match/.test(probeStale.err), probeOk.all + probeStale.all);
+  const cmp = kit('compare.mjs', '--selftest');
+  ok('compare reports a section whose HTML changed', cmp.code === 0, cmp.all);
 
   // ── Live theme untouched ──
   // The fake CLI logs any write to the live theme in violations.jsonl.

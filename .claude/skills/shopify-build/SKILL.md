@@ -1,6 +1,6 @@
 ---
 name: shopify-build
-description: Stages 6–7 of /shopify-implement. Create the task branch, have the theme-builder agent implement the approved plan, review the diff, commit, create the planned store definitions, and push the result to the task's draft theme. Use only when /shopify-implement's status says the stage is build or draft.
+description: Stages 5–6 of /shopify-implement. Create the task branch, have the theme-builder agent implement the approved plan, review the diff, commit, create the planned store definitions, and push the result to the task's draft theme. Use only when /shopify-implement's status says the stage is build or draft.
 user-invocable: false
 ---
 
@@ -20,8 +20,7 @@ user-invocable: false
         Never create a second branch whose name differs only by case.
      2. Otherwise run `git switch --no-track -c <branch> origin/<baseBranch>`, with the name from status.
      3. Record the branch and base: `kit.mjs set <KEY> branch=<branch> base=<sha>`. Get the sha from `git rev-parse origin/<baseBranch>`, or from the merge-base when reusing a branch.
-     4. While the tree is untouched, record the theme-check baseline: `node .claude/kit/shopify.mjs check <KEY> --baseline` (about a minute; run it with a 10-minute timeout).
-2. **Implement.** Spawn `theme-builder` with the key and `mode: build`. In a fix loop, use `mode: fix` and paste the failing QA rows or review findings into the prompt. Wait for its "As built" report.
+2. **Implement.** Spawn `theme-builder` with the key and `mode: build`. In a fix loop, use `mode: fix` and paste the failing QA rows or review findings into the prompt. Wait for its "As built" report. It runs theme check on its change; `done build` reads that result for as long as the theme files are the ones it checked. Change them after it (a review fix of your own) → run `node .claude/kit/shopify.mjs check <KEY>` again.
 3. Append the report to `plan.md` § As built.
 4. **Review.** Use fresh eyes; the builder doesn't review its own work.
    1. Run the `code-review` skill with the argument `high`. It reviews the uncommitted diff, which is exactly the builder's change. Before acting on its findings, drop the ones that restate a § Decided choice or a winner value from the plan, and list them once as "intentional" instead of re-arguing them.
@@ -50,7 +49,9 @@ user-invocable: false
    - Commit with the repo's pattern from status, e.g. `git commit -m "abc-123__dev: add USP row block"`.
    - Never push here.
 
-**Done when:** the review list passes, `check` shows no introduced errors, and the change is committed. Then run `kit.mjs done <KEY> build`.
+`done build` refuses while the last theme check found errors the branch introduced, or ran on other theme files than the commit has. A theme check that crashes is recorded and doesn't block; say so in the report. On success `done build` lists the shared files the branch changes (QA's regression check covers what uses them), changed files that `plan.md` § Files doesn't name, and the plan's changes since approval. Gate 2 shows the dev the same list; if one of them reaches beyond the feature, tell the dev now.
+
+**Done when:** the review list passes, the change is committed, and the builder's theme check shows no introduced errors. Then run `kit.mjs done <KEY> build`.
 
 ## Stage: draft
 
@@ -66,7 +67,7 @@ user-invocable: false
    1. Re-check what exists: `node .claude/kit/shopify.mjs query definitions --owner <OWNER>`. If something now fits, use it, and add an Amendment to the plan.
    2. Run the files the plan validated (`.claude/logs/<KEY>/mutations/`). Re-validate only a file you changed.
    3. Run each one with `node .claude/kit/shopify.mjs mutate <KEY> <file> --vars <file>`. The guard shows the dev the mutation and its variables, and the dev approves or declines it. The created IDs are recorded in the task state.
-   4. QA test values go only on the products the dev named (`qa.products`), through the same `mutate` path.
+   4. QA test values go only on the products the dev named (plan.md § QA test data), through the same `mutate` path.
    5. A scope error gives you the exact `! shopify store auth …` command. Pass it to the dev, then retry.
 2. **Draft theme.** The route comes from `draftRoute` in `.claude/shopify-kit.json`. Ask the dev only if it isn't set and recon shows "Update from Shopify" commits. A **test run** always takes the CLI route below, whatever `draftRoute` says, because the GitHub route needs a push. Its draft is named `<KEY>-kit-test`.
 
@@ -77,13 +78,14 @@ user-invocable: false
    4. **Every later commit:** `git push -u origin <branch>`, then `verify`. A rejected push means Shopify committed a save from the admin: `git pull --no-rebase origin <branch>`, then push. Never save in this theme's editor yourself. If the dev saves there, tell them the change lands on the branch and in the PR.
    5. Skip steps 3–4 below; `push` refuses a connected draft.
 
-   **`draftRoute: "cli"`** (the default): `node .claude/kit/shopify.mjs draft <KEY>`, run with a 10-minute timeout. It reuses this task's draft, or copies the live theme into a new unpublished theme named `<KEY>` and waits until Shopify finishes processing it. If it refuses, follow its message; never `--adopt` without the dev's yes.
-   - **The command timed out.** Run it again; it adopts the copy it already started.
+   **`draftRoute: "cli"`** (the default): `node .claude/kit/shopify.mjs draft <KEY>`. It reuses this task's draft, or copies the live theme into a new unpublished theme named `<KEY>` and waits until Shopify finishes processing it. If it refuses, follow its message; never `--adopt` without the dev's yes.
+   - **The command timed out.** Run it again. The kit records a duplicate before starting it, so the next run adopts that copy (within 6 hours) and waits until it's ready, instead of refusing it as someone else's.
    - **The CLI can't do it** (no access, or the store's permissions forbid it). Offer the GitHub route above if the repo is connected. Otherwise tell the dev exactly what to create: an unpublished copy of the live theme with `<KEY>` in its name. Then record it: `kit.mjs set <KEY> draft.themeId=<id> draft.name=<name> draft.route=manual`. A manual draft is pushed with `shopify.mjs push` like a normal one.
 3. **Build outputs.** If the builder reported build outputs (e.g. compiled Tailwind CSS, which is gitignored), record them: `kit.mjs set <KEY> buildOutputs=<path,path>`.
-4. **Push:** `node .claude/kit/shopify.mjs push <KEY>`. It uploads every theme file the branch's commits touched (including files reverted to their base content), then pulls them back and compares them with HEAD. When it refuses, its message says what to do. Two that need more:
-   - **Live changed a JSON file:** `--reconciled` only after the dev confirms the branch holds live's edits.
+4. **Push:** `node .claude/kit/shopify.mjs push <KEY>`. It uploads every theme file the branch's commits touched (including files reverted to their base content), then pulls them back and compares them with HEAD. When it refuses, its message says what to do. Three that need more:
+   - **Live changed merchant JSON the branch changes:** `--reconciled` only after the dev confirms the branch holds live's edits. Other files live changed (a hotfix in the code editor) are listed as `liveEditedSinceBase`, not refused: tell the dev; QA lists them in the report.
    - **Shopify rejected a file**, for example a Liquid error: fix it in fix mode, commit, and push again.
+   - **`.shopifyignore` excludes a file the branch changes:** ask the dev how it reaches the store. Only with their yes, `push <KEY> --skip-ignored`; status then lists the file for report.md § You must still do.
 5. **Check the page:** `node .claude/kit/shopify.mjs fetch <KEY> <path> --find <text>`.
 6. Give the dev the preview URL and the editor URL.
 

@@ -49,7 +49,7 @@
 
 ## Review
 
-<!-- The evidence-checker agent's verdict per Confirmed claim, and what changed because of it. -->
+<!-- Feasibility: the evidence-checker agent's verdict per Confirmed claim, and what changed because of it. -->
 
 ## Jira comment
 

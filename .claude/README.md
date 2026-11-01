@@ -34,7 +34,6 @@ That file is yours alone: git ignores it, and Claude can't read it.
 /shopify-implement ABC-123              start or continue a ticket
 /shopify-implement ABC-123 qa           jump to a stage whose earlier stages are done
 /shopify-implement ABC-123 --test       a test run of the kit: every stage, nothing pushed to git
-/shopify-implement ABC-123 --small      the small lane: one gate before QA, for fixes of at most 3 files
 /shopify-implement                      list tasks in this repo
 /shopify-investigate ABC-123            investigate a ticket
 /shopify-feasibility ABC-123            can it be built, how, and how big? (before picking it up)
@@ -47,22 +46,20 @@ That file is yours alone: git ignores it, and Claude can't read it.
 | --- | --- | --- | --- |
 | 1 | intake | Reads the ticket and linked tickets; decides A/B port, feature or bug fix. | answer; for A/B ports, put the code in `.claude/logs/<KEY>/abtest/` |
 | 2 | analyze | One agent reads the theme fresh; another turns the A/B code into a list of behaviours. For a feature with a Figma design, a third reads the frames' values into `design.md`, and QA measures the draft against them. | — |
-| 3 | clarify | Decides what merchants control and where, and asks every open question at once. A value kept in code that the ticket says the client must be able to change gets its own question. | **Gate 1:** answer |
-| 4 | plan | At a glance (25 lines) on top: first what **needs your attention** (anything that can affect what already exists: store writes, merchant JSON, shared code, changed behaviour), then file by file. Below it the builder detail, store setup and QA criteria. | — |
-| 5 | approve | Shows At a glance and what changed since Gate 1. | **Gate 2:** approve, change or reject |
-| 6 | build | Creates the task branch from a fresh base. The builder agent implements; `/code-review` and a Shopify checklist review; then it commits. | — |
-| 7 | draft | Creates the planned definitions. Pushes to an unpublished theme named `<KEY>`, or adopts the theme you connect to the branch (`draftRoute: "github"`), and proves the draft matches the commit. | approve mutations; connect the branch (GitHub route) |
-| 8 | qa | Measures every criterion on the draft: storefront, settings previews, customizer, regression against live. | do the "by hand" checks (and set viewports, only without `kit-browser`) |
-| 9 | accept | Shows the result. Failures go back to the builder. | **Gate 3:** accept or send back |
-| 10 | handoff | Pushes the branch. Writes the PR text, admin steps, go-live order and a Jira comment, then runs a retro on the kit. | create the PR, merge, go live |
+| 3 | plan | First decides what merchants control and where, and asks every open question at once (a value kept in code that the ticket says the client must be able to change gets its own question). Then writes the plan: At a glance (about 25 lines) on top, first what **needs your attention** (anything that can affect what already exists: store writes, merchant JSON, shared code, changed behaviour), then file by file. Below it the builder detail, store setup and QA criteria. | answer the questions |
+| 4 | approve | Shows At a glance. | **Gate 1:** approve, change or reject |
+| 5 | build | Creates the task branch from a fresh base. The builder agent implements and runs theme check; `/code-review` and a Shopify checklist review; then it commits. | — |
+| 6 | draft | Creates the planned definitions. Pushes to an unpublished theme named `<KEY>`, or adopts the theme you connect to the branch (`draftRoute: "github"`), and proves the draft matches the commit. | approve mutations; connect the branch (GitHub route) |
+| 7 | qa | Measures every criterion on the draft: storefront, settings previews, customizer, regression against live. | do the "by hand" checks |
+| 8 | accept | Shows the result, and what changed since you approved the plan (plan edits, files it didn't name). Failures go back to the builder. | **Gate 2:** accept or send back |
+| 9 | handoff | Pushes the branch. Writes the PR text, admin steps, go-live order and a Jira comment. | create the PR, merge, go live |
 
 ### Investigation stages
 
 | # | Stage | What happens | Your part |
 | --- | --- | --- | --- |
-| 1 | frame | Picks the type (feasibility, debug, question) and states what counts as answered. Feasibility: lists each requirement and asks you the unclear ones. | answer if asked |
-| 2 | gather | Code and git history, live files, read-only store data, Shopify's docs and the live storefront. Every claim is labelled Confirmed, Inferred, Assumed or Unknown. Bugs are reproduced first. | resize the window if asked |
-| 3 | conclude | The answer, the unknowns, the next step and a Jira comment; for feasibility also the limitations, the approaches and the estimate. A second agent re-checks every Confirmed claim. | **Gate:** accept, dig further, or "wrong question" |
+| 1 | gather | Picks the type (feasibility, debug, question) and states what counts as answered; feasibility lists each requirement and asks you the unclear ones. Then code and git history, live files, read-only store data, Shopify's docs and the live storefront. Every claim is labelled Confirmed, Inferred, Assumed or Unknown. Bugs are reproduced first. | answer if asked; resize the window if asked |
+| 2 | conclude | The answer, the unknowns, the next step and a Jira comment; for feasibility also the limitations, the approaches and the estimate, and a second agent re-checks every Confirmed claim. | **Gate:** accept, dig further, or "wrong question" |
 
 Investigations can't change the theme or the store. If the answer is a fix, run `/shopify-implement` on the same key; the investigation becomes its starting context.
 
@@ -86,14 +83,14 @@ The logs are history, not a knowledge base: every task reads the code fresh.
 - **QA team:** reviews in Jira's review status ("AC Review" at Drip), using `report.md` § Criteria. Don't move the ticket to Done: that can start billing.
 - **Feedback after handoff:** `/shopify-implement <KEY>`, then `kit.mjs back <KEY> build --reason "…"`. Keep the draft until review ends.
 - **Scope change midway:** go `back` to the stage it affects. The plan records it under Amendments.
-- **Another dev takes over:** copy `.claude/logs/<KEY>/` to their machine. The draft is named after the key, so they continue on it.
+- **Another dev takes over:** push the task branch first (`git push -u origin <branch>`), then copy `.claude/logs/<KEY>/` to their machine; they fetch and switch to the branch. The draft is named after the key, so they continue on it. `kit.mjs status <KEY>` shows the owner and warns when your git `user.email` is someone else's.
 - **Test runs** (`/shopify-implement <KEY> --test`): for trying the kit on a ticket someone else owns.
   - The branch and the draft theme are named `<KEY>-kit-test`, so they're easy to match later and can't clash with the real ones. The guard blocks pushing the branch, and the draft is a CLI copy of live.
   - Handoff writes the report, marked "TEST RUN", and pushes nothing.
   - Afterwards, move `.claude/logs/<KEY>/` aside if you'll work the ticket for real on the same machine.
-- **Dropping a task:** `kit.mjs abandon <KEY> --reason "…"` lists the draft and store data left to clean up.
+- **Dropping a task:** `kit.mjs abandon <KEY> --reason "…"` lists the draft and store data left to clean up, and what the record shows went wrong with the kit.
 - **Reporting:** `kit.mjs summary <KEY>`: time per stage, loops, verdicts and store changes.
-- **Kit problems:** the agent notes them in `kit-notes.md` as they happen, and runs a retro at the end. `node .claude/kit/kit.mjs feedback` collects every task's notes into `.claude/logs/kit-feedback.md`; send that to the kit maintainer.
+- **Kit problems:** the agent notes them in `kit-notes.md` as they happen; `kit.mjs retro <KEY>` lists what the record shows went wrong. `node .claude/kit/kit.mjs feedback` collects every task's notes into `.claude/logs/kit-feedback.md`; send that to the kit maintainer.
 
 ## Safety rails
 
@@ -102,12 +99,13 @@ The logs are history, not a knowledge base: every task reads the code fresh.
 | One CLI wrapper | `.claude/kit/shopify.mjs` builds every command and writes only to the task's own unpublished theme, named after the key. It has no publish, live or delete-other command. The guard denies direct `shopify`, `npx @shopify/cli` and Theme Kit calls, including inside npm scripts and `bash -c`. |
 | Store changes | Only the kit's own mutations: creating definitions and metaobject entries, setting and deleting metafield values, and deleting definitions and entries this task created. Anything else (e.g. `productDelete`) is refused. Setting or deleting a metafield value can change one the merchant already had, so read those prompts closely. |
 | Your approval | `mutate` and `delete-draft` show you the whole file (or the theme) first. The wrapper runs only what you were shown, once, as the very next command and within 15 minutes; a changed file, a chained call or any command in between is refused. |
-| Git | Pushes go only as `git push -u origin <task-branch>`: no force, no delete, nothing to protected branches. No commits on protected branches. `git -c`, `--upload-pack`/`--exec` and commands that discard work ask first. |
+| Git | Pushes go only as `git push -u origin <task-branch>` (or `<task-branch>:<task-branch>`): no force, no delete, nothing to protected branches, and not when git's config would route the push elsewhere. No commits on protected branches, and none with a secret staged. No tag pushes, merges or releases. Commands that discard work ask first. |
 | Files | Credentials are never read or written: `.env*`, `~/.claude/.env`, Theme Kit's `config.yml`, the CLI's `shopify-cli-*` folders. `state.json` changes only through `kit.mjs`. Changes to `shopify-kit.json`, the kit's own files, and merchant-owned JSON that the approved plan doesn't name ask first. |
 | Jira token | Sent only over https, and only to an `atlassian.net` site unless your own `.env.local` sets `JIRA_BASE_URL`. |
 | Admin API | Read-only, except for products, metafields and metaobjects. The agent never prints discount codes, and never reads orders or customers. |
 | Browser | Storefront checks run in `kit-browser`, an isolated browser logged in nowhere. Chrome (editor, admin) runs as your admin account, and no hook sees clicks. The agent's "look only" rules and the extension's prompts are the only checks. Don't give `admin.shopify.com` "always allow". |
-| The real boundary | The guard is a seatbelt; if it fails, the call is blocked. GitHub branch protection and your store permissions are what hold. One exception: nothing on Shopify's side stops a theme publish or a push to live made with your login. For that, the guard (which blocks those words however the command is spelled) and Claude Code's own prompt for unknown commands are the only checks, so never approve a command you can't read. In a permission mode that hides prompts (bypass, `dontAsk`, plan), any step that needs your confirmation is blocked instead of silently approved. Read-only work still runs; `/shopify-implement` stops at plan approval until you switch to default mode. That approval (`kit.mjs done <KEY> approve --answer …`) asks, showing the words the kit will record as yours. |
+| The real boundary | The guard is a seatbelt; if it fails, the call is blocked. It catches a well-meaning agent's mistakes, not a command disguised on purpose. GitHub branch protection and your store permissions are what hold. One exception: nothing on Shopify's side stops a theme publish or a push to live made with your login. For that, the guard (which blocks those words wherever a command could run them) and Claude Code's own prompt for unknown commands are the only checks, so never approve a command you can't read. In a permission mode that hides prompts (bypass, `dontAsk`, plan), any step that needs your confirmation is blocked instead of silently approved: read-only work, the build and your gate answers still run, and the first store write stops until you switch to default mode. |
+| What asks, what doesn't | The guard interrupts you only for what's hard to undo: store writes, deleting the draft, adopting a theme or setting `draft.themeId`, merchant JSON you reconcile, the kit's settings, writing or removing files that turn the guard or git's safety off (`.claude/settings*.json`, hooks, `.mcp.json`, `.git/`), git commands that discard work, a commit when the guard can't read the branch, and a workflow or git hook that would push or publish a theme. Mistakes with a clear alternative (the CLI outside the wrapper, secrets, printing the environment, a recursive search of the repo root or `.claude/`) are refused with the reason, and the agent switches. Gate answers, `git add -f` of a named file, CI and git-hook edits, scripts that call the CLI and git settings that run a program go through without a prompt and are logged: `kit.mjs retro` lists them. |
 
 ## Troubleshooting
 
@@ -118,8 +116,9 @@ The logs are history, not a knowledge base: every task reads the code fresh.
 | "Admin API login missing or lacks scopes", or an investigation's query gets "access denied" | the login command `node .claude/kit/shopify.mjs auth-check` prints, with your store and the missing scopes filled in |
 | "No Jira credentials" | create `.claude/.env.local`, or paste the ticket text |
 | "The theme library is full" | delete old kit drafts with `shopify.mjs delete-draft <KEY>`, and others in the admin (stores allow 20 themes, 100 on Plus) |
-| push: "Live has changed … since this branch's base" | merge `origin/<base>` into the task branch, commit, push again. If live edits never reach git: copy them into the branch, commit, and `push <KEY> --reconciled <file>` (you're asked to confirm) |
+| push: "Live has changed … since this branch's base" (merchant JSON) | merge `origin/<base>` into the task branch, commit, push again. If admin edits never reach git: carry them into the branch, commit, and `push <KEY> --reconciled <file>` (you're asked to confirm). Other files live changed (a code-editor hotfix) are only listed, and the report names them |
 | push: "Shopify rejected files" | fix the named file (often a Liquid error), commit, push again |
+| push: "The repo's .shopifyignore excludes …" | decide how those files reach the store (often an admin step). If the draft can go without them: `push <KEY> --skip-ignored`, and the report lists them |
 | push or verify: "the draft doesn't match" | push once more. A JSON file that keeps differing usually needs its schema change pushed first. |
 | The draft seems to show old code | `shopify.mjs fetch <KEY> <path> --find <text>`. A plain `?preview_theme_id` request gets the live theme. |
 | GitHub route: `git push` is rejected | someone saved in the admin: `git pull --no-rebase origin <branch>`, then push |

@@ -11,7 +11,7 @@ Your prompt gives you the task key and the mode: **build**, or **fix** with the 
 ## Before writing
 
 1. `git rev-parse --abbrev-ref HEAD` must equal the branch in `node .claude/kit/kit.mjs status <KEY>`. If it doesn't, stop and report it.
-2. Read `.claude/logs/<KEY>/plan.md` in full, and `brief.md` § Found and § Decided. If `design.md` exists, use its values exactly, except where Gate 1 chose the theme's; a size that "fills or flexes" is a flex or percentage width, not the Figma pixels.
+2. Read `.claude/logs/<KEY>/plan.md` in full, and `brief.md` § Found and § Decided. If `design.md` exists, use its values exactly, except where the dev chose the theme's (brief.md § Decided); a size that "fills or flexes" is a flex or percentage width, not the Figma pixels.
 3. Before editing, read every file the plan touches, plus one neighbouring file of the same kind. Match what you find:
    - indentation and naming
    - schema conventions: `t:` labels or plain text, setting order, presets
@@ -33,17 +33,17 @@ Your prompt gives you the task key and the mode: **build**, or **fix** with the 
 
 ## After writing
 
-1. Run `node .claude/kit/shopify.mjs check <KEY>`, with a 10-minute Bash timeout: a full theme check can take several minutes.
-   - Fix every introduced error.
+1. Run `node .claude/kit/shopify.mjs check <KEY>` (it can take minutes) after your last change. It is the build's only check, and `done build` accepts its result only for the content it checked.
+   - Fix every introduced error. These include errors in files you didn't touch that name a file you deleted or renamed.
    - Fix introduced warnings unless the neighbouring code deliberately does the same; list any you keep.
-   - Read `checksThatRose` too: the change may break a file it didn't touch.
+   - If theme check crashes (exit 2, "gave no report"), it is recorded; report it as "theme check: crashed …" and don't retry more than once.
 2. **Don't commit and don't push.** Return the report below.
 
 ```
 ### As built (<date>, mode)
 - Files: path · what changed (one line each)
-- Deviations from the plan: … (or none)
-- theme check: introduced errors 0 · introduced warnings kept: …
+- Deviations from the plan: each changed file the plan's § Files doesn't name, by its full path, with the reason (or none)
+- theme check: introduced errors 0 · introduced warnings kept: … (or crashed: why)
 - Needs translation: …
 - Build outputs to push: … (or none)
 - Noticed, not touched: …

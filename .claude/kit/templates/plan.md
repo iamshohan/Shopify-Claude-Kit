@@ -1,6 +1,6 @@
 # {{KEY}} · Plan
 
-> At a glance is what the dev reads at Gate 2. Everything below the line is detail for the builder and QA. Frozen at Gate 2: changes go under Amendments with a date and a reason, and the At a glance line they change gets a "(A1: …)" note. The builder appends As built.
+> At a glance is what the dev reads at Gate 1. Everything below the line is detail for the builder and QA. After approval, changes go under Amendments with a date and a reason; Gate 2 shows the dev every change since approval. The builder appends As built.
 
 ## At a glance
 

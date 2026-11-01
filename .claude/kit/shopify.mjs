@@ -3,27 +3,29 @@
 // It builds every argument itself, targets only this task's unpublished draft, and has no publish, live-push or
 // delete-other verbs. The guard hook blocks direct CLI calls, so keep everything that touches the store in here.
 // Reads .claude/shopify-kit.json; writes .claude/logs/<KEY>/ (state.json, pulls, fetches) and .claude/cli-check.json.
+import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { tmpdir, homedir } from 'node:os';
 import { createHash } from 'node:crypto';
 import {
-  ROOT, LOGS, KIT_DIR, THEME_DIRS, MERCHANT_JSON, WIN, print, fail, parseArgs, normKey, now, run, git,
-  currentBranch, parseCliJson, diagnosticJson, readConfig, readState, writeState, secret, inTaskFolder, ignoreMatcher,
-  storefrontGet, renderedTheme, storefrontPath, isThemePath, mutationProblems, createdIds, namesKey, sealDigest, SEAL_FILE, draftNameFor, effectiveBase,
+  ROOT, LOGS, KIT_DIR, KIT_VERSION, THEME_DIRS, MERCHANT_JSON, WIN, print, fail, parseArgs, normKey, now, run, git,
+  currentBranch, parseCliJson, diagnosticJson, readConfig, readState, writeState, secret, inTaskFolder,
+  storefrontGet, renderedTheme, storefrontPath, isThemePath, mutationProblems, gqlScan, createdIds, namesKey, sealDigest, SEAL_FILE, draftNameFor, effectiveBase,
+  shopifyIgnore, themeDigest,
 } from './lib.mjs';
 
 const HELP = `Usage: node .claude/kit/shopify.mjs <verb> ...
 Read-only
   cli-check [--force]                    does the installed Shopify CLI and plugin still offer what the kit uses? (fast when unchanged)
   auth-check [--store S]                 CLI version, theme login, Admin API login, telemetry opt-out
-  themes [--name TEXT]                   themes in the store: id, name, role
   query <NAME|FILE.graphql> [--owner PRODUCT] [--handle H] [--type T] [--vars FILE.json]
                                          read-only Admin GraphQL (mutations are refused). NAME is a kit query:
                                          shop, definitions (--owner), product (--handle), collection (--handle),
                                          metaobjects (--type), menus, markets, locales
   pull-live <KEY> <file-or-glob>...      live theme files into .claude/logs/<KEY>/live/
-  check <KEY> [--baseline]               theme check; reports only offenses this branch introduced
+  check <KEY>                            theme check; reports only offenses this branch introduced (changed lines, and
+                                         errors naming a file the branch deleted)
   fetch <KEY> [path] [--find TEXT] [--live]
                                          one storefront page from the draft (or live), with the theme that rendered it
                                          checked; saves the HTML. Never curl ?preview_theme_id: without the cookie it serves live
@@ -32,8 +34,10 @@ This task's draft theme
   draft <KEY> [--dry-run] [--adopt]      reuse or create the draft: a copy of the live theme named <KEY>
                                          (refuses an existing theme with that name unless the dev says --adopt)
   draft <KEY> --github [--theme ID]      adopt the theme the dev connected to the task branch (Add theme → Connect from GitHub)
-  push <KEY> [--dry-run]                 upload every theme file the branch's commits touched to the draft, then verify
-  push|verify <KEY> --reconciled F,F     the dev confirms live's edits to these files are already in the branch (a repo
+  push <KEY> [--dry-run]                 upload every theme file the branch's commits touched to the draft, then verify.
+                                         Refuses merchant JSON that live changed since the base; other live edits are listed
+  push <KEY> --skip-ignored              the dev agreed: push all but the files .shopifyignore excludes, which status lists
+  push|verify <KEY> --reconciled F,F     the dev confirms live's edits to this merchant JSON are already in the branch (a repo
                                          that doesn't sync live edits into git); the guard asks first
   preview <KEY> <overrides.json>         virtual preview of the draft with JSON overrides; prints the URL
 Investigations (kit.mjs start <KEY> --investigate) can't use draft, push, preview, mutate or delete-draft.
@@ -56,7 +60,7 @@ const ADMIN_API_VERSION = '2026-07';
 // Every CLI command and flag this wrapper relies on, and what breaks if one changes.
 // cli-check verifies them against the installed CLI's --help after every CLI update.
 const CLI_CONTRACT = [
-  { cmd: ['theme', 'list'], flags: ['--store', '--json', '--no-input'], usedBy: 'themes, draft, push, preview, delete-draft' },
+  { cmd: ['theme', 'list'], flags: ['--store', '--json', '--no-input'], usedBy: 'draft, push, preview, delete-draft' },
   { cmd: ['theme', 'info'], flags: ['--json', '--no-input'], usedBy: 'auth-check' },
   { cmd: ['theme', 'duplicate'], flags: ['--store', '--theme', '--name', '--force', '--json', '--no-input'], usedBy: 'draft (build skill, draft stage)' },
   { cmd: ['theme', 'push'], flags: ['--store', '--theme', '--only', '--nodelete', '--json', '--no-input'], usedBy: 'push (draft stage)' },
@@ -64,7 +68,7 @@ const CLI_CONTRACT = [
   { cmd: ['theme', 'preview'], flags: ['--store', '--theme', '--overrides', '--json', '--preview-id', '--no-input'], usedBy: 'preview (qa stage, settings behaviour)' },
   { cmd: ['theme', 'check'], flags: ['--path', '--output', '--no-input'], usedBy: 'check (build stage)' },
   { cmd: ['theme', 'delete'], flags: ['--store', '--theme', '--force', '--no-input'], usedBy: 'delete-draft (handoff cleanup)' },
-  { cmd: ['store', 'execute'], flags: ['--store', '--query-file', '--variable-file', '--json', '--allow-mutations', '--version', '--no-input'], usedBy: 'query, mutate (clarify, plan, draft stages)' },
+  { cmd: ['store', 'execute'], flags: ['--store', '--query-file', '--variable-file', '--json', '--allow-mutations', '--version', '--no-input'], usedBy: 'query, mutate (plan and draft stages)' },
   { cmd: ['store', 'auth'], flags: ['--store', '--scopes'], usedBy: 'the login command auth-check suggests' },
   { cmd: ['store', 'auth', 'list'], flags: ['--json'], usedBy: 'auth-check scopes' },
 ];
@@ -152,14 +156,14 @@ function writableTask(key) {
 // ── CLI calls and errors ──
 // failCli turns any CLI failure into one message, with the login command when a login is the cause.
 
-function cli(args) {
+function cli(args, { timeout } = {}) {
   const env = {};
   const token = secret('SHOPIFY_CLI_THEME_TOKEN');
   if (token) env.SHOPIFY_CLI_THEME_TOKEN = token;
   // --no-input: an expired login fails fast instead of opening a browser and hanging the tool call.
   // theme preview --overrides drops the backslashes of a Windows path (CLI 4.9.4); forward slashes work everywhere.
   const posix = args.map((a) => (/^[A-Za-z]:\\/.test(a) ? a.replaceAll('\\', '/') : a));
-  const r = run('shopify', [...posix, '--no-input'], { env, shell: true });
+  const r = run('shopify', [...posix, '--no-input'], { env, shell: true, ...(timeout ? { timeout } : {}) });
   // theme preview --json prints its result to stderr, wrapped in a diagnostic event (CLI 4.9.4).
   return { ...r, data: parseCliJson(r.stdout) ?? diagnosticJson(r.stderr) };
 }
@@ -233,9 +237,8 @@ function taskDraft(st, themes) {
 function assertOwnDraft(key, st, theme) {
   if (!theme) fail(`Theme ${st.draft?.themeId} no longer exists in the store. Run: shopify.mjs draft ${key}`);
   if (theme.role !== 'unpublished') fail(`Theme ${theme.id} is "${theme.role}", not unpublished. The kit only writes to unpublished drafts.`);
-  // kit/<KEY>/… is the name drafts had before kit 0.2.0.
   const expected = draftNameFor(key, st);
-  if (st.draft.route === 'cli' && theme.name.toUpperCase() !== expected.toUpperCase() && !theme.name.startsWith(`kit/${key}/`)) fail(`Theme ${theme.id} is named "${theme.name}", not ${expected}. Refusing to write to it.`);
+  if (st.draft.route === 'cli' && theme.name.toUpperCase() !== expected.toUpperCase()) fail(`Theme ${theme.id} is named "${theme.name}", not ${expected}. Refusing to write to it.`);
   // A typed-in id could be a teammate's copy; a dev-made draft must carry the ticket key in its name.
   if (st.draft.route !== 'cli' && !namesKey(theme.name, key)) {
     fail(`Theme ${theme.id} is named "${theme.name}", which doesn't contain ${key}. Ask the dev to rename their draft to include ${key}, then record it again.`);
@@ -244,12 +247,6 @@ function assertOwnDraft(key, st, theme) {
 
 // ── What push and verify compare ──
 // Which files the branch owns, whether live changed them since the base, and reading them back from the draft.
-
-/** The CLI skips files matching .shopifyignore without an error. */
-function shopifyIgnore() {
-  const p = join(ROOT, '.shopifyignore');
-  return existsSync(p) ? ignoreMatcher(readFileSync(p, 'utf8')) : () => false;
-}
 
 function assertFullHistory(base) {
   if (!git(['cat-file', '-t', base], { allowFail: true })) fail(`The base commit ${base.slice(0, 7)} isn't in this clone (shallow clone?). Run: git fetch --unshallow`);
@@ -288,29 +285,66 @@ function batches(files) {
   return out;
 }
 
+const TEXT_FILE = /\.(liquid|json|css|scss|js|mjs|svg|txt|md|html)$/i;
+
+/** A file's content as the drift check compares it: JSON as data, text without line-ending noise, anything else as bytes. */
+function driftDigest(f, buf) {
+  if (buf === null) return null;
+  const text = /\.json$/i.test(f) ? normJson(buf.toString('utf8')) : TEXT_FILE.test(f) ? buf.toString('utf8').replace(/\r\n/g, '\n').trimEnd() : buf;
+  return createHash('sha256').update(text).digest('hex').slice(0, 16);
+}
+
+/** A file's drift digest at a commit; raw bytes, since git() decodes and trims (a binary asset, a last newline). */
+function digestAt(commit, f) {
+  const shown = spawnSync('git', ['show', `${commit}:./${f}`], { cwd: ROOT, maxBuffer: 64 * 1024 * 1024 });
+  return driftDigest(f, shown.status === 0 ? shown.stdout : null);
+}
+
 /**
- * Changed merchant JSON that live edited after the base: pushing it would overwrite those edits.
- * Each result's `live` is a digest of live's copy.
+ * Branch files whose live copy differs from the base: pushing them overwrites those edits on the draft and, after the
+ * merge, on live. Each result's `live` is a digest of live's copy. `undeployed`: live holds an earlier version from the
+ * base branch's history, so the base branch is ahead of live (merged, not deployed yet), and nothing on live is lost.
  */
 function liveDrift(files, base) {
-  const jsonFiles = files.filter((f) => MERCHANT_JSON.test(f) || /^locales\/.+\.json$/.test(f));
-  if (!jsonFiles.length) return [];
+  if (!files.length) return [];
   const dir = mkdtempSync(join(tmpdir(), 'kit-live-'));
   try {
-    const r = cli(['theme', 'pull', '--store', cfg.store, '--live', '--path', dir, '--nodelete', '--force', ...jsonFiles.flatMap((f) => ['--only', f])]);
-    if (r.code !== 0) failCli(cfg.store, r, 'Pulling live JSON for the drift check');
-    return jsonFiles.flatMap((f) => {
+    for (const batch of batches(files)) {
+      const r = cli(['theme', 'pull', '--store', cfg.store, '--live', '--path', dir, '--nodelete', '--force', ...batch.flatMap((f) => ['--only', f])]);
+      if (r.code !== 0) failCli(cfg.store, r, 'Pulling live files for the drift check');
+    }
+    return files.flatMap((f) => {
       const livePath = join(dir, f);
-      const liveText = existsSync(livePath) ? readFileSync(livePath, 'utf8') : null;
-      const baseText = git(['show', `${base}:./${f}`], { allowFail: true }) || null;
-      if (baseText === null || normJson(liveText) === normJson(baseText)) return [];
-      return [{ file: f, live: createHash('sha256').update(normJson(liveText) ?? '(missing)').digest('hex').slice(0, 16) }];
+      const live = driftDigest(f, existsSync(livePath) ? readFileSync(livePath) : null);
+      // New on the branch and not on live, or unchanged on live since the base: nothing to lose.
+      if (live === digestAt(base, f)) return [];
+      const history = live === null ? [] : git(['log', '-n', '30', '--format=%H', base, '--', f], { allowFail: true }).split('\n').filter(Boolean);
+      return [{ file: f, live: live ?? '(missing)', undeployed: history.some((c) => digestAt(c, f) === live) }];
     });
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }
 
 /**
- * Drifted files the dev hasn't reconciled. --reconciled records the named ones at their current live version,
+ * The drift check push and verify run. Merchant JSON that live changed is refused until merged or reconciled
+ * (the merge would silently drop a merchant's admin edits); other live edits are listed and recorded for the report.
+ * buildOutputs aren't in git at the base, so live always "differs" from it there: they're left out.
+ */
+function driftCheck(key, st, files, base) {
+  const drift = liveDrift(files.filter((f) => !(st.buildOutputs || []).includes(f)), base);
+  const edited = drift.filter((d) => !d.undeployed);
+  const refused = openDrift(key, st, edited.filter((d) => MERCHANT_JSON.test(d.file)));
+  st.draft.liveEdits = edited.filter((d) => !MERCHANT_JSON.test(d.file)).map((d) => d.file);
+  return {
+    refused,
+    report: {
+      ...(st.draft.liveEdits.length ? { liveEditedSinceBase: st.draft.liveEdits, liveEditNote: `Live has changed these since the base (${base.slice(0, 7)}), and the branch's version replaces them on the draft and, after the merge, on live. Check with pull-live ${key} <file> whether those edits must be carried into the branch; list them in report.md § You must still do.` } : {}),
+      ...(drift.some((d) => d.undeployed) ? { baseAheadOfLive: drift.filter((d) => d.undeployed).map((d) => d.file), baseAheadNote: `Live has an earlier version of these from ${cfg.baseBranch || 'main'}: work merged there but not deployed yet, not a live edit.` } : {}),
+    },
+  };
+}
+
+/**
+ * Drifted merchant JSON the dev hasn't reconciled. --reconciled records the named files at their current live version,
  * so a later live edit to the same file is flagged again.
  */
 function openDrift(key, st, drifted) {
@@ -318,16 +352,16 @@ function openDrift(key, st, drifted) {
   if (typeof flags.reconciled !== 'string') fail('Name the files: --reconciled templates/product.json,sections/header-group.json');
   const named = flags.reconciled.split(',').map((s) => s.trim()).filter(Boolean);
   const unknown = named.filter((f) => !drifted.some((d) => d.file === f));
-  if (unknown.length) fail(`--reconciled names ${unknown.join(', ')}, which live hasn't changed since the base. Name only files the drift check lists.`);
+  if (unknown.length) fail(`--reconciled names ${unknown.join(', ')}, which live hasn't changed since the base, or which isn't merchant JSON (other live edits are only listed). Name only files the drift check refused.`);
   for (const d of drifted) if (named.includes(d.file)) (st.liveReconciled ||= {})[d.file] = { live: d.live, at: now() };
   writeState(key, st);
   return drifted.filter((d) => st.liveReconciled?.[d.file]?.live !== d.live);
 }
 
 function driftMessage(key, open, base) {
-  return `Live has changed ${open.map((d) => d.file).join(', ')} since this branch's base (${base.slice(0, 7)}). Pushing would overwrite those edits on the draft and, after merge, on live.\n`
-    + `- Shopify syncs live edits into git ("Update from Shopify" commits): merge origin/${cfg.baseBranch || 'main'} into the branch, resolve, commit, push again.\n`
-    + `- It doesn't: copy live's edits into the branch (pull-live ${key} <file> shows them), commit, and once the dev confirms, run the push or verify again with --reconciled ${open.map((d) => d.file).join(',')}.`;
+  return `Live has changed ${open.map((d) => d.file).join(', ')} since this branch's base (${base.slice(0, 7)}), and no earlier version on ${cfg.baseBranch || 'main'} matches it: a merchant's admin edit. Pushing would overwrite it on the draft and, after the merge, on live.\n`
+    + `- Shopify syncs admin edits into git ("Update from Shopify" commits): git fetch, merge origin/${cfg.baseBranch || 'main'} into the branch, resolve, commit, push again.\n`
+    + `- It doesn't (or the sync hasn't arrived): pull-live ${key} <file> shows live's version. Carry its edits into the branch's file, keeping the branch's own changes, commit, and once the dev confirms, run the push or verify again with --reconciled ${open.map((d) => d.file).join(',')}.`;
 }
 
 const sameText = (a, b) => a.replace(/\r\n/g, '\n') === b.replace(/\r\n/g, '\n');
@@ -357,6 +391,10 @@ function draftMismatches(themeId, files) {
 
 const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 
+// How long a draft run that timed out mid-duplicate still owns a theme with the task's name. Long enough for
+// a slow copy and a retry; short enough that a teammate's same-named draft weeks later is asked about.
+const PENDING_HOURS = 6;
+
 // ── Admin GraphQL ──
 // query refuses mutations; mutate runs only what lib.mjs mutationProblems allows and the guard showed the dev.
 
@@ -365,8 +403,9 @@ function gqlFile(file) {
   return readFileSync(file, 'utf8');
 }
 
-// Comments and strings are stripped first, so the word "mutation" inside them doesn't count.
-const hasMutation = (text) => /\bmutation\b/.test(text.replace(/#.*$/gm, '').replace(/"(?:[^"\\]|\\.)*"/g, ''));
+// Read the way mutationProblems reads it: comments end at a newline or a lone CR, and a "#" inside a string isn't a comment
+// (a regex that stripped comments first let `shop(x: "#") … mutation M { themePublish }` through as a query).
+const hasMutation = (text) => gqlScan(text).tokens.includes('mutation');
 
 function storeExecute(store, file, vars, { mutate = false } = {}) {
   // Pinned: queries are validated against this version; the CLI would otherwise use the newest.
@@ -413,8 +452,9 @@ function normJson(text) {
 
 /** Parse `git diff -U0` into changed line ranges per file. */
 function changedRanges(base) {
-  // --relative keeps paths relative to this folder when the theme lives in a repo subfolder.
-  const diff = git(['diff', '-U0', '--no-color', '--relative', base, '--', ...THEME_DIRS], { allowFail: true });
+  // --relative keeps paths relative to this folder when the theme lives in a repo subfolder. The prefixes and quotePath are
+  // fixed: diff.noprefix, diff.mnemonicPrefix or a quoted non-ASCII path would leave no "+++ b/" line, so nothing counted.
+  const diff = git(['-c', 'core.quotePath=false', 'diff', '-U0', '--no-color', '--src-prefix=a/', '--dst-prefix=b/', '--relative', base, '--', ...THEME_DIRS], { allowFail: true });
   const ranges = {};
   let file = null;
   for (const line of diff.split('\n')) {
@@ -427,15 +467,16 @@ function changedRanges(base) {
       if (count > 0) ranges[file].push([start, start + count - 1]);
     }
   }
-  const untracked = git(['ls-files', '--others', '--exclude-standard', '--', ...THEME_DIRS], { allowFail: true });
+  const untracked = git(['-c', 'core.quotePath=false', 'ls-files', '--others', '--exclude-standard', '--', ...THEME_DIRS], { allowFail: true });
   for (const f of untracked.split('\n').filter(Boolean)) ranges[f] = [[1, Infinity]];
   return ranges;
 }
 
+/** The offenses, or { crashed } when theme check gave no report (a crash, an unsupported .theme-check.yml). */
 function themeCheck() {
   const r = run('shopify', ['theme', 'check', '--path', ROOT, '--output', 'json', '--no-input'], { shell: true });
   const data = parseCliJson(r.stdout);
-  if (!Array.isArray(data)) fail(`theme check produced no JSON.\n${(r.stderr || r.stdout).slice(0, 1500)}`);
+  if (!Array.isArray(data)) return { crashed: (r.stderr || r.stdout || `exit ${r.code}`).trim().slice(0, 1500) };
   const offenses = [];
   for (const f of data) {
     const path = relative(ROOT, f.path).replaceAll('\\', '/');
@@ -445,8 +486,6 @@ function themeCheck() {
   }
   return offenses;
 }
-
-const countBy = (items, key) => items.reduce((acc, x) => ({ ...acc, [x[key]]: (acc[x[key]] || 0) + 1 }), {});
 
 // ── CLI entry ──
 // cli-check and auth-check run before setup, so they don't require .claude/shopify-kit.json.
@@ -469,16 +508,23 @@ switch (verb) {
   // Cached: the full check reruns only when the last one failed, the CLI or plugin version changed, or with --force.
   case 'cli-check': {
     const v = run('shopify', ['version'], { shell: true });
-    if (v.code !== 0) fail('Shopify CLI not found. Install it: npm i -g @shopify/cli@latest');
+    if (v.code !== 0) fail('Shopify CLI not found. Ask the dev to install it: ! npm i -g @shopify/cli@latest');
     const cliVersion = v.stdout.trim().split('\n').pop();
     const pluginVersion = pluginInfo()?.version || null;
-    const last = existsSync(CHECK_PATH) ? JSON.parse(readFileSync(CHECK_PATH, 'utf8')) : null;
-    if (!flags.force && last?.ok && last.cliVersion === cliVersion && last.pluginVersion === pluginVersion) {
-      print({ ok: true, cliVersion, pluginVersion, verifiedAt: last.checkedAt, note: 'unchanged since the last full check' });
+    // A kit update can add CLI flags to the contract, and a new adminApiVersion needs the queries validated again.
+    const adminApiVersion = cfg?.adminApiVersion || ADMIN_API_VERSION;
+    let last = null;
+    try { last = existsSync(CHECK_PATH) ? JSON.parse(readFileSync(CHECK_PATH, 'utf8')) : null; } catch { /* unreadable: run the full check */ }
+    if (!flags.force && last?.ok && last.cliVersion === cliVersion && last.pluginVersion === pluginVersion && last.kitVersion === KIT_VERSION && last.adminApiVersion === adminApiVersion) {
+      print({ ok: true, cliVersion, pluginVersion, kitVersion: KIT_VERSION, adminApiVersion, verifiedAt: last.checkedAt, note: 'unchanged since the last full check' });
       break;
     }
     const result = fullCliCheck(cfg?.store);
-    const report = { ok: result.problems.length === 0, cliVersion, pluginVersion, previous: last ? { cliVersion: last.cliVersion, pluginVersion: last.pluginVersion } : null, checkedAt: now(), problems: result.problems, notes: result.notes };
+    const report = {
+      ok: result.problems.length === 0, cliVersion, pluginVersion, kitVersion: KIT_VERSION, adminApiVersion,
+      previous: last ? { cliVersion: last.cliVersion, pluginVersion: last.pluginVersion, kitVersion: last.kitVersion ?? null, adminApiVersion: last.adminApiVersion ?? null } : null,
+      checkedAt: now(), problems: result.problems, notes: result.notes,
+    };
     writeFileSync(CHECK_PATH, JSON.stringify(report, null, 2));
     print(report);
     if (!report.ok) process.exit(2);
@@ -492,7 +538,7 @@ switch (verb) {
     // The kit needs these commands; older CLI versions lack some of them.
     const needed = [['theme', 'duplicate'], ['theme', 'preview'], ['theme', 'check'], ['store', 'execute']];
     const missing = needed.filter((c) => run('shopify', [...c, '--help'], { shell: true }).code !== 0).map((c) => c.join(' '));
-    out.cliCommands = missing.length ? `missing: ${missing.join(', ')} (update with: npm i -g @shopify/cli@latest)` : 'ok';
+    out.cliCommands = missing.length ? `missing: ${missing.join(', ')} (ask the dev to update: ! npm i -g @shopify/cli@latest)` : 'ok';
     const info = cli(['theme', 'info', '--json']);
     out.cliCurrentStore = info.data?.store || null;
     const store = flags.store || cfg?.store || out.cliCurrentStore;
@@ -530,11 +576,6 @@ switch (verb) {
     out.pluginTelemetryOptOut = existsSync(optOut) || process.env.OPT_OUT_INSTRUMENTATION === 'true';
     out.pluginTelemetryOptOutFile = existsSync(optOut) ? optOut : 'missing (node .claude/kit/kit.mjs optout)';
     print(out);
-    break;
-  }
-
-  case 'themes': {
-    print(listThemes(cfg.store, typeof flags.name === 'string' ? flags.name : undefined));
     break;
   }
 
@@ -584,46 +625,36 @@ switch (verb) {
     break;
   }
 
-  // --baseline records the offenses already there before the build; without it, reports what the branch added.
+  // Runs on the working tree, so the builder checks its own uncommitted change; done build reads the last result.
   case 'check': {
     const key = normKey(pos[0]);
     const st = readState(key);
-    const baselinePath = join(LOGS, key, 'theme-check-baseline.json');
-    if (flags.baseline) {
-      const head = git(['rev-parse', 'HEAD'], { allowFail: true });
-      const cached = existsSync(baselinePath) ? JSON.parse(readFileSync(baselinePath, 'utf8')) : null;
-      if (cached && (cached.commit === head || (st.base && head !== st.base)) && !flags.force) { print({ baseline: 'already recorded', commit: cached.commit.slice(0, 7), total: cached.total }); break; }
-      // A baseline taken after edits would hide the offenses those edits introduced.
-      if (st.base && head !== st.base) fail('Record the baseline right after creating the branch, while HEAD is still the base commit.');
-      if (git(['status', '--porcelain', '--', ...THEME_DIRS], { allowFail: true })) fail('Record the baseline on a clean tree, before any theme file changes.');
-      const offenses = themeCheck();
-      const baseline = { at: now(), commit: head, total: offenses.length, byCheck: countBy(offenses, 'check') };
-      writeFileSync(baselinePath, JSON.stringify(baseline, null, 2));
-      print({ baseline: 'saved', total: baseline.total, note: 'Existing offenses are recorded; later checks report only what this branch adds.' });
-      break;
-    }
     if (!st.base) fail(`No base commit recorded yet. Record it first: kit.mjs set ${key} base=<sha>`);
     assertFullHistory(st.base);
+    // content: done build compares it with the branch's, so a check on other content (before a fix, say) doesn't count.
+    const at = { at: now(), head: git(['rev-parse', 'HEAD'], { allowFail: true }) || null, dirty: Boolean(git(['status', '--porcelain', '--', ...THEME_DIRS], { allowFail: true })), content: themeDigest() };
     const offenses = themeCheck();
+    if (offenses.crashed) {
+      // Recorded, so done build doesn't wait forever on a check that can't run here.
+      st.check = { ...at, crashed: offenses.crashed.slice(0, 300) };
+      writeState(key, st);
+      fail(`theme check gave no report, so nothing was checked:\n${offenses.crashed}\nRecorded as crashed: done build won't wait for it. Report it in As built ("theme check: crashed …"); Shopify still rejects Liquid syntax errors at push.`, 2);
+    }
     // From the effective base, so base-branch changes merged into the task branch don't count as introduced.
     const base = effectiveBase(st, cfg);
     const ranges = changedRanges(base);
-    const introduced = offenses.filter((o) => (ranges[o.path] || []).some(([a, b]) => o.line >= a && o.line <= b));
+    // A deleted or renamed file breaks what still uses it, on lines this branch never touched.
+    const gone = git(['diff', '--name-only', '--no-renames', '--relative', '--diff-filter=D', base, '--', ...THEME_DIRS], { allowFail: true }).split('\n').filter(Boolean);
+    const namesGone = (o) => o.severity === 'error' && gone.some((f) => o.message.includes(f) || o.message.includes(`'${f.split('/').pop().replace(/\.liquid$/, '')}'`));
+    const introduced = offenses.filter((o) => (ranges[o.path] || []).some(([a, b]) => o.line >= a && o.line <= b) || namesGone(o));
     const result = {
       base: base.slice(0, 7),
       introduced,
       introducedErrors: introduced.filter((o) => o.severity === 'error').length,
       introducedWarnings: introduced.filter((o) => o.severity !== 'error').length,
     };
-    if (existsSync(baselinePath)) {
-      const before = JSON.parse(readFileSync(baselinePath, 'utf8')).byCheck;
-      const after = countBy(offenses, 'check');
-      // Catches offenses the change causes in files it didn't touch (e.g. a removed snippet).
-      result.checksThatRose = Object.entries(after).filter(([c, n]) => n > (before[c] || 0)).map(([check, n]) => ({ check, before: before[check] || 0, after: n }));
-      if (base !== st.base) result.baselineNote = 'The base branch was merged in after the baseline was recorded, so checksThatRose can include offenses that came with the merge.';
-    } else {
-      result.note = `No baseline; only offenses on changed lines are shown. Run: shopify.mjs check ${key} --baseline (before building).`;
-    }
+    st.check = { ...at, introducedErrors: result.introducedErrors, introducedWarnings: result.introducedWarnings };
+    writeState(key, st);
     print(result);
     break;
   }
@@ -685,6 +716,14 @@ switch (verb) {
       print({ adopted: true, ...st.draft, next: `shopify.mjs verify ${key}` });
       break;
     }
+    // A duplicate this task started and didn't see finish (the call timed out): the copy is the kit's own.
+    const pending = st.draft?.pending;
+    if (same && pending?.name?.toUpperCase() === name.toUpperCase() && Date.now() - Date.parse(pending.at) < PENDING_HOURS * 3600 * 1000) {
+      record(same, `copy of live theme ${live.id} (adopted after the duplicate started at ${pending.at} didn't report back)`);
+      waitUntilReady(cfg.store, same.id);
+      print({ adopted: true, ...st.draft, note: 'The earlier draft run started this copy and timed out before it finished; the kit took it over.' });
+      break;
+    }
     if (same) {
       // Often a teammate's draft for the same ticket: pushing into it would overwrite their work, so only on request.
       if (!flags.adopt) {
@@ -698,9 +737,18 @@ switch (verb) {
     // No draft yet: duplicate the live theme under the task's name.
     const command = `shopify theme duplicate --store ${cfg.store} --theme ${live.id} --name ${name} --force --json --no-input`;
     if (flags['dry-run']) { print({ dryRun: true, wouldRun: command, otherDraftsForThisTask: others }); break; }
-    const r = cli(['theme', 'duplicate', '--store', cfg.store, '--theme', String(live.id), '--name', name, '--force', '--json']);
+    // Recorded first: if this call times out, the next draft run adopts the copy instead of refusing it as a stranger's.
+    st.draft = { ...st.draft, pending: { name, at: now() } };
+    writeState(key, st);
+    // Under the Bash timeout the kit's settings give (10 minutes), so this process, not the tool call, reports a slow copy.
+    const r = cli(['theme', 'duplicate', '--store', cfg.store, '--theme', String(live.id), '--name', name, '--force', '--json'], { timeout: 540000 });
     const theme = r.data?.theme;
     if (!theme?.id) {
+      // Timed out: the copy may still finish, and the pending marker lets the next run adopt it.
+      if (r.timedOut) fail(`theme duplicate didn't answer within 9 minutes; the copy may still be on its way. Run draft ${key} again: it adopts that copy (for ${PENDING_HOURS} hours) instead of refusing it as someone else's.`, 3);
+      // The CLI answered, so nothing is still being copied.
+      delete st.draft.pending;
+      writeState(key, st);
       const errors = (r.data?.errors || []).join('; ');
       if (/maximum number of themes/i.test(errors)) {
         const unpublished = themes.filter((t) => t.role === 'unpublished');
@@ -727,15 +775,17 @@ switch (verb) {
     const target = waitUntilReady(cfg.store, st.draft.themeId);
     assertOwnDraft(key, st, target);
 
-    const { files, gone: deleted, base } = branchFiles(st);
-    if (!files.length) fail('Nothing to push: the branch has no committed theme changes beyond its base.');
-    const ignored = files.filter(shopifyIgnore());
-    if (ignored.length) fail(`The repo's .shopifyignore excludes ${ignored.join(', ')}, so the CLI would skip them without saying so. Ask the dev how these files reach the store (often: they are edited in the admin, not in git).`);
+    const { files: all, gone: deleted, base } = branchFiles(st);
+    if (!all.length) fail('Nothing to push: the branch has no committed theme changes beyond its base.');
+    const ignored = all.filter(shopifyIgnore());
+    if (ignored.length && !flags['skip-ignored']) fail(`The repo's .shopifyignore excludes ${ignored.join(', ')}, so the CLI would skip them without saying so. Ask the dev how these files reach the store (often: they are edited in the admin, not in git). If the draft can go without them: push ${key} --skip-ignored, and list them in report.md § You must still do.`);
+    const files = all.filter((f) => !ignored.includes(f));
+    if (!files.length) fail('Every file this branch changes is excluded by .shopifyignore: nothing reaches the draft through push.');
 
     const head = git(['rev-parse', 'HEAD']);
-    if (flags['dry-run']) { print({ dryRun: true, theme: target, base: base.slice(0, 7), files, deletedOnBranch: deleted, jsonDriftCheck: 'skipped in dry run' }); break; }
-    const drifted = openDrift(key, st, liveDrift(files, base));
-    if (drifted.length) fail(driftMessage(key, drifted, base), 3);
+    if (flags['dry-run']) { print({ dryRun: true, theme: target, base: base.slice(0, 7), files, deletedOnBranch: deleted, liveDriftCheck: 'skipped in dry run' }); break; }
+    const drift = driftCheck(key, st, files, base);
+    if (drift.refused.length) fail(driftMessage(key, drift.refused, base), 3);
     let urls = {};
     for (const batch of batches(files)) {
       const r = cli(['theme', 'push', '--store', cfg.store, '--theme', String(target.id), '--nodelete', '--json', ...batch.flatMap((f) => ['--only', f])]);
@@ -755,12 +805,13 @@ switch (verb) {
     st.draft.verifiedCommit = head;
     st.draft.pushedAt = now();
     st.draft.pushedFiles = files.length;
+    st.draft.ignoredFiles = ignored;
     if (urls.previewUrl) st.draft.previewUrl = urls.previewUrl;
     if (urls.editorUrl) st.draft.editorUrl = urls.editorUrl;
     writeState(key, st);
     print({
       pushed: files.length, base: base.slice(0, 7), verified: `${files.length}/${files.length} files match ${head.slice(0, 7)}`, previewUrl: st.draft.previewUrl, editorUrl: st.draft.editorUrl,
-      deletedOnBranchButStillOnDraft: deleted,
+      deletedOnBranchButStillOnDraft: deleted, ...drift.report, ...(ignored.length ? { notOnDraftShopifyignore: ignored } : {}),
     });
     break;
   }
@@ -785,14 +836,17 @@ switch (verb) {
     const until = Date.now() + waitSeconds * 1000;
     let mismatches = draftMismatches(target.id, files);
     while (mismatches.length && Date.now() < until) { sleep(15000); mismatches = draftMismatches(target.id, files); }
-    const drifted = github ? openDrift(key, st, liveDrift(files, base)) : [];
-    if (!mismatches.length) { st.draft.verifiedCommit = head; writeState(key, st); }
+    // push runs the drift check on the CLI route; a GitHub-connected draft is never pushed, so verify runs it there.
+    const drift = github ? driftCheck(key, st, files, base) : { refused: [], report: {} };
+    // Refused drift isn't a verified draft either, as a refused push isn't on the CLI route.
+    if (!mismatches.length && !drift.refused.length) st.draft.verifiedCommit = head;
+    writeState(key, st);
     print({
       commit: head.slice(0, 7), base: base.slice(0, 7), files: files.length, matching: files.length - mismatches.length, mismatches,
-      deletedOnBranchButStillOnDraft: gone,
-      ...(drifted.length ? { liveChangedSinceBase: drifted.map((d) => d.file), fix: driftMessage(key, drifted, base) } : {}),
+      deletedOnBranchButStillOnDraft: gone, ...drift.report,
+      ...(drift.refused.length ? { liveChangedSinceBase: drift.refused.map((d) => d.file), fix: driftMessage(key, drift.refused, base) } : {}),
     });
-    if (mismatches.length || drifted.length) process.exit(3);
+    if (mismatches.length || drift.refused.length) process.exit(3);
     break;
   }
 
@@ -868,7 +922,14 @@ switch (verb) {
     if (problems.length) fail(`The kit won't run this mutation:\n- ${problems.join('\n- ')}`);
     if (flags['dry-run']) { print({ dryRun: true, store: cfg.store, mutation: text, variables: vars ? varsText : null }); break; }
     consumeSeal(key, { verb: 'mutate', sha: sealDigest(text, varsText) });
-    const data = storeExecute(cfg.store, abs, vars, { mutate: true });
+    // The CLI gets the exact bytes that were checked and sealed, from a private copy: a file changed since can't run.
+    const tmp = mkdtempSync(join(tmpdir(), 'kit-mutate-'));
+    let data;
+    try {
+      writeFileSync(join(tmp, 'm.graphql'), text);
+      if (vars) writeFileSync(join(tmp, 'v.json'), varsText);
+      data = storeExecute(cfg.store, join(tmp, 'm.graphql'), vars ? join(tmp, 'v.json') : null, { mutate: true });
+    } finally { rmSync(tmp, { recursive: true, force: true }); }
     const userErrors = collect(data, (k, v) => k === 'userErrors' && Array.isArray(v) && v.length).flat();
     const ids = createdIds(data);
     st.mutations.push({ at: now(), file: relative(ROOT, abs).replaceAll('\\', '/'), vars: vars ? relative(ROOT, vars).replaceAll('\\', '/') : null, ids, userErrors });
@@ -884,6 +945,17 @@ switch (verb) {
     const st = writableTask(key);
     if (!st.draft?.themeId || st.draft.deletedAt) fail(`${key} has no draft to delete.`);
     const target = listThemes(cfg.store).find((t) => t.id === st.draft.themeId);
+    // Deleted in the admin already: record it, so status, list and abandon stop offering it. Never suggest
+    // `draft` here: it would make a new copy of live.
+    if (!target) {
+      if (flags['dry-run']) { print({ dryRun: true, gone: st.draft.themeId, wouldRecord: 'deleted' }); break; }
+      rmSync(join(LOGS, key, SEAL_FILE), { force: true });
+      st.draft.deletedAt = now();
+      st.draft.goneBeforeDelete = true;
+      writeState(key, st);
+      print({ deleted: false, themeId: st.draft.themeId, note: `Theme ${st.draft.themeId} (${st.draft.name || key}) is no longer in the store; someone deleted it already. Recorded as deleted; nothing else to do.` });
+      break;
+    }
     assertOwnDraft(key, st, target);
     if (flags['dry-run']) { print({ dryRun: true, wouldDelete: target }); break; }
     consumeSeal(key, { verb: 'delete-draft', themeId: target.id });

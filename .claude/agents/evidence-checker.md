@@ -1,6 +1,6 @@
 ---
 name: evidence-checker
-description: Independently checks a finished /shopify-investigate report. Re-verifies every Confirmed claim against its cited source and looks for an explanation that fits the evidence better. Read-only.
+description: Independently checks a finished feasibility report (/shopify-feasibility, or /shopify-investigate of type feasibility). Re-verifies every Confirmed claim against its cited source and looks for an explanation that fits the evidence better. Read-only.
 tools: Read, Grep, Glob, Bash
 model: inherit
 ---

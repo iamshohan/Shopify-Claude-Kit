@@ -1,5 +1,129 @@
 # Changelog
 
+## Unreleased
+
+- **Simpler pipeline: two gates.**
+  - **Stages:** intake, analyze, plan, approve (Gate 1), build, draft, qa, accept (Gate 2), handoff.
+  - **Clarify is folded into plan:** the plan stage asks every open question before the plan is written, and `done plan` checks the recorded answers. The small lane (`--small`, `kit.mjs lane`) is gone with it.
+  - **Tasks already in flight:** a task at `clarify` resumes at `plan`.
+  - **Investigations have two stages,** gather and conclude (the gate). The evidence-checker runs for feasibility checks only. A task at `frame` resumes at `gather`.
+  - **Approve re-runs the plan checks,** so "approve with changes" is checked too.
+  - **No "run status again":** `done` and `back` already print the next step.
+- **Shown instead of refused:**
+  - **Plan changes:** `done approve` keeps `plan.approved.md`. `done build` and the accept gate list changed files that plan.md § Files doesn't name, and the plan's changes since approval (read from the task branch, whatever is checked out).
+  - **Retro is optional:** handoff and conclude no longer need it, and `note --none` doesn't need one first. `note`, `feedback` and the retro on abandon stay.
+  - **Content checks are presence checks:** no minimum lengths, no At a glance limits, no 3-criterion minimum.
+  - **`compare.mjs`:** reports a section's HTML difference without setting DIFFERS.
+- **One theme check per build pass.**
+  - There's no baseline and no second check of the commit.
+  - `done build` refuses only errors the branch introduced, including errors that name a file it deleted. It accepts the check only for the theme files it actually checked; after any later change, run `check` again.
+  - The diff is read with fixed prefixes, so `diff.noprefix`, `diff.mnemonicPrefix` and non-ASCII names don't hide errors.
+  - A crashing theme check is recorded and doesn't block.
+- **QA:**
+  - **Every criterion measured:** `done qa` wants each numbered plan criterion's report row to show the verdict `qa-row` recorded. It re-asks for a criterion whose plan text changed after it was measured. Each row records a measurement, how it was taken, the commit and the theme. Verdicts typed into the report are refused.
+  - **Re-measured after a fix:** a PASS measured before theme files changed is re-measured, or carried with `qa-row <KEY> 2,3 --carry "why"`.
+  - **Bug fixes:** need a repro criterion, and its PASS records both live and draft, in either order.
+  - **Storefront QA runs in `kit-browser`** (no Chrome fallback). The theme-editor check is one load screenshot per task; per-setting checks are on the dev's by-hand list.
+  - **Tasks at qa under an earlier kit:** rows recorded by hand are re-recorded with `qa-row`.
+  - **Values that start with dashes:** a value like `--measured "--gap: 16px"` is read as a value.
+  - **Probe:** gains `__qa.text()` and the rendered theme in `env()`. `build-probe` writes LF and has `--check`.
+- **Live drift:**
+  - Merchant JSON that live changed is refused: merge, or `--reconciled`.
+  - Other live edits are listed in push output, status and the report.
+  - Live that only lags the base branch passes, and `buildOutputs` are left out.
+  - On the GitHub route, `verify` doesn't mark the draft verified while drift is refused.
+- **`.shopifyignore`:** planned files it excludes are flagged at plan (`reach`, `done plan`). `push --skip-ignored` (with the dev's yes) pushes the rest, and status lists the skipped files for the report.
+- **Draft and lifecycle:**
+  - **Interrupted drafts:** a draft interrupted mid-copy, or a `theme duplicate` that timed out, is adopted on the next run.
+  - **Deleted drafts:** `delete-draft` handles a theme that's already gone.
+  - **Status:** shows the task's owner.
+  - **QA data:** naming existing products no longer counts as a store write.
+  - **Git Bash:** `/…` arguments are restored from `cygpath -m /`, so a Scoop Git works too.
+  - **Build id:** VERSION plus the installed commit (`-dirty` for an uncommitted checkout). `cli-check` re-runs after every kit update, and status and feedback show which build a task started with.
+- **Settings:**
+  - Shopify CLI analytics are off (`SHOPIFY_CLI_NO_ANALYTICS`).
+  - Bash calls get a 10-minute default timeout (`BASH_DEFAULT_TIMEOUT_MS`).
+  - `shopify.mjs --help` is allowed.
+- **Guard: trust first.** It catches a well-meaning agent's mistakes, not an agent disguising a command on purpose. GitHub branch protection and store permissions are the real limits.
+  - **Asks** (hard to undo):
+    - store writes and draft deletes (sealed: a rejected mutation can't run later)
+    - adopting a theme or setting `draft.themeId`
+    - reconciled merchant JSON
+    - the kit's settings
+    - writing, moving or removing `.claude/settings*.json`, `~/.claude/settings*.json`, hooks, `.mcp.json` or `.git/`
+    - removing `.claude/logs` or a task's log folder
+    - git commands that discard work (`reset --hard`, `clean -f`, `checkout`/`switch -f`, `restore`, `branch -D`/`-M`/`-C`, `update-ref`, `stash drop`)
+    - a commit or merge when the guard can't read the branch
+    - a workflow or git hook that pushes a protected branch, or publishes or deletes a theme
+  - **Refused, with what to do instead:**
+    - **The Shopify CLI outside the wrapper,** in its normal spellings:
+      - npx, full paths, `env`/`time` prefixes
+      - package scripts with their pre/post scripts, `run-s`/`run-p`/`npm-run-all`/`concurrently`, in the package the command runs in
+      - plus `--allow-mutations` and direct Admin API calls
+    - **Pushes and merges:**
+      - pushes other than `git push -u origin <branch>`, including ones the repo's git config would route to another branch (push.default, upstream, refspec)
+      - tag pushes, merges, a pull of another branch onto a protected one, `gh workflow run`, and releases or deployments through `gh`
+    - **Secrets:**
+      - `.env*`, `config.yml`, `.envrc` and dotenv loaders
+      - the CLI's login folders
+      - printing the environment or one secret by name (`console.log(process.env.JIRA_API_TOKEN)`, `os.environ[…]`, `%VAR%`; `Boolean(…)` is fine)
+      - a recursive search or `find -exec grep` over the repo root, `.claude/` or `~/.claude` (unless it excludes `.env*`)
+      - `git add -f` of `.`, `.claude` or `.env`
+      - a commit with a secret staged
+      - `JIRA_*=` on the command line
+      - a commit message that runs `$(…)`
+    - **Kit-owned files:** writing task state, the seal or the manifest, including from scripts.
+  - **Allowed and logged** (`kit.mjs retro` lists them, per task branch):
+    - gate answers (the skill asks; no second prompt)
+    - `git add -f` of a named file
+    - git settings that run a program
+    - CI and git-hook edits that don't push or publish
+    - written scripts that call the CLI
+  - **Not refused:**
+    - quoted regexes
+    - listings
+    - CLI words in grep, echo, git log or PR text
+    - a heredoc of notes, even after `cd` or `mkdir`
+    - read-only `node -e`
+    - reading `state.json`
+    - `.env` hygiene (`echo .env >> .gitignore`, `git check-ignore`, `git rm --cached .env`)
+    - searching for `dotenv`
+    - `npm ls`/`view`
+    - library packages like `@shopify/theme-check-node`
+    - `.circleci/config.yml` and `.environment.ts`
+  - **Faster:** the branch is read from `.git/HEAD`, and git runs only for push and commit (about 80 → 35 ms per call).
+  - **Log:** records every decision with its kind, branch and gate, with repo-relative paths. It blanks tokens: Atlassian, Shopify, GitHub, npm, Stripe, Slack, bearer and basic auth, URL credentials.
+  - **Monitor and PowerShell** are guarded like Bash. Windows 8.3 short paths can't reach task state or the seal.
+  - **Allow-list:**
+    - `git push -u origin`, `git pull --no-rebase origin`
+    - `git branch --list`/`--show-current`, `git grep`, `git blame`
+    - read-only Chrome and kit-browser tools
+- **Mutations:**
+  - A delete by `identifier` is refused even beside an owned id.
+  - `metafieldsDelete` runs only on owners the task created, and never on `ownerId: $variable`.
+  - Ids are read with string escapes and JSON variables decoded, and `query` reads comments and strings the way the mutation check does.
+  - `mutate` runs the exact checked bytes from a private copy.
+  - The CLI runs without inherited `SHOPIFY_FLAG_*` variables.
+  - `protectedBranches` given as a string protects that branch.
+- **Removed:**
+  - From state: `tickets`, `qa.products`, `abtest.variation`/`path` (they're in brief.md).
+  - Flags, verbs and rules: `qa-row --viewport/--expected`, kept earlier measurements, `done --note`, the `themes` verb, the "(Recommended)" and "(A1:)" rules, the pre-0.2.0 draft-name exception.
+  - From the instructions: the command's stage table and the per-step timeout lines.
+- **Jira:** `jira.mjs` is shared with the app kit. A Jira URL from the shell environment must be on atlassian.net (only `.env.local` or `~/.claude/.env` can name another host), and redirects aren't followed with the token.
+- **Installers:**
+  - They ship the files git has and warn about uncommitted ones.
+  - They refuse the kit's own repo, and a downgrade without `--force`. With VERSION unchanged, the build is the commit: an install recorded from a commit this checkout doesn't include is refused too.
+  - They remove only kit files a manifest names inside `.claude/`.
+  - They don't carry a repo's `disableAllHooks` into `settings.local.json`.
+- **`install.mjs --app` installs the app kit**, which lives in `app/` with its own installer, tests, VERSION and CHANGELOG. Without `--app` nothing changes. The two kits refuse to install over each other.
+- **Maintenance:**
+  - `node test/all.mjs` runs both kits' suites side by side (about a minute) and checks the built probe.
+  - Code both kits share lives in `shared/`.
+  - Tests:
+    - guard self-tests 219 → 449
+    - kit self-test 44 → 46
+    - e2e 36 → 78
+
 ## 1.0.0 — 2026-10-30
 
 The first version presented to the team as ready for use: `/shopify-implement`, `/shopify-investigate` and `/shopify-feasibility` on live theme repos, with the 0.x history below.

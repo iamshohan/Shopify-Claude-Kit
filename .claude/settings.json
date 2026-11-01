@@ -2,7 +2,9 @@
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "env": {
     "OPT_OUT_INSTRUMENTATION": "true",
-    "DO_NOT_TRACK": "1"
+    "DO_NOT_TRACK": "1",
+    "SHOPIFY_CLI_NO_ANALYTICS": "1",
+    "BASH_DEFAULT_TIMEOUT_MS": "600000"
   },
   "permissions": {
     "allow": [
@@ -11,9 +13,9 @@
       "Bash(node .claude/kit/jira.mjs:*)",
       "Bash(node .claude/kit/compare.mjs:*)",
       "Bash(node .claude/kit/contract.mjs:*)",
+      "Bash(node .claude/kit/shopify.mjs --help)",
       "Bash(node .claude/kit/shopify.mjs cli-check:*)",
       "Bash(node .claude/kit/shopify.mjs auth-check:*)",
-      "Bash(node .claude/kit/shopify.mjs themes:*)",
       "Bash(node .claude/kit/shopify.mjs query:*)",
       "Bash(node .claude/kit/shopify.mjs pull-live:*)",
       "Bash(node .claude/kit/shopify.mjs check:*)",
@@ -35,14 +37,20 @@
       "Bash(git rev-parse:*)",
       "Bash(git ls-remote --heads origin:*)",
       "Bash(git merge-base:*)",
+      "Bash(git push -u origin:*)",
+      "Bash(git pull --no-rebase origin:*)",
+      "Bash(git branch --list:*)",
+      "Bash(git branch --show-current)",
+      "Bash(git grep:*)",
+      "Bash(git blame:*)",
       "PowerShell(node .claude/kit/kit.mjs:*)",
       "PowerShell(node .claude/kit/recon.mjs:*)",
       "PowerShell(node .claude/kit/jira.mjs:*)",
       "PowerShell(node .claude/kit/compare.mjs:*)",
       "PowerShell(node .claude/kit/contract.mjs:*)",
+      "PowerShell(node .claude/kit/shopify.mjs --help)",
       "PowerShell(node .claude/kit/shopify.mjs cli-check:*)",
       "PowerShell(node .claude/kit/shopify.mjs auth-check:*)",
-      "PowerShell(node .claude/kit/shopify.mjs themes:*)",
       "PowerShell(node .claude/kit/shopify.mjs query:*)",
       "PowerShell(node .claude/kit/shopify.mjs pull-live:*)",
       "PowerShell(node .claude/kit/shopify.mjs check:*)",
@@ -62,6 +70,19 @@
       "PowerShell(git rev-parse:*)",
       "PowerShell(git ls-remote --heads origin:*)",
       "PowerShell(git merge-base:*)",
+      "PowerShell(git push -u origin:*)",
+      "PowerShell(git pull --no-rebase origin:*)",
+      "PowerShell(git branch --list:*)",
+      "PowerShell(git branch --show-current)",
+      "PowerShell(git grep:*)",
+      "PowerShell(git blame:*)",
+      "mcp__claude-in-chrome__tabs_context_mcp",
+      "mcp__claude-in-chrome__read_page",
+      "mcp__claude-in-chrome__get_page_text",
+      "mcp__claude-in-chrome__find",
+      "mcp__claude-in-chrome__read_console_messages",
+      "mcp__claude-in-chrome__read_network_requests",
+      "mcp__kit-browser__browser_find",
       "mcp__kit-browser__browser_navigate",
       "mcp__kit-browser__browser_navigate_back",
       "mcp__kit-browser__browser_resize",
@@ -97,7 +118,7 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash|PowerShell|Edit|Write|NotebookEdit",
+        "matcher": "Bash|PowerShell|Monitor|Edit|Write|MultiEdit|NotebookEdit",
         "hooks": [
           {
             "type": "command",
