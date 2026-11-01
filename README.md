@@ -1,42 +1,59 @@
 # Shopify-Claude-Kit
 
-The **Shopify Implementation Kit**: Claude Code commands that take a Jira ticket in a Shopify theme repo to a QA'd draft theme (`/shopify-implement`), or answer a question about the store read-only (`/shopify-investigate`). The team guide ships inside the kit: [`.claude/README.md`](.claude/README.md).
+Claude Code automation kits for Shopify development: the theme kit takes a Jira ticket in a theme repo to a QA'd draft theme, and the app kit takes an app change from approved scenarios to a verified branch with its deploy checklist.
 
-## Install or update in a theme repo
+## Install
 
 ```
 git clone https://github.com/DripDevelopment/Shopify-Claude-Kit.git
-node Shopify-Claude-Kit/install.mjs <path-to-theme-repo>      # --dry-run shows what it would do
+node Shopify-Claude-Kit/install.mjs <path-to-theme-repo>          # theme kit
+node Shopify-Claude-Kit/install.mjs <path-to-app-repo> --app      # app kit
 ```
 
-It copies the kit into `<theme-repo>/.claude/`. It keeps the repo's own config, credentials and logs, removes files a newer kit dropped, and keeps the kit out of the theme repo's git. Then run `/shopify-setup` in Claude Code, once per repo and person.
+Re-run the same command to update.
 
-## Layout
+## Set up (once per repo and person)
+
+Open Claude Code in the repo you installed into, trust the folder when it asks, then run:
+
+- **Theme repo:** `/shopify-setup`. It proves the guard is live, checks the Shopify CLI, your logins and tools (with the exact fix for anything missing), and writes `.claude/shopify-kit.json` with you.
+- **App repo:** `/app-setup`, then `/app-onboard` (once per repo). Setup checks the CLI and writes `.claude/app-kit.json` (dev store, app config, verify commands). Onboard creates `appspec/` with the app's current surfaces; commit it.
+
+For Jira keys, both setups tell you when to create `.claude/.env.local`:
 
 ```
-install.mjs                 installs or updates the kit in a theme repo
-.claude/
-  CLAUDE.md                 always-loaded rules
-  README.md                 team guide
-  settings.json             guard hook, permissions, env
-  commands/                 /shopify-implement, /shopify-investigate, /shopify-feasibility, /shopify-setup, /shopify-update
-  rules/kit-runs.md         rules both commands share; loads when Claude touches .claude/logs/
-  skills/                   one skill per phase (intake, plan, build, qa, handoff) plus shopify-investigate
-  agents/                   theme-recon, abtest-analyst, design-extractor, theme-builder, evidence-checker
-  hooks/guard.mjs           the safety guard (with --selftest)
-  kit/                      scripts: kit.mjs (task state), shopify.mjs (the only CLI wrapper), lib.mjs (shared),
-                            jira.mjs, recon.mjs, contract.mjs, compare.mjs, templates/, queries/,
-                            probe.js (QA probe; build-probe generates probe.inject.js and probe.init.js)
-test/                       e2e.mjs and fake-shopify.mjs: the offline end-to-end test (not installed)
+JIRA_USER=you@company.com
+JIRA_API_TOKEN=...
 ```
 
-## Maintaining the kit
+Without it, paste the ticket text instead.
 
-- **Change it here, never in a theme repo's copy.** Teams pick up changes with `git pull` and the installer.
-- **Before committing,** `node .claude/hooks/guard.mjs --selftest`, `node .claude/kit/kit.mjs --selftest` and `node test/e2e.mjs` must all pass. The e2e test runs the scripts offline against a fake Shopify CLI (`test/fake-shopify.mjs`); a wrapper change that reads new CLI output needs the fake to produce it too. After changing `kit/probe.js`, also run `node .claude/kit/kit.mjs build-probe`.
-- **`hooks/guard.mjs` and `kit/shopify.mjs` are safety code.** Review changes to them in a PR, with a self-test case for every new rule or bypass.
-- **After a Shopify CLI or plugin update,** run `/shopify-update` in a theme repo and fix here what it reports.
-- **Every release:** bump `.claude/VERSION` (patch for fixes, minor for new behaviour) add a `CHANGELOG.md` entry, and update the version in both READMEs.
-- **The Admin API scopes** live only in `kit/shopify.mjs`; `auth-check` builds the login command from them.
+## Theme kit commands
 
-Status: v1.0.0. See `CHANGELOG.md`.
+| Command | Use it to |
+| --- | --- |
+| `/shopify-setup` | Set up once per repo and person: checks the CLI, logins and guard, writes `.claude/shopify-kit.json` |
+| `/shopify-implement ABC-123` | Take a ticket (A/B winner, feature, bug fix) to a QA'd draft theme: plan → your approval → build → QA → your acceptance → PR text |
+| `/shopify-implement ABC-123 qa` | Jump to a stage whose earlier stages are done |
+| `/shopify-implement ABC-123 --test` | Try the kit on a ticket without pushing anything to git |
+| `/shopify-implement` | List the tasks in this repo |
+| `/shopify-investigate ABC-123` | Answer a bug or how-does-it-work question, read-only, with evidence (a plain question works too) |
+| `/shopify-feasibility ABC-123` | Can it be built, how, and how big (S/M/L)? Before a ticket is picked up |
+| `/shopify-update` | After a Shopify CLI or plugin update: checks the kit still matches |
+
+Run a command again with the same key to continue where it stopped. Team guide: [`.claude/README.md`](.claude/README.md).
+
+## App kit commands
+
+| Command | Use it to |
+| --- | --- |
+| `/app-setup` | Set up once per repo and person: checks the CLI, writes `.claude/app-kit.json` (dev store, app config, verify commands) |
+| `/app-onboard` | Once per repo: creates `appspec/` with the app's current surfaces |
+| `/app-change ABC-123` | Add or change behaviour: scenarios → your approval → build → verify → your acceptance → PR text and deploy checklist |
+| `/app-fix ABC-123` | Fix a bug: a failing test first, then the fix |
+| `/app-maintain ABC-123` | API version bump, dependencies or refactor, with no behaviour change |
+| `/app-ab ABC-123` | Build an A/B-gated checkout extension or Function |
+| `/app-ask <question>` | Ask how something works, read-only |
+| `/app-drift` | Health check: surfaces changed outside the kit, archived tests gone (`--regression` runs them all) |
+
+Run a command again with the same key to continue where it stopped. Team guide: [`app/.claude/README.md`](app/.claude/README.md).
