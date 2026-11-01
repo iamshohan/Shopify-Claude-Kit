@@ -4,7 +4,7 @@
 
 The Shopify App Kit: Claude Code for Shopify apps (admin apps and extension-only apps), scenarios first. It lives in `app/` of the Shopify-Claude-Kit repo; devs install it with `node install.mjs <app-repo> --app` from that repo's root.
 
-- **One flow for every change type** (change, fix, maintain, ab): propose → Gate 1 → build → verify → accept (Gate 2) → archive.
+- **One flow for every change type** (change, fix, maintain, ab): propose → Gate 1 → build → verify → accept (Gate 2) → handoff.
   - `/app-change` starts it; `/app-fix`, `/app-maintain` and `/app-ab` are short entry points to the same flow.
   - `/app-ask` and `/app-drift` are read-only.
 - **The proposal** holds:
@@ -30,14 +30,14 @@ The Shopify App Kit: Claude Code for Shopify apps (admin apps and extension-only
     - With no baseline yet, findings in untouched files count as older, and a medium one in a touched file warns.
 
   QA, results and the code and security reviews are recorded against the app code, so docs, CI or `.gitignore` commits and build output don't make them stale.
-- **Archive** moves the change to `appspec/archive/` and updates `surfaces.json` (one item per line) and the baseline. It writes `handoff.md`: the PR text with QA as measured and the reviews, and a deploy checklist:
+- **Handoff** moves the change to `appspec/archive/` and updates `surfaces.json` (one item per line) and the baseline. It writes `handoff.md`: the PR text with QA as measured and the reviews, and a deploy checklist:
   - migration order;
   - hosting, only when the server changed;
   - protected customer data access;
   - deploy with `--config`, and scopes;
   - Function activation and block placement, only for new extensions or targets.
 
-  Re-running a failed archive is safe.
+  Re-running a failed handoff is safe.
 - **Setup:** `/app-setup` checks the CLI and GitHub branch protection, writes `.claude/app-kit.json`, and creates the Shopify plugin's telemetry opt-out (`app.mjs optout`). `/app-onboard` creates `appspec/` with the current surfaces and the security baseline.
 - **Build id:** VERSION plus the installed commit (`-dirty` for an uncommitted checkout), so `cli-check` re-runs after every kit update and feedback names the build.
 - **The guard: trust first.** It catches a well-meaning agent's mistakes, not an agent disguising a command on purpose.

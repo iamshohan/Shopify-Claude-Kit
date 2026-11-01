@@ -11,7 +11,7 @@ user-invocable: false
 1. **Automated.** Run `node .claude/kit/app.mjs verify <ID>` (it runs each scenario's test and every ledgered test, the repo's verify commands, the changed Functions' fixtures, the bundle size of changed checkout UI, and `shopify app security check`). It records the result against the current app code.
    - Any FAIL → go back to build with the failing lines: `app.mjs back <ID> build --reason "<check>: <one line>"`, fix there, then return here.
    - **ledger: gone** → a test an earlier change bound was deleted or renamed. Restore it, or, if the change means it, go back to propose, list it under § Retires and ask Gate 1 again.
-   - **surfaces: changed outside the kit** is a WARN: a surface changed on the base branch without a change. Tell the dev in one line; archive records it.
+   - **surfaces: changed outside the kit** is a WARN: a surface changed on the base branch without a change. Tell the dev in one line; handoff records it.
    - **security check didn't run** is a WARN: tell the dev in one line (often a login: `! shopify auth login`), and run verify again once it can.
    - Other WARNs → read them; a real problem goes back to build.
 2. **QA** (every `qa:` scenario). Measure each on the dev store, on the current code:

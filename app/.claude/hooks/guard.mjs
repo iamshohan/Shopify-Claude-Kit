@@ -98,7 +98,7 @@ function listChanges(cfg) {
   } catch { return []; }
 }
 
-/** The kit-only files: written by app.mjs (archive, start) and the installer, read freely. */
+/** The kit-only files: written by app.mjs (handoff, start) and the installer, read freely. */
 function kitOnly(P) {
   return { dirs: [`${P.archive}/`], files: [P.surfaces, P.securityBaseline, '.claude/.kit-manifest.json'] };
 }
@@ -138,7 +138,7 @@ function writeKind(rel, P) {
 // Files of a change folder that app.mjs writes whole; the agent records results through its verbs instead.
 const KIT_WRITTEN = {
   'change.json': 'Change state goes through node .claude/kit/app.mjs (start, set, done, back).',
-  'handoff.md': 'app.mjs archive writes handoff.md.',
+  'handoff.md': 'app.mjs handoff writes handoff.md.',
 };
 
 /**
@@ -705,8 +705,8 @@ function selftest() {
     [file('Write', 'package-lock.json'), null, at('propose')], [file('Write', '.shopify/project.json'), null, at('propose')], [file('Edit', 'appspec/project.md'), null, at('propose')],
     // the change folder: any file but change.json, at any stage, while the change is open
     [file('Write', `${C}/proposal.md`), null, at('propose')], [file('Edit', `${C}/proposal.md`), null, at('build')], [file('Edit', `${C}/notes.md`), null, at('verify')],
-    [file('Edit', `${C}/notes.md`), null, at('accept')], [file('Write', `${C}/notes.md`), null, at('archive')],
-    [file('Write', `${C}/change.json`), 'deny', at('propose')], [file('Edit', `${C}/handoff.md`), 'deny', at('verify')], [file('Write', `${C}/handoff.md`), 'deny', at('archive')],
+    [file('Edit', `${C}/notes.md`), null, at('accept')], [file('Write', `${C}/notes.md`), null, at('handoff')],
+    [file('Write', `${C}/change.json`), 'deny', at('propose')], [file('Edit', `${C}/handoff.md`), 'deny', at('verify')], [file('Write', `${C}/handoff.md`), 'deny', at('handoff')],
     [bash(`echo x >> ${C}/handoff.md`), 'deny', at('verify')], [file('Write', 'appspec/changes/NEW-1/proposal.md'), 'deny'],
     [file('Edit', `${C}/proposal.md`), 'deny', ctx({ changes: [{ id: ID, st: { stage: 'done', branch: ID } }] })],
     [file('Write', 'appspec/surfaces.json'), 'deny'], [file('Write', 'appspec/security-baseline.json'), 'deny', at('build')],

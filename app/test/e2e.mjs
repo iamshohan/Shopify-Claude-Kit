@@ -316,16 +316,16 @@ writeFileSync(outFile, JSON.stringify({ testResults: files.map((file) => ({ name
   const g2 = json(app('gate', ID));
   ok('the Gate 2 view shows results, QA as measured, changes since Gate 1 and the deploy steps', /Gate 2/.test(g2.gate) && g2.scenarios?.some((s) => /S2.*PASS: gift line shows "Free"/.test(s))
     && g2.changedSinceGate1?.length === 1 && g2.deploySteps?.some((s) => /shopify app deploy --config/.test(s)), JSON.stringify(g2));
-  ok('accept (Gate 2) moves to archive', app('done', ID, 'accept', '--answer', 'Accept').code === 0);
+  ok('accept (Gate 2) moves to handoff', app('done', ID, 'accept', '--answer', 'Accept').code === 0);
 
   // ── Archive ──
-  // A shared file that can't be written (a folder in its place): archive stops before the move and simply runs again.
+  // A shared file that can't be written (a folder in its place): handoff stops before the move and simply runs again.
   mkdirSync(join(repo, C(ID, 'handoff.md')));
-  const arFail = app('archive', ID);
-  ok('archive stops with a clear message when a file can\'t be written, before moving anything', arFail.code !== 0 && /Couldn't write appspec\/changes\/GIFT-1\/handoff\.md/.test(arFail.err) && /archive GIFT-1 again/.test(arFail.err)
+  const arFail = app('handoff', ID);
+  ok('handoff stops with a clear message when a file can\'t be written, before moving anything', arFail.code !== 0 && /Couldn't write appspec\/changes\/GIFT-1\/handoff\.md/.test(arFail.err) && /handoff GIFT-1 again/.test(arFail.err)
     && !/at \w+ \(/.test(arFail.err) && existsSync(join(repo, C(ID, 'change.json'))), arFail.all);
   rmSync(join(repo, C(ID, 'handoff.md')), { recursive: true, force: true });
-  const ar = app('archive', ID);
+  const ar = app('handoff', ID);
   const archived = readdirSync(join(repo, 'appspec', 'archive')).find((d) => d.endsWith(ID));
   ok('archive moves the change and writes the handoff, with no retro required', ar.code === 0 && archived && !existsSync(join(repo, 'appspec/changes', ID)) && /Deploy checklist/.test(read(`appspec/archive/${archived}/handoff.md`)), ar.all);
   ok('the archived change\'s bound test joins the ledger', /^not run \(1 ledgered tests/.test(json(app('drift')).regression || ''), app('drift').out);
@@ -361,7 +361,7 @@ writeFileSync(outFile, JSON.stringify({ testResults: files.map((file) => ({ name
   const vr2 = app('verify', ID2);
   ok('verify fails on the failing test', vr2.code !== 0 && /^FAIL tests: S1: FAIL/.test(check(vr2, 'tests')), vr2.all);
   ok('verify re-ran the ledgered test as regression', /^PASS ledger/.test(check(vr2, 'ledger')) && json(app('status', ID2, '--json')).verify?.checks?.find((c) => c.name === 'ledger')?.note === '1 ledgered tests pass', vr2.all);
-  ok('archive refuses a change whose verify failed', app('archive', ID2).code !== 0);
+  ok('archive refuses a change whose verify failed', app('handoff', ID2).code !== 0);
   ok('a known finding warns, it does not fail', /^WARN security check: known before this change: MISSING_COMPLIANCE_WEBHOOKS/.test(check(vr2, 'security check')), vr2.out);
   const vrSec = appEnv({ FAKE_SECURITY_FINDING: '1' }, 'verify', ID2);
   ok('a new high security finding fails verify', /^FAIL security check: new: UNAUTHENTICATED_ENDPOINT \(high\)/.test(check(vrSec, 'security check')), vrSec.out);
@@ -482,7 +482,7 @@ writeFileSync(outFile, JSON.stringify({ testResults: files.map((file) => ({ name
   app('review', MN, 'security', '--found', 'no findings');
   ok('maintain verify done', app('done', MN, 'verify').code === 0);
   app('done', MN, 'accept', '--answer', 'Accept');
-  const ma = app('archive', MN);
+  const ma = app('handoff', MN);
   ok('maintenance archives; the ledger keeps one entry per test', ma.code === 0 && /^not run \(1 ledgered tests/.test(json(app('drift')).regression || ''), ma.all);
   ok('archive records the surface changed outside the kit', 'webhook:products/update' in JSON.parse(read('appspec/surfaces.json')).items);
   commit(`${MN}: archive`);

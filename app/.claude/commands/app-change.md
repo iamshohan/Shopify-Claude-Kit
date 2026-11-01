@@ -32,7 +32,7 @@ Also:
 
 ## The stages
 
-**propose** (Gate 1) → build → verify → **accept** (Gate 2) → archive, for every type. Status names each stage's skill.
+**propose** (Gate 1) → build → verify → **accept** (Gate 2) → handoff, for every type. Status names each stage's skill.
 
 ## Rules for the whole run
 

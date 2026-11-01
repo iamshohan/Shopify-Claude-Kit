@@ -34,7 +34,7 @@ const SPEC = {
   changes: 'appspec/changes',
   archive: 'appspec/archive',
   surfaces: 'appspec/surfaces.json',
-  // Security findings that predate the change: verify fails only on new ones. Written at onboard and archive.
+  // Security findings that predate the change: verify fails only on new ones. Written at onboard and handoff.
   securityBaseline: 'appspec/security-baseline.json',
   project: 'appspec/project.md',
 };
@@ -139,7 +139,7 @@ export const STAGES = [
   { name: 'build', skill: 'app-build' },
   { name: 'verify', skill: 'app-verify' },
   { name: 'accept', skill: 'app-verify', gate: 'Gate 2: the dev accepts the measured result' },
-  { name: 'archive', skill: 'app-archive' },
+  { name: 'handoff', skill: 'app-handoff' },
 ];
 // change: add or adjust behaviour. fix: a bug, reproduced by a failing test. maintain: no behaviour change (API version,
 // dependencies, refactor). ab: an A/B-gated extension with a gate and a sunset.

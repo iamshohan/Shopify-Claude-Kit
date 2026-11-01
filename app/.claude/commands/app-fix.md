@@ -1,5 +1,5 @@
 ---
-description: Fix a bug in this Shopify app, scenarios first. A failing test reproduces it, a scenario binds that test, then the fix, verify and archive. Resumable.
+description: Fix a bug in this Shopify app, scenarios first. A failing test reproduces it, a scenario binds that test, then the fix, verify and handoff. Resumable.
 argument-hint: <JIRA-KEY or short-kebab-id> [what's wrong] [--test]
 disable-model-invocation: true
 ---

@@ -206,7 +206,7 @@ export function readSnapshot(path) {
  */
 export function snapshotText(items) {
   const keys = Object.keys(items).sort();
-  return ['{', '  "note": "Written by the app kit at onboard and archive. Edit through a change.",', '  "items": {',
+  return ['{', '  "note": "Written by the app kit at onboard and handoff. Edit through a change.",', '  "items": {',
     ...keys.map((k, i) => `    ${JSON.stringify(k)}: ${JSON.stringify(items[k])}${i < keys.length - 1 ? ',' : ''}`), '  }', '}', ''].join('\n');
 }
 

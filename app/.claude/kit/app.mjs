@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// The app kit's state machine: changes, stages, gates, the checks a stage must pass, verify, archive and drift.
+// The app kit's state machine: changes, stages, gates, the checks a stage must pass, verify, handoff and drift.
 // Usage: node .claude/kit/app.mjs <verb> [<ID>] ...   (--help lists the verbs)
 // A change is a folder in git, appspec/changes/<ID>/: proposal.md (its scenarios, surfaces and tasks) and change.json,
 // written only by this script. Archive moves the folder to appspec/archive/ (the test ledger is read from there) and
@@ -42,7 +42,7 @@ const HELP = `Usage: node .claude/kit/app.mjs <verb> ...
                                          record a measured qa: scenario (verify stage only; PASS/FAIL need both texts)
   waive <ID> <scenario> --reason "TEXT"  accept a qa: scenario that can't be measured (verify stage; the dev confirms;
                                          the handoff lists it)
-  archive <ID>                           update surfaces.json and the security baseline, write handoff.md, and move the
+  handoff <ID>                           update surfaces.json and the security baseline, write handoff.md, and move the
                                          change to archive/ (its bound tests join the ledger)
   drift [--regression]                   surfaces changed outside a change, ledgered tests that are gone; --regression runs
                                          every ledgered test
@@ -147,7 +147,7 @@ const isHeavy = (decl) => decl !== 'none' && decl.some((d) => d.op !== '-' && HE
 /**
  * The surfaces this change makes: what differs from appspec/surfaces.json (the record as of the last archive, so a
  * branch cut from an unmerged change doesn't count that change's surfaces) and that the branch itself changed since its
- * git base. drift: what differs from the record but came with the base (changed on main outside the kit); archive
+ * git base. drift: what differs from the record but came with the base (changed on main outside the kit); handoff
  * records it.
  */
 export function ownSurfaces(recorded, baseItems, nowItems) {
@@ -335,7 +335,7 @@ const EXIT_CHECKS = {
     ];
   },
   accept: () => [],
-  archive: (cfg, id) => [`archive with: node .claude/kit/app.mjs archive ${id}`],
+  handoff: (cfg, id) => [`hand off with: node .claude/kit/app.mjs handoff ${id}`],
 };
 
 // ── Verify ──
@@ -370,7 +370,7 @@ function runVerify(cfg, id, st, { skipTests }) {
   const a = actualSurfaces(cfg, st);
   const mm = surfaceMismatch(declaredSurfaces(md), a.diff);
   const attention = a.diff.filter(declarable).map((d) => ({ change: `${d.op} ${d.key}`, why: attentionFor(d) })).filter((x) => x.why);
-  const drift = a.drift.length ? `changed outside the kit (on the base branch; archive records them): ${a.drift.map((d) => `${d.op} ${d.key}`).join(', ')}` : '';
+  const drift = a.drift.length ? `changed outside the kit (on the base branch; handoff records them): ${a.drift.map((d) => `${d.op} ${d.key}`).join(', ')}` : '';
   add('surfaces', mm.undeclared.length || mm.unhappened.length || a.problems.length ? 'FAIL' : drift ? 'WARN' : 'PASS',
     [...a.problems, mm.undeclared.length && `undeclared: ${mm.undeclared.join(', ')}`, mm.unhappened.length && `declared but not in the code: ${mm.unhappened.join(', ')}`].filter(Boolean).join(' · ')
       || [`${a.diff.filter(declarable).length} surface changes, all declared`, drift].filter(Boolean).join(' · '),
@@ -596,19 +596,19 @@ function gateView(cfg, id, st) {
 
 // ── Archive ──
 
-function archive(cfg, id, st) {
+function runHandoff(cfg, id, st) {
   const P = specPaths(cfg);
   const md = proposalOf(cfg, id);
   const rows = scenariosFrom(md);
   const problems = [
-    st.stage !== 'archive' && `${id} is at stage "${st.stage}"; archive comes after Gate 2`,
+    st.stage !== 'handoff' && `${id} is at stage "${st.stage}"; handoff comes after Gate 2`,
     !st.verify?.ok && 'verify hasn\'t passed',
     st.verify && st.verify.digest !== codeDigest(cfg) && 'the code changed after verify: run verify again (back to verify)',
     st.verify && st.verify.proposal !== proposalDigest(md) && 'the scenarios, § Surfaces or § Retires changed after verify: run verify again (back to verify)',
     dirtyCode(cfg).length && 'commit the work first',
     ...openQa(cfg, st, rows),
   ].filter(Boolean);
-  if (problems.length) fail(`Can't archive ${id}:\n${problems.map((p) => `- ${p}`).join('\n')}`);
+  if (problems.length) fail(`Can't hand off ${id}:\n${problems.map((p) => `- ${p}`).join('\n')}`);
 
   const outputs = [];
   // surfaces.json: today's items, keeping each surface's recorded reason and adding the proposal's.
@@ -624,34 +624,34 @@ function archive(cfg, id, st) {
   outputs.push([P.surfaces, snapshotText(items)]);
   // The findings this change's verify saw become the baseline the next change is measured against.
   const sec = st.verify.checks.find((c) => c.name === 'security check' && c.fingerprints);
-  if (sec) outputs.push([P.securityBaseline, JSON.stringify({ note: 'Security findings accepted as of the last archive; verify fails only on new ones. Written by the app kit.', fingerprints: [...sec.fingerprints].sort() }, null, 2) + '\n']);
+  if (sec) outputs.push([P.securityBaseline, JSON.stringify({ note: 'Security findings accepted as of the last handoff; verify fails only on new ones. Written by the app kit.', fingerprints: [...sec.fingerprints].sort() }, null, 2) + '\n']);
   outputs.push([`${changeDir(cfg, id)}/handoff.md`, handoff(cfg, id, st)]);
 
-  // Everything before the move writes the same text when archive runs again, so a failure is fixed by running it again.
+  // Everything before the move writes the same text when handoff runs again, so a failure is fixed by running it again.
   for (const [rel, text] of outputs) {
     try {
       mkdirSync(dirname(join(ROOT, rel)), { recursive: true });
       writeFileSync(join(ROOT, rel), text);
     } catch (e) {
-      fail(`Couldn't write ${rel} (${e.code || e.message}). Make it writable (a read-only file, a folder in its place, an editor holding it) and run node .claude/kit/app.mjs archive ${id} again: it writes the same files again. To undo what it wrote: git restore ${P.dir}`);
+      fail(`Couldn't write ${rel} (${e.code || e.message}). Make it writable (a read-only file, a folder in its place, an editor holding it) and run node .claude/kit/app.mjs handoff ${id} again: it writes the same files again. To undo what it wrote: git restore ${P.dir}`);
     }
   }
   const day = localDay();
-  // A reopened ticket can archive under the same ID on the same day.
+  // A reopened ticket can hand off under the same ID on the same day.
   let to = `${P.archive}/${day}-${id}`;
   for (let n = 2; existsSync(join(ROOT, to)); n++) to = `${P.archive}/${day}-${id}-${n}`;
   mkdirSync(join(ROOT, P.archive), { recursive: true });
   try {
     renameSync(join(ROOT, changeDir(cfg, id)), join(ROOT, to));
   } catch (e) {
-    fail(`Couldn't move ${changeDir(cfg, id)} to ${to} (${e.code || e.message}). On Windows, a terminal, editor or Explorer window open inside that folder locks it: close it and run archive again.`);
+    fail(`Couldn't move ${changeDir(cfg, id)} to ${to} (${e.code || e.message}). On Windows, a terminal, editor or Explorer window open inside that folder locks it: close it and run handoff again.`);
   }
   return finishArchive(cfg, id, st, to);
 }
 
-/** Records the moved change as done. Run again by archive when the move happened but this didn't. */
+/** Records the moved change as done. Run again by handoff when the move happened but this didn't. */
 function finishArchive(cfg, id, st, to) {
-  st.history.push({ at: now(), event: 'done', stage: 'archive' });
+  st.history.push({ at: now(), event: 'done', stage: 'handoff' });
   st.stage = 'done';
   st.archivedAt = now();
   st.archivedTo = to;
@@ -660,14 +660,14 @@ function finishArchive(cfg, id, st, to) {
   return { archived: to, next: archivedNext(cfg, id, st, to) };
 }
 
-/** What's left after an archive: commit, push, open the PR from handoff.md. */
+/** What's left after a handoff: commit, push, open the PR from handoff.md. */
 function archivedNext(cfg, id, st, to) {
   const P = specPaths(cfg);
   const uncommitted = run('git', ['status', '--porcelain', '--', P.dir]).stdout.trim();
   const onBranch = currentBranch() === st.branch;
   const behind = onBranch && !st.test && (() => { const r = run('git', ['rev-list', '--count', `origin/${st.branch}..HEAD`]); return r.code !== 0 || Number(r.stdout.trim()) > 0; })();
   return [
-    uncommitted && `git add -- ${P.dir} && git commit -m "${(cfg.commitPattern || '{ID}: archive').replace('{ID}', id)}"`,
+    uncommitted && `git add -- ${P.dir} && git commit -m "${(cfg.commitPattern || '{ID}: handoff').replace('{ID}', id)}"`,
     st.test ? '(test run: no push)' : (uncommitted || behind) && `git push -u origin ${st.branch}`,
     `PR text and deploy checklist: ${to}/handoff.md`,
   ].filter(Boolean);
@@ -776,7 +776,7 @@ function onboard(cfg) {
       out.push(P.securityBaseline);
       security = { findings: sec.findings.map((f) => `${f.check} (${f.severity}) ${f.file}: ${f.message.slice(0, 160)}`), notCheckedForThisFramework: sec.unresolved.length };
     } else {
-      security = `shopify app security check didn't run (${(sec?.error || 'disabled').slice(0, 160)}). Until a baseline exists, verify treats findings in files a change didn't touch as older; run onboard again to record it, or the first archive does`;
+      security = `shopify app security check didn't run (${(sec?.error || 'disabled').slice(0, 160)}). Until a baseline exists, verify treats findings in files a change didn't touch as older; run onboard again to record it, or the first handoff does`;
     }
   }
   return {
@@ -830,7 +830,7 @@ function selftest() {
   eq('a surface an archived parent change recorded isn\'t this change\'s', [inherited.diff, inherited.drift], [[], []]);
   eq('no snapshot: everything since the base is this change\'s', ownSurfaces(null, { 'scope:a': '' }, { 'scope:b': '' }).diff.map((d) => d.op + d.key), ['-scope:a', '+scope:b']);
   eq('surface keys', ['scope:read_orders', 'model:Gift', 'dependency:extensions/x:zod', 'app-proxy', 'sope:x'].map((k) => SURFACE_KEY.test(k)), [true, true, true, true, false]);
-  eq('one stage graph, two gates', [STAGES.map((s) => s.name), STAGES.filter((s) => s.gate).map((s) => s.name)], [['propose', 'build', 'verify', 'accept', 'archive'], ['propose', 'accept']]);
+  eq('one stage graph, two gates', [STAGES.map((s) => s.name), STAGES.filter((s) => s.gate).map((s) => s.name)], [['propose', 'build', 'verify', 'accept', 'handoff'], ['propose', 'accept']]);
   eq('types', TYPES, ['change', 'fix', 'maintain', 'ab']);
   eq('heavy surfaces need § Design', ['app-proxy', 'model:Gift', 'scope:read_orders', 'app-proxy-x', 'extension:gift'].map((k) => HEAVY.test(k)), [true, true, false, false, true]);
   eq('declared surfaces: a new scope names its scenario', declaredProblems([{ op: '+', key: 'scope:read_orders', why: 'gift', scenario: 'S9' }], [{ id: 'S1' }], 'change', 'X').length, 1);
@@ -1005,7 +1005,7 @@ switch (verb) {
     const st = readChange(cfg, id, { required: false });
     if (st) { print(flags.json ? { ...st, diffBase: effectiveBase(st, cfg) } : summaryLines(cfg, id, st)); break; }
     const old = archivedChange(cfg, id);
-    if (old?.st.stage === 'archive') { print(`${id} moved to ${old.to}, but the archive didn't record it as done: run node .claude/kit/app.mjs archive ${id} again.`); break; }
+    if (old?.st.stage === 'handoff') { print(`${id} moved to ${old.to}, but the handoff didn't record it as done: run node .claude/kit/app.mjs handoff ${id} again.`); break; }
     if (old) {
       const next = archivedNext(cfg, id, old.st, old.to);
       print(flags.json ? { ...old.st, archivedTo: old.to, next } : [`${id} is archived (${old.to}, ${typeOf(old.st)}, done ${String(old.st.archivedAt || '').slice(0, 10)}).`,
@@ -1168,12 +1168,12 @@ switch (verb) {
     break;
   }
 
-  case 'archive': {
+  case 'handoff': {
     const id = normId(rawId);
     const st = readChange(cfg, id, { required: false });
-    if (st) { print(archive(cfg, id, st)); break; }
+    if (st) { print(runHandoff(cfg, id, st)); break; }
     const old = archivedChange(cfg, id);
-    if (old?.st.stage === 'archive') { print(finishArchive(cfg, id, old.st, old.to)); break; }
+    if (old?.st.stage === 'handoff') { print(finishArchive(cfg, id, old.st, old.to)); break; }
     if (old) { print({ archived: old.to, next: archivedNext(cfg, id, old.st, old.to) }); break; }
     fail(`No change "${id}". Start one with node .claude/kit/app.mjs start ${id} --type change|fix|maintain|ab`);
     break;

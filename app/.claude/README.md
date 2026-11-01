@@ -28,7 +28,7 @@ Run a command again with the same ID to continue.
 2. **build:** Claude implements; app code is editable only now.
 3. **verify:** surfaces vs proposal, each scenario's test, every test an archived change bound (the ledger), your verify commands, Function fixtures, bundle size, `shopify app security check`; `qa:` scenarios measured on the dev store. Start `! shopify app dev` when QA needs it.
 4. **accept:** the measured result and anything changed since Gate 1 (scenarios, surfaces, retired tests). **Gate 2.**
-5. **archive:** the change moves to `appspec/archive/` with `handoff.md`: PR text and deploy checklist. You open the PR, merge and deploy.
+5. **handoff:** the change moves to `appspec/archive/` with `handoff.md`: PR text and deploy checklist. You open the PR, merge and deploy.
 
 Checks: `test:` a vitest test (new or changed on the branch, or its fixture), `qa:` measured on the dev store, `manual:` checked by the reviewer. Security findings in `appspec/security-baseline.json` only warn; new medium or high ones fail (before a baseline exists, a medium one only warns); a check that can't run warns (`"securityCheck": false` turns it off).
 

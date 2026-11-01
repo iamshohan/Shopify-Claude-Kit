@@ -20,7 +20,7 @@ The app kit lives in `app/` of the theme kit's repo. The code both kits share li
 
 | Path | What |
 | --- | --- |
-| `.claude/kit/app.mjs` | The state machine: one stage graph, gates, verify, archive, drift |
+| `.claude/kit/app.mjs` | The state machine: one stage graph, gates, verify, handoff, drift |
 | `.claude/kit/scenarios.mjs` | proposal.md's scenario table: parse, check, what changed since Gate 1 |
 | `.claude/kit/surfaces.mjs` · `toml.mjs` | Surfaces from the config files; a TOML reader matched against the CLI's own parse |
 | `.claude/kit/checks.mjs` | The vitest runner, the test ledger, the repo's verify commands |
