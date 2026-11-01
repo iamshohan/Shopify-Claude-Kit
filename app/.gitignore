@@ -1,0 +1,8 @@
+# Per repo or per person; never part of the kit
+.claude/logs/
+.claude/app-kit.json
+.claude/.env.local
+.claude/settings.local.json
+.claude/cli-check.json
+.claude/.kit-manifest.json
+node_modules/
