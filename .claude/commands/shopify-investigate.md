@@ -19,7 +19,7 @@ You are running a read-only investigation with the Shopify Implementation Kit. A
 5. **Run `node .claude/kit/kit.mjs status <KEY>`.**
    - **"not started":** run `node .claude/kit/kit.mjs start <KEY> --investigate`. Then, if the dev gave a question, write it under § Question in `.claude/logs/<KEY>/investigation.md` in their words.
    - **It's an implementation task:** investigations of a running implementation happen inside `/shopify-implement`. Tell the dev that, and offer a separate `INV-…` key.
-6. **Status names the stage and the skill.** Load that skill (`shopify-investigate`) with the Skill tool, and do only that stage.
+6. **Status names the stage and the skill.** Load that skill (`shopify-investigation`) with the Skill tool, and do only that stage.
 7. **When the stage is finished,** run `node .claude/kit/kit.mjs done <KEY> <stage>`. The last stage is a gate and needs `--answer "<the dev's words>"`. If the script refuses, fix what it lists and run it again.
 8. **Continue from what `done` printed:** it is the new status. Tell the dev in one line each time the stage changes.
 
@@ -30,4 +30,4 @@ After a compaction or in a new session, run status first and continue from what 
 The rules every kit run shares (gates, `--answer`, talking to the dev, kit notes) are in `.claude/rules/kit-runs.md`; they load once you touch the task folder. These are the investigation's own:
 
 - **Read-only:** the skill lists what that means.
-- **Only these skills run here:** `shopify-investigate`, `shopify-plugin:shopify` for docs, the `kit-browser` tools for the storefront (Chrome if they're missing), and `claude-in-chrome` for admin pages. Don't load other investigate or QA skills.
+- **Only these skills run here:** `shopify-investigation`, `shopify-plugin:shopify` for docs, the `kit-browser` tools for the storefront (Chrome if they're missing), and `claude-in-chrome` for admin pages. Don't load other investigate or QA skills.

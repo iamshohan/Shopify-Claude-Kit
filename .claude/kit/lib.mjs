@@ -48,8 +48,8 @@ export const STAGES = [
 // /shopify-investigate: read-only, ends in an answer instead of a draft theme.
 // The guard knows the gate by its name, so it stays "conclude".
 export const INVESTIGATION_STAGES = [
-  { name: 'gather', skill: 'shopify-investigate' },
-  { name: 'conclude', skill: 'shopify-investigate', gate: 'the dev accepts the answer or asks for more' },
+  { name: 'gather', skill: 'shopify-investigation' },
+  { name: 'conclude', skill: 'shopify-investigation', gate: 'the dev accepts the answer or asks for more' },
 ];
 
 export const stagesFor = (st) => (st?.kind === 'investigation' ? INVESTIGATION_STAGES : STAGES);

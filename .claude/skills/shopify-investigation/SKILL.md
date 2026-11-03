@@ -1,5 +1,5 @@
 ---
-name: shopify-investigate
+name: shopify-investigation
 description: The two stages of /shopify-investigate and /shopify-feasibility (gather, conclude). A read-only investigation of a Shopify store and theme, for a feasibility check, a bug, or a question. Use only when kit.mjs status names this skill.
 user-invocable: false
 ---

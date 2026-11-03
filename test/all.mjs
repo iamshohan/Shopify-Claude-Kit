@@ -2,7 +2,8 @@
 // Every check both kits have, in one run: the shared-code drift check, then the theme kit's and the app kit's suites.
 //   node test/all.mjs        (about a minute: the suites run side by side; each e2e works in its own temp folder)
 import { spawn } from 'node:child_process';
-import { dirname, join } from 'node:path';
+import { existsSync, readdirSync } from 'node:fs';
+import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -30,12 +31,21 @@ const run = ([name, cwd, script, ...args]) => new Promise((done) => {
   child.on('close', (status) => done({ name, ok: status === 0, out: out.trim(), secs: (Date.now() - started) / 1000 }));
 });
 
-const results = await Promise.all(SUITES.map(run));
+// A skill and a command with one name: Claude Code runs the skill for /name, and a user-invocable: false skill
+// then refuses the dev's command (shopify-investigate, 1.0.0).
+const clashes = [REPO, APP].flatMap((root) => {
+  const dir = join(root, '.claude');
+  if (!existsSync(join(dir, 'commands')) || !existsSync(join(dir, 'skills'))) return [];
+  return readdirSync(join(dir, 'commands')).map((f) => f.replace(/\.md$/, '')).filter((n) => existsSync(join(dir, 'skills', n)))
+    .map((n) => `${relative(REPO, dir) || '.claude'}: /${n} is both a command and a skill`);
+});
+const results = [{ name: 'command names', ok: !clashes.length, out: clashes.join('\n') || 'no command shares a skill\'s name', secs: 0 },
+  ...await Promise.all(SUITES.map(run))];
 for (const { name, ok, out, secs } of results) {
   console.log(`${ok ? 'ok  ' : 'FAIL'}  ${name.padEnd(20)} ${out.split('\n').pop()} (${secs.toFixed(1)}s)`);
   // A failing suite shows its own FAIL lines, so the run says what broke without a rerun.
-  if (!ok) console.log(out.split('\n').filter((l) => /FAIL|Error|error/.test(l)).slice(0, 20).map((l) => `      ${l}`).join('\n'));
+  if (!ok) console.log(out.split('\n').filter((l) => /FAIL|Error|error|both a command/.test(l)).slice(0, 20).map((l) => `      ${l}`).join('\n'));
 }
 const failed = results.filter((r) => !r.ok).length;
-console.log(failed ? `${failed} of ${SUITES.length} suites failed` : `all ${SUITES.length} suites passed`);
+console.log(failed ? `${failed} of ${results.length} suites failed` : `all ${results.length} suites passed`);
 process.exit(failed ? 1 : 0);

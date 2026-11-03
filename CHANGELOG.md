@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **`/shopify-investigate` runs again.** The command and the skill behind it were both named `shopify-investigate`. When a skill and a command share a name, Claude Code runs the skill, and this one is agent-only (`user-invocable: false`), so typing the command was refused. The skill is now `shopify-investigation`; updating a theme repo removes the old one. `node test/all.mjs` now fails if any command in either kit shares a skill's name.
 - **Simpler pipeline: two gates.**
   - **Stages:** intake, analyze, plan, approve (Gate 1), build, draft, qa, accept (Gate 2), handoff.
   - **Clarify is folded into plan:** the plan stage asks every open question before the plan is written, and `done plan` checks the recorded answers. The small lane (`--small`, `kit.mjs lane`) is gone with it.
