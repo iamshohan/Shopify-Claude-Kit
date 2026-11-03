@@ -24,6 +24,19 @@ JIRA_API_TOKEN=...
 ```
 That file is yours alone: git ignores it, and Claude can't read it.
 
+### Admin API login (optional, once per store)
+
+It installs Shopify's own CLI app on the store, so the first person to run it must be allowed to install apps there. If you can't yet, skip it (`adminApi: false`) and send this command to someone who can, such as the store owner or a staff member with app permissions. Run it in a terminal, or in Claude Code with `!` in front:
+
+```
+shopify store auth --store <store>.myshopify.com --scopes read_products,write_products,read_metaobject_definitions,write_metaobject_definitions,read_metaobjects,write_metaobjects,read_online_store_navigation,read_markets,read_locales,read_translations,read_content,read_discounts,read_files,read_publications
+```
+
+- A browser opens Shopify's approval page. Once it's approved, other devs run the same command on their own machines to log in.
+- The first six scopes are for `/shopify-implement`. The rest are read-only, for investigations. They're requested together because adding a scope later needs a new approval, and removing one means uninstalling the app.
+- Once the app is installed, set `adminApi: true` in `.claude/shopify-kit.json` (or run `/shopify-setup` again). `node .claude/kit/shopify.mjs auth-check` prints this command with your store filled in, and lists any scopes the login lacks.
+- Without the login, the kit gives you admin steps for definitions and reads admin pages in Chrome.
+
 **Protect the base branch on GitHub** (require PRs). The guard is a seatbelt; branch protection is the boundary.
 
 **Updating:** `git pull` in your kit clone, then run the installer again. Your config, `.env.local`, `settings.local.json` and `logs/` are kept. After a Shopify CLI or plugin update, run `/shopify-update`.

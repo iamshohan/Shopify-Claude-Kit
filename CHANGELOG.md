@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **The Admin API login command is back in `.claude/README.md`.** It had been removed in favour of `auth-check`, but the person who installs Shopify's CLI app on the store is often not the dev and doesn't have the kit. The README now has the full command again, says to skip it and hand it on when you can't install apps yet, and what to change once it's installed. `node test/all.mjs` fails if its scopes differ from `shopify.mjs`.
 - **`/shopify-investigate` runs again.** The command and the skill behind it were both named `shopify-investigate`. When a skill and a command share a name, Claude Code runs the skill, and this one is agent-only (`user-invocable: false`), so typing the command was refused. The skill is now `shopify-investigation`; updating a theme repo removes the old one. `node test/all.mjs` now fails if any command in either kit shares a skill's name.
 - **Simpler pipeline: two gates.**
   - **Stages:** intake, analyze, plan, approve (Gate 1), build, draft, qa, accept (Gate 2), handoff.

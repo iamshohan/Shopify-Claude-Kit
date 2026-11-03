@@ -2,7 +2,7 @@
 // Every check both kits have, in one run: the shared-code drift check, then the theme kit's and the app kit's suites.
 //   node test/all.mjs        (about a minute: the suites run side by side; each e2e works in its own temp folder)
 import { spawn } from 'node:child_process';
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -39,7 +39,14 @@ const clashes = [REPO, APP].flatMap((root) => {
   return readdirSync(join(dir, 'commands')).map((f) => f.replace(/\.md$/, '')).filter((n) => existsSync(join(dir, 'skills', n)))
     .map((n) => `${relative(REPO, dir) || '.claude'}: /${n} is both a command and a skill`);
 });
+// The README's login command is for someone without the kit (the store owner installing the app), so it can't
+// point at auth-check; it has to carry the same scopes as shopify.mjs.
+const readFile = (p) => readFileSync(join(REPO, p), 'utf8');
+const scopeConst = (name) => readFile('.claude/kit/shopify.mjs').match(new RegExp(`const ${name} = '([^']+)'`))?.[1];
+const kitScopes = `${scopeConst('IMPLEMENT_SCOPES')},${scopeConst('INVESTIGATE_SCOPES')}`;
+const readmeScopes = readFile('.claude/README.md').match(/shopify store auth --store \S+ --scopes (\S+)/)?.[1];
 const results = [{ name: 'command names', ok: !clashes.length, out: clashes.join('\n') || 'no command shares a skill\'s name', secs: 0 },
+  { name: 'README login scopes', ok: readmeScopes === kitScopes, out: readmeScopes === kitScopes ? 'match shopify.mjs' : `FAIL README: ${readmeScopes}\nshopify.mjs: ${kitScopes}`, secs: 0 },
   ...await Promise.all(SUITES.map(run))];
 for (const { name, ok, out, secs } of results) {
   console.log(`${ok ? 'ok  ' : 'FAIL'}  ${name.padEnd(20)} ${out.split('\n').pop()} (${secs.toFixed(1)}s)`);
