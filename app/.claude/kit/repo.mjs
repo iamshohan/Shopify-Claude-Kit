@@ -4,8 +4,8 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { homedir, hostname } from 'node:os';
-import { fail, now, parseArgsWith, parseEnv, run as runIn, writeJsonAtomic } from './core.mjs';
+import { hostname } from 'node:os';
+import { fail, now, parseArgsWith, run as runIn, writeJsonAtomic } from './core.mjs';
 
 // ── Paths ──
 // Located from this file, not from cwd: commands may run from a subfolder.
@@ -69,26 +69,6 @@ export function devStore(cfg) {
   return s.endsWith('.myshopify.com') ? s : `${s}.myshopify.com`;
 }
 
-// ── Secrets ──
-// Copied from the theme kit's lib.mjs (secret, secretSource), for jira.mjs.
-
-function readEnvFile(path) {
-  try { return existsSync(path) ? parseEnv(readFileSync(path, 'utf8')) : {}; } catch { return {}; }
-}
-
-/** Per-person secrets: process env first, then .claude/.env.local, then ~/.claude/.env as a convenience fallback. */
-export function secret(name) {
-  return process.env[name] || readEnvFile(join(CLAUDE_DIR, '.env.local'))[name] || readEnvFile(join(homedir(), '.claude', '.env'))[name] || '';
-}
-
-/** Where each secret comes from (they can come from different places), or null if any is missing. */
-export function secretSource(names) {
-  const local = join(CLAUDE_DIR, '.env.local');
-  const global = join(homedir(), '.claude', '.env');
-  const from = names.map((n) => (process.env[n] ? 'process environment' : readEnvFile(local)[n] ? local : readEnvFile(global)[n] ? global : null));
-  if (from.some((f) => !f)) return null;
-  return [...new Set(from)].join(' + ');
-}
 
 // ── Git ──
 
@@ -182,9 +162,4 @@ export function listChanges(cfg) {
   return readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory() && existsSync(join(dir, e.name, 'change.json')))
     .map((e) => { try { return { id: e.name, st: JSON.parse(readFileSync(join(dir, e.name, 'change.json'), 'utf8')) }; } catch { return null; } })
     .filter(Boolean);
-}
-
-/** The open change whose branch is checked out, or null. Two on one branch is a mistake the caller reports. */
-export function activeChanges(cfg, branch = currentBranch()) {
-  return listChanges(cfg).filter(({ st }) => st.branch === branch && !finished(st));
 }

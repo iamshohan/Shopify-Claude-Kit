@@ -120,11 +120,11 @@ Aim for 300 lines or fewer. A small fix gets a short plan: write "none" under a 
 
 ## Stage: approve (Gate 1)
 
-1. Show the dev `plan.md` § At a glance as it is. Nothing else: no file anchors, no restated criteria, no method notes. The path `.claude/logs/<KEY>/plan.md` is for the detail.
-2. AskUserQuestion: "Approve the plan for <KEY>?", naming what the approval covers when there is any: "…including 4 store writes, 3 values kept in code, and 2 approaches not proven yet (fallback for each)?" The options are **Approve**, **Approve with changes** (they type the changes, such as "use the fallback for the waitlist"), and **Reject**.
-3. Then:
-   - **Approve** → `kit.mjs done <KEY> approve --answer "<their words>"`.
-   - **Approve with changes** → edit `plan.md` and ask again.
-   - **Reject** → `kit.mjs back <KEY> plan --reason "<their words>"`.
+1. **Hand the plan over, don't ask yet.** Say the plan is ready and where it is (`.claude/logs/<KEY>/plan.md`), show § At a glance as it is (no file anchors, no restated criteria, no method notes), and name what approving it covers when there is any: "It includes 4 store writes, 3 values kept in code, and 2 approaches not proven yet (each with a fallback)." End with: "Review it and tell me: approve, what to change, or any question." Then stop and wait. No AskUserQuestion: the dev reads first and answers in their own words.
+2. Then, by their reply:
+   - **Questions** → answer them, and wait again.
+   - **Changes** (such as "use the fallback for the waitlist") → edit `plan.md`, say what changed, and wait again.
+   - **Approval** ("approve", "looks good, go") → `kit.mjs done <KEY> approve --answer "<their words>"`. Only an explicit approval counts; if the reply could be read either way, ask.
+   - **Rejection** → `kit.mjs back <KEY> plan --reason "<their words>"`.
 
-**Approve with changes** edits the plan at the gate, so `done approve` runs the plan's checks again. After approval, change `plan.md` only when the work needs it, under **Amendments** with the date and the reason. `done approve` keeps a copy; `done build` and Gate 2 list every change since, and every changed file § Files doesn't name.
+Changes at the gate edit the plan, so `done approve` runs the plan's checks again. After approval, change `plan.md` only when the work needs it, under **Amendments** with the date and the reason. `done approve` keeps a copy; `done build` and Gate 2 list every change since, and every changed file § Files doesn't name.

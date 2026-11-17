@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.5.0 — 2026-11-17
+
+From a four-way review of both kits, and two things teammates ran into.
+
+- **The store is never taken from the CLI's memory.** A teammate finished work on one store, set up the kit in another repo, and setup recorded the first store, because `auth-check` fell back to the store the CLI was last used with. Now `auth-check` reports it only as `cliLastStore`, a hint. `/shopify-setup` asks the dev for the store, showing that hint next to any store the repo names itself. Every wrapper call already passes `--store` from the config, so a correct config can't be overridden by the CLI's login.
+- **Gate 1 hands the plan over instead of asking.** The agent says the plan is ready, gives its path, shows At a glance and what approving covers, and waits. The dev reads it and replies in their own words (approve, change, ask). Only an explicit approval is recorded. The app kit's Gate 1 works the same way.
+- **The customizer contract covers theme settings.** `contract.mjs` now lists each `config/settings_schema.json` group the branch changed and checks its settings (defaults, options, ranges, `visible_if`, `t:` keys), like a section's.
+- **NOT TESTED and BLOCKED need a reason** in `--measured`, and Gate 2 says "only you can check" (BLOCKED) apart from "not tested by me" (NOT TESTED).
+- **Locales follow the plan.** The builder and the build review add keys to the locales § Decided names, not every locale file.
+- **Setup:** a missing Shopify plugin no longer sends a new teammate to `/shopify-update`; it's installed in step 7.
+- **Updates:** a repo first installed with `--force` updates without it, so `update.mjs` no longer fails on it.
+- **Cleanup:** removed unused code (`slug`, `secretSource`), and a stale "Not in v1.0" README section; the QA skill no longer repeats the audit's tolerances.
+
 ## 1.4.0 — 2026-11-17
 
 - **Design checks have two modes, and the agent picks.** At analyze, with the recon and extractor reports in hand, the agent records `design.mode` and tells the dev in one line. It never asks; the dev can reply to switch.

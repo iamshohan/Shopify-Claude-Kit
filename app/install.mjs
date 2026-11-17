@@ -27,7 +27,8 @@ if (!target) {
   process.exit(1);
 }
 const repo = resolve(target);
-if (!force && !readdirSync(repo).some((f) => /^shopify\.app(\.[\w-]+)?\.toml$/.test(f))) {
+// An update skips this: the repo was accepted at its first install (perhaps with --force), and update.mjs passes no flags.
+if (!force && !existsSync(join(repo, '.claude', '.kit-manifest.json')) && !readdirSync(repo).some((f) => /^shopify\.app(\.[\w-]+)?\.toml$/.test(f))) {
   console.error(`${repo} doesn't look like a Shopify app (no shopify.app.toml). Use --force if it is one.`);
   process.exit(1);
 }

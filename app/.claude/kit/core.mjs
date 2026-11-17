@@ -94,37 +94,8 @@ export function parseCliJson(text) {
   return null;
 }
 
-/** The last diagnostic event whose message is a JSON object: where some CLI commands put their --json result. */
-export function diagnosticJson(text) {
-  const lines = String(text).split(/\r?\n/);
-  for (let i = lines.length - 1; i >= 0; i--) {
-    try {
-      const event = JSON.parse(lines[i]);
-      if (event?.type !== 'diagnostic' || typeof event.message !== 'string') continue;
-      const value = JSON.parse(event.message);
-      if (value && typeof value === 'object') return value;
-    } catch { /* not a JSON event */ }
-  }
-  return null;
-}
 
-// ── Secrets and state files ──
-
-// KEY=value lines, with an optional export prefix and matching quotes. No escapes or multi-line values.
-export function parseEnv(text) {
-  const out = {};
-  for (const raw of text.split(/\r?\n/)) {
-    const line = raw.trim();
-    if (!line || line.startsWith('#')) continue;
-    const eq = line.indexOf('=');
-    if (eq === -1) continue;
-    const key = line.slice(0, eq).trim().replace(/^export\s+/, '');
-    let val = line.slice(eq + 1).trim();
-    if (val.length > 1 && /^(['"]).*\1$/.test(val)) val = val.slice(1, -1);
-    out[key] = val;
-  }
-  return out;
-}
+// ── State files ──
 
 /** Write to a temp file and rename, so a crash never leaves half a file. */
 export function writeJsonAtomic(p, value) {

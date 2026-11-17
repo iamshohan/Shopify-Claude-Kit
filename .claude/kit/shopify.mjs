@@ -542,11 +542,17 @@ switch (verb) {
     const needed = [['theme', 'duplicate'], ['theme', 'preview'], ['theme', 'check'], ['store', 'execute']];
     const missing = needed.filter((c) => run('shopify', [...c, '--help'], { shell: true }).code !== 0).map((c) => c.join(' '));
     out.cliCommands = missing.length ? `missing: ${missing.join(', ')} (ask the dev to update: ! npm i -g @shopify/cli@latest)` : 'ok';
+    // The CLI remembers the last store it was used with, often the previous project's: a hint, never this repo's store.
     const info = cli(['theme', 'info', '--json']);
-    out.cliCurrentStore = info.data?.store || null;
-    const store = flags.store || cfg?.store || out.cliCurrentStore;
+    out.cliLastStore = info.data?.store || null;
+    const store = flags.store || cfg?.store;
     out.store = store || null;
-    if (!store) { out.next = 'No store known. Ask the dev for the store\'s myshopify.com domain and pass --store.'; print(out); break; }
+    if (!store) {
+      out.next = `No store set for this repo. Ask the dev for its myshopify.com domain${out.cliLastStore ? ` (the CLI was last used with ${out.cliLastStore}, which may be another project's)` : ''}, then run auth-check --store <domain>.`;
+      print(out);
+      break;
+    }
+    if (out.cliLastStore && out.cliLastStore !== store) out.note = `The CLI was last used with ${out.cliLastStore}; the kit passes --store ${store} on every call, so that doesn't matter here.`;
     const themes = cli(['theme', 'list', '--store', store, '--json', '--role', 'live']);
     out.themeLogin = Array.isArray(themes.data) ? 'ok' : 'missing';
     if (Array.isArray(themes.data)) out.liveTheme = themes.data.map(({ id, name }) => ({ id, name }))[0] || null;

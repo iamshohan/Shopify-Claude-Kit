@@ -178,9 +178,14 @@ function info(cfg) {
   const app = d.project.appConfigFiles?.[0]?.content || {};
   const local = String(app.access_scopes?.scopes || '').split(',').map((s) => s.trim()).filter(Boolean).sort();
   const granted = [...d.remoteApp.grantedScopes].sort();
+  // A bare `shopify app dev` uses the CLI's cached config and store, possibly production or another project's store.
+  const cached = d._hiddenConfig?.dev_store_url || null;
+  const store = devStore(cfg);
   return {
     app: app.name, clientId: app.client_id, embedded: app.embedded, account: d.account?.email || null,
-    devStore: d._hiddenConfig?.dev_store_url || null,
+    devStore: cached,
+    appDev: `! shopify app dev ${[...configFlag(cfg), '--store', store].join(' ')}`,
+    ...(cached && store && cached !== store ? { devStoreWarning: `The CLI's cached dev store is ${cached}, not ${store}: have the dev run the appDev command above, which names the store.` } : {}),
     extensions: (d.project.extensionConfigFiles || []).flatMap((f) => (f.content?.extensions || [f.content]).map((e) => ({ handle: e.handle, type: e.type || f.content.type, apiVersion: f.content.api_version }))),
     scopes: { local, granted, onlyLocal: local.filter((s) => !granted.includes(s)), onlyGranted: granted.filter((s) => !local.includes(s)) },
     note: 'scopes.granted come from Shopify (the released app version); onlyLocal are in shopify.app.toml but not granted yet, which is normal until the dev deploys.',

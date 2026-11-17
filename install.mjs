@@ -50,7 +50,8 @@ if (!target) {
   process.exit(1);
 }
 const repo = resolve(target);
-if (!force && !existsSync(join(repo, 'config', 'settings_schema.json')) && !existsSync(join(repo, 'sections'))) {
+// An update skips this: the repo was accepted at its first install (perhaps with --force), and update.mjs passes no flags.
+if (!force && !existsSync(join(repo, '.claude', '.kit-manifest.json')) && !existsSync(join(repo, 'config', 'settings_schema.json')) && !existsSync(join(repo, 'sections'))) {
   console.error(`${repo} doesn't look like a Shopify theme (no config/settings_schema.json or sections/). Use --force if it is one.`);
   process.exit(1);
 }

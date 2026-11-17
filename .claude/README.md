@@ -1,4 +1,4 @@
-# Shopify Implementation Kit · v1.4.0
+# Shopify Implementation Kit · v1.5.0
 
 A Claude Code setup for Shopify theme repos.
 
@@ -78,7 +78,7 @@ shopify store auth --store <store>.myshopify.com --scopes read_products,write_pr
 | 1 | intake | Reads the ticket and linked tickets; decides A/B port, feature or bug fix. | answer; for A/B ports, put the code in `.claude/logs/<KEY>/abtest/` |
 | 2 | analyze | One agent reads the theme fresh; another turns the A/B code into a list of behaviours. For a feature with a Figma design, a third reads the frames' values into `design.md`, and QA measures the draft against them. | — |
 | 3 | plan | First decides what merchants control and where, and asks every open question at once (a value kept in code that the ticket says the client must be able to change gets its own question). Then writes the plan: At a glance (about 25 lines) on top, first what **needs your attention** (anything that can affect what already exists: store writes, merchant JSON, shared code, changed behaviour), then file by file. Below it the builder detail, store setup and QA criteria. | answer the questions |
-| 4 | approve | Shows At a glance. | **Gate 1:** approve, change or reject |
+| 4 | approve | Shows At a glance and the plan's path, then waits for you. | **Gate 1:** review it, then approve, ask for changes or reject, in your own words |
 | 5 | build | Creates the task branch from a fresh base. The builder agent implements and runs theme check; `/code-review` and a Shopify checklist review; then it commits. | — |
 | 6 | draft | Creates the planned definitions. Pushes to an unpublished theme named `<KEY>`, or adopts the theme you connect to the branch (`draftRoute: "github"`), and proves the draft matches the commit. | approve mutations; connect the branch (GitHub route) |
 | 7 | qa | Measures every criterion on the draft: storefront, settings previews, customizer, regression against live. | do the "by hand" checks |
@@ -157,6 +157,6 @@ The logs are history, not a knowledge base: every task reads the code fresh.
 | The guard blocks a harmless command that mentions "shopify" | use the Grep tool, or rephrase |
 | You need a CLI command the wrapper doesn't have | run it yourself with `!`; the guard only watches Claude |
 
-## Not in v1.0
+## Not in the kit
 
-Shopify app development, fetching A/B code from shadow-drip, target themes other than live, posting to Jira or creating PRs, unattended runs, and shared task state between devs.
+Fetching A/B code from shadow-drip, posting to Jira or creating PRs, unattended runs, and shared task state between devs. Shopify apps have their own kit (`node install.mjs <app-repo> --app`).

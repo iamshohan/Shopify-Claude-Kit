@@ -27,7 +27,7 @@ user-invocable: false
    2. Then check the diff against this list yourself:
       - It follows `plan.md`: the files, setting ids and defaults, and anchors.
       - `render`, not `include`. No loops over all products or collections. No metafield lookups repeated inside loops.
-      - No hardcoded storefront copy, URLs or product IDs. Every string is in settings or locale files, in every locale.
+      - No hardcoded storefront copy, URLs or product IDs. Every string is in settings or locale files, in the locales § Decided names (all, if it names none).
       - Schema:
         - presets present if the merchant places the section or block
         - setting ids unique

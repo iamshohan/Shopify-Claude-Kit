@@ -128,6 +128,13 @@ try {
   const downgrade = reinstall();
   ok('an install refuses to go back from a newer kit without --force', downgrade.status === 1 && /newer than this checkout/.test(downgrade.stderr), downgrade.stderr);
   ok('the installer refuses the kit\'s own repo', spawnSync(process.execPath, [join(KIT, 'install.mjs'), KIT, '--force', '--dry-run'], { encoding: 'utf8' }).status === 1);
+  // A repo first installed with --force: updates (update.mjs passes no flags) skip the layout check.
+  const odd = join(tmp, 'odd-theme');
+  mkdirSync(odd);
+  const oddFirst = spawnSync(process.execPath, [join(KIT, 'install.mjs'), odd], { encoding: 'utf8' });
+  spawnSync(process.execPath, [join(KIT, 'install.mjs'), odd, '--force'], { encoding: 'utf8' });
+  const oddUpdate = spawnSync(process.execPath, [join(KIT, 'install.mjs'), odd], { encoding: 'utf8' });
+  ok('a repo installed with --force updates without --force', oddFirst.status === 1 && oddUpdate.status === 0, oddUpdate.stderr);
   ok('the code both kits share is in step with shared/', spawnSync(process.execPath, [join(KIT, 'scripts', 'sync-shared.mjs'), '--check'], { encoding: 'utf8' }).status === 0);
   writeFileSync(join(repo, '.claude', 'VERSION'), readFileSync(join(KIT, '.claude', 'VERSION'), 'utf8'));
   reinstall();
@@ -264,6 +271,14 @@ try {
 
   const contract = kit('contract.mjs', KEY);
   ok('contract covers this task\'s sections only', contract.code === 0 && /feature\.liquid/.test(contract.out) && !/teammate/.test(contract.out), contract.all);
+  // Theme settings are customizer surface too (POP-1150's only one): changed groups are listed and checked.
+  const schemaPath = join(repo, 'config', 'settings_schema.json');
+  const schemaBefore = readFileSync(schemaPath, 'utf8');
+  writeFileSync(schemaPath, JSON.stringify([...JSON.parse(schemaBefore), { name: 'Bundle', settings: [{ type: 'select', id: 'mode', label: 'Mode', default: 'x', options: [{ value: 'a', label: 'A' }] }] }]));
+  const settingsContract = kit('contract.mjs', KEY);
+  writeFileSync(schemaPath, schemaBefore);
+  ok('contract lists changed theme settings groups and checks their settings',
+    /Theme settings → Bundle/.test(settingsContract.out) && /default \\"x\\" of \\"mode\\" isn't one of its options/.test(settingsContract.out) && !/theme_info/.test(settingsContract.out), settingsContract.all);
 
   // ── Reconcile an unsynced live edit ──
   // A live edit that never reaches git: reconcile by hand, then --reconciled pins that live version.
@@ -444,6 +459,7 @@ try {
   ok('qa-row records the measurement, commit, draft and the plan\'s criterion text', row1.code === 0 && r1.commit === head() && r1.themeId === 2
     && r1.criterion === 'Feature renders | present | product | 390 | —', row1.all + JSON.stringify(r1));
   ok('qa-row undoes Git Bash\'s rewrite of a leading "/"', r1.measured === '/products/x: 1 match', JSON.stringify(r1));
+  ok('qa-row refuses NOT TESTED without a reason', kit('kit.mjs', 'qa-row', KEY, '2', '--verdict', 'NOT TESTED').code === 1);
   kit('kit.mjs', 'qa-row', KEY, '2', '--measured', 'A', '--how', 'fetch --find A', '--verdict', 'FAIL');
   kit('kit.mjs', 'qa-row', KEY, '2', '--measured', '--gap: 16px', '--how', "__qa.css('.t', ['--gap'])", '--verdict', 'PASS');
   const r2 = state().qa.rows[2];

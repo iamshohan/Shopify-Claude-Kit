@@ -1,6 +1,6 @@
 ---
 name: app-propose
-description: The propose stage of the App Kit (/app-change, /app-fix, /app-maintain, /app-ab). Write proposal.md - the scenarios with their checks, the declared surfaces, the design when a heavy surface needs one, and the tasks - then take it to Gate 1 in one question. Use only when app.mjs status says the stage is propose.
+description: The propose stage of the App Kit (/app-change, /app-fix, /app-maintain, /app-ab). Write proposal.md - the scenarios with their checks, the declared surfaces, the design when a heavy surface needs one, and the tasks - then hand it to the dev for review at Gate 1. Use only when app.mjs status says the stage is propose.
 user-invocable: false
 ---
 
@@ -39,14 +39,14 @@ By type:
 
 1. Run `node .claude/kit/app.mjs gate <ID>` until it passes (it lists the proposal's problems first).
 2. Commit the change folder on the change branch (`git add appspec/changes/<ID>` and commit).
-3. **Gate 1, one question.** Ask with AskUserQuestion, built from gate's output, in at most 20 lines:
+3. **Gate 1: hand the proposal over, don't ask yet.** Say it's ready at `appspec/changes/<ID>/proposal.md` and show, from gate's output, in at most 20 lines:
    - the behaviour: `scenarios`, one line each with its values and its check (shorten wording, never the values)
    - the surfaces: `surfaces`, `pcdScopes` first
    - `design` when there is one, in a line or two
    - `attention`, and `retires` if any
    - fix: `reproduce`; A/B: `abGate` and `sunset`
    - anything you are unsure of
-   Options: "Approve" and "Change something" (the dev says what). Never "(Recommended)" on approving.
-4. On approval: `node .claude/kit/app.mjs done <ID> propose --answer "<the dev's words>"`.
+   End with: "Review it and tell me: approve, what to change, or any question." Then stop and wait; no AskUserQuestion. Questions → answer and wait. Changes → edit the proposal, run gate again, say what changed, wait.
+4. On an explicit approval: `node .claude/kit/app.mjs done <ID> propose --answer "<the dev's words>"`. If the reply could be read either way, ask.
 
 **Done when:** gate passes, the dev approved, and `done propose` succeeded. App code opens now (build).

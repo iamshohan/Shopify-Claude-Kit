@@ -15,12 +15,12 @@ Work through these checks in order. Report each one as ✓ or ✗ with the exact
    If it runs instead, stop. The hook isn't active: Claude Code may be too old for the hook format in `.claude/settings.json` (it needs 2.1.295 or newer for `onFailure`; check with `claude --version`), or the folder isn't trusted yet. The kit isn't safe to use until this is ✓.
 2. **Tools.** Run `node --version` (needs 20 or newer) and `git --version`.
 
-   Then run `node .claude/kit/shopify.mjs cli-check --force` (about a minute). It confirms that the installed Shopify CLI and plugin still offer every command, flag and output field the kit uses. Any problem it lists means: run `/shopify-update` before going on.
+   Then run `node .claude/kit/shopify.mjs cli-check --force` (about a minute). It confirms that the installed Shopify CLI and plugin still offer every command, flag and output field the kit uses. A missing Shopify plugin is installed in step 7; any other problem it lists means: run `/shopify-update` before going on.
 
    Then run `node .claude/kit/shopify.mjs auth-check` and report each line it prints.
 3. **Repo facts.** Run `node .claude/kit/recon.mjs`. Use its output to propose the config in step 4.
 4. **Config** (`.claude/shopify-kit.json`). If it exists, show it and ask whether it's still right. Otherwise propose these values and confirm them with the dev in one AskUserQuestion round:
-   - `store`: the store's `*.myshopify.com` domain (from auth-check)
+   - `store`: the store's `*.myshopify.com` domain. **Ask the dev; never take it from the CLI.** auth-check's `cliLastStore` is only the store the CLI was last used with, often the previous project's. Show it as a hint, next to any store this repo names itself (`shopify.theme.toml`, `package.json` scripts with `--store`), and say so when they differ.
    - `storefrontUrl`: the primary domain, from auth-check's `shop.primaryDomain` once the Admin login works. Optional.
    - `jiraBaseUrl`: e.g. `https://driperium.atlassian.net`
    - `ticketPrefixes`: e.g. `["ABC"]`

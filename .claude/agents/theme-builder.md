@@ -25,7 +25,7 @@ Your prompt gives you the task key and the mode: **build**, or **fix** with the 
 - **Use fresh docs.** Before using a Liquid tag, filter or object, a schema setting type, or a schema attribute that this repo doesn't already use, look it up with the `shopify-plugin:shopify` skill (`search_docs`, topic `liquid`). Look things up there, then write it the way this repo does. Two parts of that skill don't apply:
   - its "Your task" theme-architecture rules (LiquidDoc headers, `{% stylesheet %}`, no comments) and its custom-data guidance (TOML, `$app`), which describe new themes and apps
   - its `--api liquid` validator, which can't run in this install; `shopify.mjs check` below is the Liquid check
-- **Every merchant-facing string goes in settings or locale files, never inline.** Add each locale key to every locale file the theme has, using the plan's translations. If a translation is missing, use the default-locale text and list the key under "Needs translation".
+- **Every merchant-facing string goes in settings or locale files, never inline.** Add each locale key to every locale file § Decided names (every locale file the theme has, if it names none), using the plan's translations. If a translation is missing, use the default-locale text and list the key under "Needs translation".
 - **Never edit minified vendor files** (`brief.md` § Found lists them). New CSS and JS go where the plan says.
 - **Merchant JSON** (`templates/*.json`, `sections/*.json`, `config/settings_data.json`): edit only if the plan says so. The guard will ask the dev.
 - **No unrelated changes.** No reformatting, renaming or "improvements" outside the plan. Report problems you notice instead.

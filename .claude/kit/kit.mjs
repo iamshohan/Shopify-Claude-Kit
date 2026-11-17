@@ -972,6 +972,8 @@ switch (verb) {
     // A PASS or FAIL is a measurement: without the value and the call that produced it, it is an opinion.
     const measures = flags.verdict === 'PASS' || flags.verdict === 'FAIL';
     if (measures && (!given('measured') || !given('how'))) fail(`A ${flags.verdict} needs what was measured and how, in the same call: --measured "<value>" --how "<probe call or command>".`);
+    // Gate 2 tells "the agent didn't check it" from "only the dev can check it" by this reason.
+    if ((flags.verdict === 'NOT TESTED' || flags.verdict === 'BLOCKED') && !given('measured')) fail(`A ${flags.verdict} needs the reason in --measured: ${flags.verdict === 'BLOCKED' ? '"dev checks by hand: …" or what is missing' : 'why it wasn\'t checked here'}.`);
     if (carry !== null && (!carry || ['measured', 'how', 'verdict'].some((f) => flags[f] !== undefined))) fail('--carry takes only the reason: --carry "<why the new commits can\'t affect these rows>"');
     const head = git(['rev-parse', 'HEAD'], { allowFail: true }) || null;
     if ((measures || carry) && st.draft?.themeId && st.draft.verifiedCommit !== head) {

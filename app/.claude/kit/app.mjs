@@ -28,7 +28,6 @@ const HELP = `Usage: node .claude/kit/app.mjs <verb> ...
                                          start a change on its branch (check it out first), or restart an abandoned one;
                                          --test: branch <ID>-kit-test, never pushed
   status <ID> [--json]                   stage, the skill to load, gates, what's open; for an archived ID, what's left
-  set <ID> name=value ...                record a fact: title, tickets
   gate <ID>                              what the current gate shows the dev: Gate 1 at propose (exit 1 while proposal.md
                                          has problems, listed first), Gate 2 at accept
   surfaces <ID>                          what the code changes in surfaces (last archive → working tree) against § Surfaces
@@ -80,10 +79,6 @@ function gitBashRoot() {
 export const unMsys = (s) => unMsysFrom(s, typeof s === 'string' && /^[A-Za-z]:\//.test(s) ? gitBashRoot() : null);
 const freeText = (s) => (WIN ? unMsys(s) : s);
 const TEXT_FLAGS = ['answer', 'note', 'measured', 'how', 'reason', 'title', 'found'];
-const SETTABLE = {
-  title: String,
-  tickets: (v) => v.split(',').map((s) => s.trim()).filter(Boolean),
-};
 
 // ── Files of a change ──
 
@@ -1014,24 +1009,6 @@ switch (verb) {
       break;
     }
     print(`${id} not started. Create its branch (git fetch origin, then git switch -c ${branchFor(cfg, id, { test: Boolean(flags.test) })} --no-track origin/${cfg.baseBranch}), then: node .claude/kit/app.mjs start ${id} --type change|fix|maintain|ab`);
-    break;
-  }
-
-  case 'set': {
-    const id = normId(rawId);
-    const st = readChange(cfg, id);
-    if (!rest.length) fail(`Nothing to set. Allowed: ${Object.keys(SETTABLE).join(', ')}`);
-    // Git Bash rewrites the value of name=/text too.
-    const pairs = rest.map((p) => (p.includes('=') ? p.slice(0, p.indexOf('=') + 1) + freeText(p.slice(p.indexOf('=') + 1)) : p));
-    for (const pair of pairs) {
-      const at = pair.indexOf('=');
-      const name = pair.slice(0, at);
-      if (at === -1 || !SETTABLE[name]) fail(`Can't set "${pair}". Allowed: ${Object.keys(SETTABLE).join(', ')}`);
-      st[name] = SETTABLE[name](pair.slice(at + 1).trim());
-    }
-    st.history.push({ at: now(), event: 'set', values: pairs });
-    writeChange(cfg, id, st);
-    print(`Recorded: ${pairs.join(' ')}`);
     break;
   }
 

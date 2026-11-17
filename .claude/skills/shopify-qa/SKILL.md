@@ -67,7 +67,7 @@ Never write "QA passed" while any row is FAIL, NOT TESTED or BLOCKED.
    - A/B ports: compare with the live winner through the force link in status (`abtest.reference`). Without one, a geo-targeted test is invisible from outside its markets: mark that row BLOCKED and say so, rather than comparing with control.
    - **Bug fixes:** measure the "Repro:" row on live too. It must fail there and pass on the draft; record both in Measured ("live: …; draft: …"). A repro that doesn't fail on live proves nothing about the fix, and `done qa` refuses a PASS without both.
    - Check that the experiment isn't running on the draft (its body class or init attribute, from the A/B inventory). If it is, stop and ask the dev: its code rewrites the new markup.
-   - **Design audit rows (exact mode):** run `node .claude/kit/kit.mjs design-audit <KEY> <viewport>` and do what it prints: resize, open the page in the default state, run the generated file with `browser_run_code_unsafe`. It checks every value in `design-checks.json` with these margins: colours, font family and weight exact; font size ±1px; line height, spacing and radius ±2px; fixed width and height ±5px; "fills its parent" within 2px. PASS only when its verdict is PASS. Otherwise record FAIL with the failures and missing selectors in Measured (the full output goes in report.md § Details if it's long). A missing selector usually means the build named the class differently from the plan: that's a FAIL to fix, not a spec to edit.
+   - **Design audit rows (exact mode):** run `node .claude/kit/kit.mjs design-audit <KEY> <viewport>` and do what it prints: resize, open the page in the default state, run the generated file with `browser_run_code_unsafe`. It checks every value in `design-checks.json` with fixed tolerances and gives the verdict. PASS only when its verdict is PASS. Otherwise record FAIL with the failures and missing selectors in Measured (the full output goes in report.md § Details if it's long). A missing selector usually means the build named the class differently from the plan: that's a FAIL to fix, not a spec to edit.
    - **Design rows (reference mode):** layout only, at the Figma frame's width: what's present, the order, what shows and hides, and sizes that fill or flex (`__qa.see`, `__qa.gap`, `__qa.box`).
    - **A design check on request:** if the dev doubts the draft matches a Figma design that wasn't part of the plan, run the `design-extractor` agent on the frames they name, write `design.md` and `design-checks.json` as analyze does, fill the selectors from the build, and add audit rows to report.md § Criteria marked "(design)".
 2. **Settings behaviour.** Cover the defaults, each empty state, and up to two combinations. Use virtual previews, not the editor.
@@ -117,7 +117,7 @@ Never write "QA passed" while any row is FAIL, NOT TESTED or BLOCKED.
 ## Stage: accept (Gate 2)
 
 1. Show the dev, and nothing more:
-   - one verdict line: "20 PASS, 0 FAIL, 5 for you to check"
+   - one verdict line that keeps apart what only the dev can check (BLOCKED) and what you didn't check (NOT TESTED, with why): "20 PASS, 0 FAIL, 3 only you can check, 2 not tested by me (preview failed twice)"
    - each FAIL with what was measured
    - § You must still do, as written in the report
    - "Since the plan was approved" from `kit.mjs status <KEY>`: changed files the plan didn't name, and the plan's changes. Say "none" when both are none.

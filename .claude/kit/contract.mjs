@@ -38,15 +38,15 @@ const st = readState(key);
 
 // Files: the section/block files this branch changed (committed or not), unless named.
 let files = typeof flags.files === 'string' ? flags.files.split(',').map((s) => s.trim()).filter(Boolean) : null;
+const from = st.base ? effectiveBase(st, readConfig({ required: false })) : null;
 if (!files) {
-  if (!st.base) fail(`No base commit recorded for ${key}; pass --files sections/x.liquid,…`);
+  if (!from) fail(`No base commit recorded for ${key}; pass --files sections/x.liquid,…`);
   // Sections that came in with a merge of the base branch aren't this task's.
-  const from = effectiveBase(st, readConfig({ required: false }));
-  const changed = git(['diff', '--name-only', '--relative', from, '--', 'sections', 'blocks'], { allowFail: true }).split('\n');
+  const changed = git(['diff', '--name-only', '--relative', from, '--', 'sections', 'blocks', 'config/settings_schema.json'], { allowFail: true }).split('\n');
   const untracked = git(['ls-files', '--others', '--exclude-standard', '--', 'sections', 'blocks'], { allowFail: true }).split('\n');
-  files = [...new Set([...changed, ...untracked])].filter((f) => /^(sections|blocks)\/[^/]+\.liquid$/.test(f) && existsSync(join(ROOT, f)));
+  files = [...new Set([...changed, ...untracked])].filter((f) => (/^(sections|blocks)\/[^/]+\.liquid$/.test(f) || f === 'config/settings_schema.json') && existsSync(join(ROOT, f)));
 }
-if (!files.length) { print({ files: 0, note: 'No changed section or block files; nothing appears in the customizer from this task.' }); process.exit(0); }
+if (!files.length) { print({ files: 0, note: 'No changed section, block or theme settings files; nothing appears in the customizer from this task.' }); process.exit(0); }
 
 // ── Labels and setting checks ──
 // Schema locales: t: keys resolve per admin language; a key missing from the default locale shows raw.
@@ -124,6 +124,19 @@ const entries = [];
 for (const file of files) {
   const where = file;
   const text = read(file);
+  // Theme settings: only the groups this branch changed, checked like a section's settings (POP-1150's whole surface).
+  if (file === 'config/settings_schema.json') {
+    let groups;
+    try { groups = lenientJson(text); } catch (e) { problems.push(`${file} isn't valid JSON (${e.message})`); continue; }
+    let before = [];
+    try { before = lenientJson(git(['show', `${from}:${file}`], { allowFail: true }) || '[]'); } catch { /* new or unreadable at the base */ }
+    const old = new Map(before.map((g) => [g.name, JSON.stringify(g)]));
+    for (const g of groups.filter((x) => Array.isArray(x.settings) && old.get(x.name) !== JSON.stringify(x))) {
+      const name = label(g.name, `${file} group`);
+      entries.push({ file, kind: 'theme settings', name: `Theme settings → ${name}`, settings: settingsOf(g.settings, `theme settings "${name}"`).rows, blocks: [], presets: [], placedIn: [] });
+    }
+    continue;
+  }
   const raw = schemaOf(text);
   if (raw == null) { problems.push(`${where}: no {% schema %} (nothing for the merchant to edit)`); continue; }
   let schema;
@@ -159,7 +172,7 @@ const cell = (v) => (v == null || v === '' ? '' : String(typeof v === 'object' ?
 const md = [`# ${key} · Customizer contract`, '', `Read from the schemas at ${git(['rev-parse', '--short', 'HEAD'], { allowFail: true })}. Labels in ${defaultLocale || 'the schema (no schema locale files)'}.`, ''];
 for (const e of entries) {
   md.push(`## ${e.name} (${e.kind}, ${e.file})`, '');
-  md.push(`- Can be added by the merchant: ${e.addable ? `yes, as ${e.presets.map((p) => `"${p.name}"`).join(', ')}` : 'no (no presets)'}`);
+  if (e.kind !== 'theme settings') md.push(`- Can be added by the merchant: ${e.addable ? `yes, as ${e.presets.map((p) => `"${p.name}"`).join(', ')}` : 'no (no presets)'}`);
   if (e.enabled_on) md.push(`- enabled_on: ${cell(e.enabled_on)}`);
   if (e.disabled_on) md.push(`- disabled_on: ${cell(e.disabled_on)}`);
   if (e.placedIn.length) md.push(`- Placed today in: ${e.placedIn.slice(0, 12).map((p) => `${p.file} (${p.sectionKey})`).join(', ')}${e.placedIn.length > 12 ? `, +${e.placedIn.length - 12} more` : ''}`);

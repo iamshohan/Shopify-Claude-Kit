@@ -102,10 +102,6 @@ export function namesKey(name, key) {
   return new RegExp(`(^|[^A-Z0-9])${esc}(?![A-Z0-9])`, 'i').test(String(name || ''));
 }
 
-export function slug(text, max = 20) {
-  return String(text || 'dev').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, max) || 'dev';
-}
-
 // ── Processes, git and CLI output ──
 
 /**
@@ -228,14 +224,6 @@ export function secret(name) {
   return process.env[name] || readEnvFile(join(CLAUDE_DIR, '.env.local'))[name] || readEnvFile(join(homedir(), '.claude', '.env'))[name] || '';
 }
 
-/** Where each secret comes from (they can come from different places), or null if any is missing. */
-export function secretSource(names) {
-  const local = join(CLAUDE_DIR, '.env.local');
-  const global = join(homedir(), '.claude', '.env');
-  const from = names.map((n) => (process.env[n] ? 'process environment' : readEnvFile(local)[n] ? local : readEnvFile(global)[n] ? global : null));
-  if (from.some((f) => !f)) return null;
-  return [...new Set(from)].join(' + ');
-}
 
 export function readConfig({ required = true } = {}) {
   if (!existsSync(CONFIG_PATH)) {
