@@ -76,7 +76,9 @@ Work through these checks in order. Report each one as ✓ or ✗ with the exact
      ```
      ! claude mcp add kit-browser --scope user -- npx -y @playwright/mcp@0.0.83 --isolated --headless --snapshot-mode none
      ```
-     `--snapshot-mode none` stops a full page snapshot (about 4k tokens on a product page) after every click and resize, which QA never reads. A `kit-browser` added before kit 1.7.0 lacks it: `! claude mcp remove kit-browser --scope user`, then the command above.
+     `--snapshot-mode none` stops a full page snapshot (about 4k tokens on a product page) after every click and resize, which QA never reads.
+   - **If the tools are there,** run `claude mcp get kit-browser`. If its `Args` line lacks `--snapshot-mode none` (added before kit 1.7.0), the dev re-adds it with `! claude mcp remove kit-browser --scope user`, then the command above, and restarts Claude Code. <!-- TEMPORARY since kit 1.7.0 (2026-11-17): remove this check once every teammate's machine has re-added kit-browser. -->
+
      Don't substitute the dev's own Playwright server: it may drive their logged-in Chrome (`--extension`). Storefront QA needs `kit-browser`: without it, the qa stage stops and asks for it.
    - **Admin and theme editor: Claude in Chrome.** Check that the `mcp__claude-in-chrome__*` tools are available.
    - The dev must be logged into the store admin in that Chrome profile.

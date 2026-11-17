@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.7.1 — 2026-11-17
+
+- **`/shopify-setup` checks the browser's options,** not just that it exists. If `claude mcp get kit-browser` shows no `--snapshot-mode none`, setup has the dev re-add it, so a machine that missed the 1.7.0 note is fixed on its next setup run. Marked temporary in the setup command: remove it once every machine has re-added the browser.
+
 ## 1.7.0 — 2026-11-17
 
 Speed, from the review.
