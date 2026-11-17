@@ -443,8 +443,15 @@ writeFileSync(outFile, JSON.stringify({ testResults: files.map((file) => ({ name
   write(C(FX, 'proposal.md'), proposal({ id: FX, scenarios: [FXS] }));
   ok('a fix needs § Reproduce', /§ Reproduce/.test(app('done', FX, 'propose', '--answer', 'ok').err));
   write(C(FX, 'proposal.md'), proposal({ id: FX, scenarios: [FXS], extra: '## Reproduce\n\nbelow-threshold.json fails before the fix: a 49.99 EUR cart got the gift.\n\n' }));
+  // The bound test must fail on the unfixed code; the fake vitest fails a test whose line says FAILS.
+  const fxNoRepro = app('done', FX, 'propose', '--answer', 'Approved: regression at 49.99');
+  const testFile = 'extensions/gift/tests/default.test.js';
+  const passing = read(testFile);
+  write(testFile, passing.replace('test("runs below-threshold.json", () => {});', 'test("runs below-threshold.json", () => {}); // FAILS'));
   const fxp = app('done', FX, 'propose', '--answer', 'Approved: regression at 49.99');
-  ok('a fix passes Gate 1 with § Reproduce and its regression scenario', fxp.code === 0, fxp.all);
+  write(testFile, passing);
+  ok('a fix passes Gate 1 only once its bound test fails on the unfixed code',
+    fxNoRepro.code !== 0 && /no bound test fails on the unfixed code \(S1: PASS\)/.test(fxNoRepro.err) && fxp.code === 0, fxNoRepro.all + fxp.all);
   write('extensions/gift/src/run.js', 'export function run(input) { return { operations: input.cart.cost.subtotalAmount.amount >= 50.0 ? [{ add: "gift" }] : [] }; }\n');
   commit('fix-3: exact comparison');
   app('review', FX, 'code', '--found', 'no findings');

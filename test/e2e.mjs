@@ -414,6 +414,18 @@ try {
   ok('plan needs "Not proven yet" filled, and each row with a fallback and a QA criterion that exists',
     /Not proven yet: one row per thing/.test(noUnproven.err) && /the header nav markup.*fallback/.test(unchecked.err) && /QA criterion 9 isn't in plan\.md/.test(unchecked.err), noUnproven.all + unchecked.all);
   edit(KEY, 'plan.md', '| the header nav markup | rate-limited | | 9 |', '| the header nav markup | rate-limited | keep the header as it is | 3 |');
+  // Every numbered AC is cited by a QA row or listed under Differs: POP-1150's targeting ACs were in neither.
+  const briefBefore = readFileSync(logFile(KEY, 'brief.md'), 'utf8');
+  const planBefore = readFileSync(logFile(KEY, 'plan.md'), 'utf8');
+  edit(KEY, 'brief.md', '### Acceptance criteria (quoted from the ticket)\n', '### Acceptance criteria (quoted from the ticket)\n\n1. "The feature renders"\n2. "Only on the listed products"\n3. "Attach a video"\n');
+  edit(KEY, 'plan.md', '| 1 | Feature renders |', '| 1 | Feature renders (AC 1) |');
+  const acGap = kit('kit.mjs', 'done', KEY, 'approve', '--answer', 'Approve');
+  edit(KEY, 'plan.md', '- **Differs from the ticket or the A/B test:**', '- **Differs from the ticket or the A/B test:** AC 2–3 not checked here: targeting is merchant data, the video is a handoff step.');
+  const acCovered = kit('kit.mjs', 'done', KEY, 'approve', '--answer', 'Approve');
+  writeFileSync(logFile(KEY, 'brief.md'), briefBefore);
+  writeFileSync(logFile(KEY, 'plan.md'), planBefore);
+  ok('plan refuses an acceptance criterion no QA row cites and Differs doesn\'t list',
+    /AC 2, AC 3 aren't covered/.test(acGap.err) && !/aren't covered/.test(acCovered.err), acGap.all + acCovered.all);
   edit(KEY, 'brief.md', '| Value | Where the merchant changes it | Type, options, default | Empty state | Why |\n| --- | --- | --- | --- | --- |\n',
     '| Value | Where the merchant changes it | Type, options, default | Empty state | Why |\n| --- | --- | --- | --- | --- |\n| Title | section a setting | text, "A2" | hidden | per placement |\n');
   edit(KEY, 'brief.md', '#### Stays in code (the merchant can\'t change it)\n', '#### Stays in code (the merchant can\'t change it)\n\nnone\n');

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.6.0 — 2026-11-17
+
+The second batch from the review: what reaches the gates.
+
+- **Every acceptance criterion is covered or set aside on purpose.** Each QA criterion names the ACs it checks ("AC 2/15"); an AC no row checks goes under At a glance → Differs with why. `done plan` refuses an AC that is in neither. On POP-1150's own logs this flags the targeting ACs (4, 5, 16, 22–24), which had quietly become a merchant step.
+- **Differs lists every quiet deviation:** an "Applied as" that does something other than a quoted AC or the winner (POP-1150's preselect rule) belongs there too.
+- **The investigation gate shows what the answer rests on** ("4 Confirmed, 2 Inferred") and the evidence-checker's verdict.
+
 ## 1.5.0 — 2026-11-17
 
 From a four-way review of both kits, and two things teammates ran into.

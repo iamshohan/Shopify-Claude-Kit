@@ -329,6 +329,7 @@ const EXIT_CHECKS = {
       && 'record the questions you asked and the dev\'s answers in brief.md § Decided → Questions and answers (at least the control-surface confirmation)',
     ...glanceProblems(key),
     ...unprovenProblems(key),
+    ...acCoverageProblems(key),
     ...(hasDesign(st) && st.design?.mode === 'exact' ? exactDesignProblems(key) : []),
     !tableRows(key, 'plan.md', '## Files').length && 'fill plan.md § Files (builder detail): one table row per file',
     !planCriteria(key).size && 'write plan.md § QA criteria: one numbered row per criterion',
@@ -505,6 +506,30 @@ function exactDesignProblems(key) {
     ![...planCriteria(key).values()].some((t) => /design-audit/.test(t))
       && 'add a QA criterion per viewport that runs the design audit: "Design matches Figma (kit.mjs design-audit <KEY> <viewport>)", default state',
   ];
+}
+
+// ── Acceptance criteria coverage ──
+// POP-1150's targeting ACs became a merchant step with no QA row and no stated deviation: nobody decided to drop them.
+
+/** Numbers in "AC 4", "ACs 4, 5", "AC 6/17", "AC 4–6". */
+function acRefs(text) {
+  const out = new Set();
+  for (const m of text.matchAll(/\bACs?\s*((?:\d+\s*(?:[,/&–-]|and)?\s*)+)/g)) {
+    for (const r of m[1].matchAll(/(\d+)\s*[–-]\s*(\d+)|(\d+)/g)) {
+      if (r[3]) out.add(r[3]);
+      else for (let n = Number(r[1]); n <= Number(r[2]) && n - Number(r[1]) < 50; n++) out.add(String(n));
+    }
+  }
+  return out;
+}
+
+function acCoverageProblems(key) {
+  const acs = added(key, 'brief.md', '### Acceptance criteria', '## Asked').map((l) => (l.match(/^(\d+)\.\s/) || [])[1]).filter(Boolean);
+  if (!acs.length) return [];
+  const plan = read(join(LOGS, key, 'plan.md'));
+  const cited = acRefs([...sectionLines(plan, '## QA criteria'), ...sectionLines(plan, '## At a glance')].join('\n'));
+  const open = [...new Set(acs)].filter((n) => !cited.has(n));
+  return [open.length && `acceptance criteria ${open.map((n) => `AC ${n}`).join(', ')} aren't covered: cite each in a QA criterion ("AC n"), or list it under At a glance → Differs from the ticket with why ("AC 14, the implementation video: a handoff step, not theme code")`];
 }
 
 // ── Not proven yet ──
@@ -698,6 +723,7 @@ function selftest() {
     lastVerified({ ok: false, cliVersion: '5.0.1' }),
     lastVerified(null),
   ], ['4.9.4', '4.9.4', null, null]);
+  eq('AC references', [...acRefs('AC 2 · ACs 4, 5 and 7 · AC 6/17 · AC 20–22 · BAC 9')].sort(), ['17', '2', '20', '21', '22', '4', '5', '6', '7']);
   // The session-start update notice: every 15 days, and only for a version newer than the installed one.
   const day = 86400000;
   eq('update notice due', [due(undefined), due('garbage'), due(new Date(Date.now() - 14 * day).toISOString()), due(new Date(Date.now() - 15 * day).toISOString())], [true, true, false, true]);

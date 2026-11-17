@@ -67,7 +67,8 @@ export function runTests(root, tests) {
       else if (!hit) out.set(t.key, { verdict: 'MISSING', note: `no test named "${t.name}" in ${t.file}. Names there: ${results.map((a) => a.title).slice(0, 6).join(' · ') || '(none)'}` });
       // Two tests with one name: whichever passes would stand in for the other.
       else if (hits.length > 1) out.set(t.key, { verdict: 'AMBIGUOUS', note: `${hits.length} tests in ${t.file} are named "${t.name}"; bind one by its full name (${hits.map((a) => `"${a.fullName}"`).slice(0, 3).join(', ')}) or rename one` });
-      else out.set(t.key, { verdict: hit.status === 'passed' ? 'PASS' : 'FAIL', note: hit.status === 'passed' ? undefined : baselineHint(firstLine((hit.failureMessages || []).join(' ')).slice(0, 300) || hit.status) });
+      // ran: vitest reported this very test, so a FAIL is the test's own failure, not a setup problem.
+      else out.set(t.key, { ran: true, verdict: hit.status === 'passed' ? 'PASS' : 'FAIL', note: hit.status === 'passed' ? undefined : baselineHint(firstLine((hit.failureMessages || []).join(' ')).slice(0, 300) || hit.status) });
     }
   }
   return out;

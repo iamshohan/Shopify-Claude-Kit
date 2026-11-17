@@ -273,6 +273,18 @@ function reviewProblem(cfg, st, kind, digest = codeDigest(cfg)) {
 // ── Stage exit checks ──
 // Each proves the stage's output exists, so a stage can't be marked done on intent alone.
 
+/**
+ * A fix's bound tests, run on the unfixed code (app code is still closed at propose): at least one must fail by itself,
+ * or nothing shows the bug was reproduced, and verify's later PASS proves nothing. qa:/manual repros aren't run here.
+ */
+function reproProblems(rows) {
+  const tests = rows.filter((s) => s.check.kind === 'test').map((s) => ({ id: s.id, key: testKey(s.check.file, s.check.name), file: s.check.file, name: s.check.name }));
+  if (!tests.length) return [];
+  const results = runTests(ROOT, tests);
+  if (tests.some((t) => results.get(t.key)?.ran && results.get(t.key).verdict === 'FAIL')) return [];
+  return [`fix: no bound test fails on the unfixed code (${tests.map((t) => `${t.id}: ${results.get(t.key)?.verdict || 'NOT RUN'}`).join(', ')}), so none reproduces the bug. Bind a scenario to a test that fails now, with the failure § Reproduce describes`];
+}
+
 function proposeProblems(cfg, id, st) {
   const md = proposalOf(cfg, id);
   const type = typeOf(st);
@@ -294,6 +306,8 @@ function proposeProblems(cfg, id, st) {
     // A data model, a new webhook, extension, app proxy or config change: the decisions and the deploy order are approved at Gate 1 too.
     isHeavy(decl) && (!design.length || saysNone(design)) && `fill proposal.md § Design: § Surfaces declares ${decl.filter((d) => d.op !== '-' && HEAVY.test(d.key)).map((d) => d.key).join(', ')}. Say the decisions, the data model and migration, which authenticate.* each new route uses, and the deploy order`,
     type === 'fix' && !filled(cfg, id, st, '## Reproduce') && 'fill proposal.md § Reproduce: the failing test (or the steps) and the failure seen before the fix',
+    // Only once the rest is in order: it runs the tests.
+    ...(type === 'fix' && !scenarioProblems(rows).length ? reproProblems(rows) : []),
     type === 'ab' && !filled(cfg, id, st, '## Gate') && 'fill proposal.md § Gate: the attribute key and values, and what happens without it',
     type === 'ab' && !filled(cfg, id, st, '## Sunset') && 'fill proposal.md § Sunset: when the test ends and how the extension is removed',
     ...retiresFrom(md).filter((c) => !ledger.has(testKey(c.file, c.name))).map((c) => `§ Retires → ${checkKey(c)} isn't a test an archived change bound; list only those there`),
@@ -401,6 +415,9 @@ function runVerify(cfg, id, st, { skipTests }) {
     const r = runCommand(ROOT, c.run);
     add(`command: ${c.name}`, r.verdict, r.note);
   }
+  // A maintenance change promises "no behaviour change": with no test of any kind run, nothing showed that.
+  const anyTests = tests.size > 0 || (cfg.verify || []).some((c) => /\b(test|vitest|jest)\b/.test(c.run));
+  if (typeOf(st) === 'maintain' && !anyTests && !skipTests) add('regression', 'FAIL', 'no test ran: no scenario or ledgered test, and no test command in verify (.claude/app-kit.json). Add one, or bind scenarios that re-check what the maintenance could break');
 
   // Functions and checkout UI the change touched: fixtures, instruction counts, bundle size.
   const exts = extensionsTouched(changed, readItems(treeReader(ROOT), { configName: cfg.appConfig }).items);

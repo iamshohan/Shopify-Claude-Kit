@@ -145,7 +145,7 @@ Check the size against the theme's code, not the ticket's length: count the file
    - It re-checks every Confirmed claim against its source and looks for an explanation that fits the evidence better.
    - Apply what it finds: downgrade labels it couldn't confirm, and change the answer if it found a better one.
    - Record its verdict and your changes in § Review.
-3. **Gate.** Show the dev the answer and the next step, then ask with AskUserQuestion:
+3. **Gate.** Show the dev the answer, what it rests on ("rests on 4 Confirmed, 2 Inferred: #3, #5"), the evidence-checker's verdict for a feasibility check, and the next step. Then ask with AskUserQuestion:
    - Accept
    - Dig further (what?)
    - Wrong question

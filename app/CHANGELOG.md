@@ -8,6 +8,9 @@ The Shopify App Kit: Claude Code for Shopify apps (admin apps and extension-only
 - **Updates** (with theme kit 1.2.0): `node update.mjs` from the kit repo updates every app and theme repo on the machine, and a SessionStart hook (`kit/update-check.mjs`) mentions a newer kit once every 15 days. The installer lists the repo for `update.mjs` and records its clone in the manifest.
 - **`app dev` names its app and store** (with theme kit 1.5.0). A bare `shopify app dev` uses the CLI's cached config and store, possibly the production app or another project's store. `shopify.mjs info` now gives the exact command (`appDev`, with `--config` and `--store`), warns when the CLI caches another dev store, and verify tells the dev to run that command.
 - **Gate 1 hands the proposal over** instead of asking: the dev reviews and replies in their own words.
+- **A fix proves its reproduction** (with theme kit 1.6.0): `gate` and `done propose` run a fix's bound tests on the unfixed code and need at least one to fail on its own (not a missing vitest or file). Otherwise verify's PASS would prove nothing.
+- **A maintenance change needs a test run:** verify fails `regression` when no scenario, ledgered or verify-command test ran.
+- **Smaller:** propose says what to do without vitest, declares an extension's real targets rather than the template's, and build commits the generated extension instead of asking about it.
 - **Updates** of a repo first installed with `--force` no longer fail. **Cleanup:** removed the unused `secret`/`secretSource`/`parseEnv`, `diagnosticJson`, `activeChanges` and the unused `set` verb.
 
 - **One flow for every change type** (change, fix, maintain, ab): propose → Gate 1 → build → verify → accept (Gate 2) → handoff.

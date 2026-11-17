@@ -14,7 +14,7 @@ The dev approves behaviour, not code. Everything you write here is read by someo
 - Map the code with the `app-recon` agent: the routes, webhooks, extensions, Prisma models, GraphQL operations and tests that implement the area, and the archived changes that touched it (`appspec/archive/*/proposal.md`). Ask it for `file:line` evidence.
 - Shopify facts (scopes, API fields, Function targets and limits, extension targets and components) come from `shopify-plugin:shopify`, not memory. Choose the **narrowest scope** that does the job.
 - An open question whose answer changes the behaviour → ask the dev now (AskUserQuestion), before writing the scenarios.
-- **A new extension:** generating it is the dev's step. Ask them to run `! shopify app generate extension` (on the change branch) before you write § Surfaces, then copy the rows `node .claude/kit/app.mjs surfaces <ID>` prints. Its API version and its own dependencies come with the declared extension; its targets and capabilities need rows.
+- **A new extension:** generating it is the dev's step. Ask them to run `! shopify app generate extension` (on the change branch) before you write § Surfaces, then copy the rows `node .claude/kit/app.mjs surfaces <ID>` prints, changed to the targets and capabilities the change will use, not the template's defaults (build edits the generated toml to match). Its API version and its own dependencies come with the declared extension; its targets and capabilities need rows.
 
 ## 2. proposal.md
 
@@ -23,7 +23,7 @@ The template is in `appspec/changes/<ID>/proposal.md`; its comments say what eac
 - **§ Why, § What changes**: short, from the merchant's or buyer's side.
 - **§ Scenarios**: one row per behaviour, `| ID | GIVEN | WHEN | THEN | Check |`, IDs S1, S2, …
   - **Concrete values:** amounts, currencies, counts, the exact text shown. Cover the boundary (exactly at the threshold), the empty case (no metafield, no products) and the failure the merchant would notice.
-  - **Check:** logic, data and Functions → `test:`. UI only → `qa: <the expected result>` (the text, the value, the viewport). `manual: <what the reviewer checks>` only when neither works (a real card payment, an email arriving).
+  - **Check:** logic, data and Functions → `test:`. UI only → `qa: <the expected result>` (the text, the value, the viewport). The kit runs `test:` checks with vitest: a package without it needs `+ dependency:vitest` in § Surfaces and a setup task, or `qa:` checks. `manual: <what the reviewer checks>` only when neither works (a real card payment, an email arriving).
 - **§ Surfaces**: run `node .claude/kit/app.mjs surfaces <ID>` for the key formats. One row per surface the change adds (+), removes (-) or changes (~): scopes, webhooks, extensions, targets, capabilities, custom data definitions, Prisma models, new dependencies. Every new scope and webhook names the scenario that needs it. Verify compares this table with what the branch actually changes, so be exact. Nothing changes → "none".
 - **§ Design**: required when § Surfaces adds or changes a data model, a webhook, an extension, an app proxy or the app config. The decisions (options weighed, why this one), the data model and migration (what happens to existing rows; old code must run against the new schema during the deploy), which `authenticate.*` each new route uses, and the deploy order with how each step rolls back. Otherwise "none".
 - **§ Retires**: a test an archived change bound that this change deletes or renames, `- test: <file> › <name>: why`. Usually "none".

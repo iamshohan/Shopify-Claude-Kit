@@ -70,7 +70,7 @@ Aim for 300 lines or fewer. A small fix gets a short plan: write "none" under a 
   - **Not proven yet** comes next: every assumption the approach relies on that you couldn't verify in this theme or store. Examples: a product's option layout you couldn't read (rate-limited, no access), an app's JS API used in a way its docs or this theme don't show, a Liquid object or setting type the theme doesn't use yet. One row each: what it relies on, why it isn't proven, the fallback if it doesn't hold, and the QA criterion that tests it. The fallback is a real alternative the dev could pick at Gate 1, not a silent degradation. Write "none" when everything was verified. A risk you already verified belongs in § Risks, not here.
   - **What changes:** one row per file, or per group of files ("locales/*.schema.json ×5"), with the files from Needs your attention first. "What happens" is at most 15 words and describes the effect, not the anchor: "Winner layout when the mobile menu is set; old markup unchanged otherwise."
   - **Merchant can change** and **Stays in code:** one line each, from § Decided. Put "(vs AC n)" after any value in code that an editability line reaches.
-  - **Differs from the ticket or the A/B test:** each deviation and who decided it ("no description field, AC 17: dev, Q3"), or "none".
+  - **Differs from the ticket or the A/B test:** each deviation and who decided it ("no description field, AC 17: dev, Q3"), including an "Applied as" that does something other than a quoted AC or the winner does, and each AC no QA row checks, with why. Or "none".
   - **QA:** number of criteria, viewports, and how many checks the dev will have to do by hand.
 - **Approach.** 3–5 lines: what gets built, and the one or two key decisions.
 - **Files (builder detail).** One table row per file:
@@ -99,7 +99,7 @@ Aim for 300 lines or fewer. A small fix gets a short plan: write "none" under a 
   - **QA test data.** Which products. Ask the dev to name them; never pick live products yourself.
   - **Merchant steps after merge:** placement, entries, Translate & Adapt.
 - **Conventions to follow,** from § Found. For example: "CSS via `stylesheet_tag` in the snippet, like `snippets/product-badges.liquid`".
-- **QA criteria.** Numbered, one table row each. Each has an expected value quoted from a ticket or from § Decided, plus the page or template, the viewports, and the data state or locale. Always include:
+- **QA criteria.** Numbered, one table row each. Each has an expected value quoted from a ticket or from § Decided, plus the page or template, the viewports, and the data state or locale, and names the ACs it checks ("AC 2/15"). An AC no row checks goes under At a glance → Differs from the ticket with why. `done plan` refuses an AC that is in neither. Always include:
   - defaults equal the winner (A/B ports)
   - each empty state
   - every locale in scope
