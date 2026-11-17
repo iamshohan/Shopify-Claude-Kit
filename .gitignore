@@ -8,4 +8,4 @@
 node_modules/
 .installs.json
 .update-check*.json
-kit-logs/
+kit-logs/last-export.json

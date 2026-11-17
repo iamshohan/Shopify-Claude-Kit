@@ -16,7 +16,7 @@ node Shopify-Claude-Kit/update.mjs
 ```
 It pulls the kit, then updates each theme and app repo you installed it into, and lists them as it goes. Repos installed before kit 1.2.0 aren't on its list yet: add them once with `node Shopify-Claude-Kit/update.mjs --scan <folder that holds your repos>` (`--list` shows the list). Every 15 days, a Claude Code session in a kit repo mentions it once when a newer version is out; updating stays your call.
 
-**To share what happened in your tasks** (for improving the kit): `node Shopify-Claude-Kit/export-logs.mjs` copies the task logs of every repo on your machine into `Shopify-Claude-Kit/kit-logs/<date>/` (text only, changes since the last export; exports older than 90 days are removed). Send that folder to whoever maintains the kit.
+**To share what happened in your tasks** (for improving the kit): `node Shopify-Claude-Kit/export-logs.mjs` copies the task logs of every repo on your machine into `Shopify-Claude-Kit/kit-logs/<date>/<your name>/` (text only, changes since the last export; exports older than 90 days are removed), then prints the git commands that share them. The logs hold ticket text and store details: this repo must stay private.
 
 A clone of the old `DripDevelopment` repo gets no more updates; switch it first with `git remote set-url origin https://github.com/iamshohan/Shopify-Claude-Kit.git`.
 

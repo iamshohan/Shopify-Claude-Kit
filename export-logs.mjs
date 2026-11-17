@@ -4,9 +4,13 @@
 //   node export-logs.mjs          tasks changed since the last export
 //   node export-logs.mjs --all    every task again
 // Repos come from the installers' list (.installs.json; node update.mjs --scan adds older ones). Text files only:
-// no screenshots, theme pulls or A/B code. Exports older than 90 days are deleted. kit-logs/ is git-ignored.
+// no screenshots, theme pulls or A/B code. Exports older than 90 days are deleted. kit-logs/<date>/<person>/ is
+// committed to the kit repo (keep it private: the logs hold ticket text and store details); the script prints the
+// git commands and never pushes by itself.
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
+import { hostname } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readRegistry } from './shared/installer-core.mjs';
@@ -22,7 +26,10 @@ let since = 0;
 if (!process.argv.includes('--all')) try { since = Date.parse(JSON.parse(readFileSync(lastPath, 'utf8')).at) || 0; } catch { /* first export */ }
 const startedAt = new Date();
 const day = startedAt.toISOString().slice(0, 10);
-const dest = join(OUT, day);
+// kit-logs/ is committed: each person's export goes in their own folder, so two teammates on one day never collide.
+const gitName = spawnSync('git', ['config', 'user.name'], { cwd: ROOT, encoding: 'utf8' }).stdout?.trim();
+const person = (gitName || hostname()).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'dev';
+const dest = join(OUT, day, person);
 
 // Two repos with one folder name (two clones of "theme") get a short tag from their full path.
 const repos = Object.entries(readRegistry(ROOT));
@@ -72,11 +79,13 @@ for (const d of existsSync(OUT) ? readdirSync(OUT) : []) {
 if (index.length) {
   mkdirSync(dest, { recursive: true });
   const indexPath = join(dest, 'index.md');
-  const before = existsSync(indexPath) ? readFileSync(indexPath, 'utf8').trimEnd() : `# Kit logs · ${day}\n\nTask logs from every kit repo on this machine. Read them for what went wrong and what the kit could do better.`;
+  const before = existsSync(indexPath) ? readFileSync(indexPath, 'utf8').trimEnd() : `# Kit logs · ${day} · ${person}\n\nTask logs from every kit repo on ${person}'s machine. Read them for what went wrong and what the kit could do better.`;
   writeFileSync(indexPath, `${before}\n\n## Export at ${startedAt.toISOString().slice(11, 16)} UTC${since ? `, changes since ${new Date(since).toISOString().slice(0, 16).replace('T', ' ')}` : ''}\n\n${index.join('\n')}\n`);
 }
 mkdirSync(OUT, { recursive: true });
 writeFileSync(lastPath, JSON.stringify({ at: startedAt.toISOString() }, null, 2) + '\n');
-console.log(index.length ? `Exported ${index.length} repo${index.length === 1 ? '' : 's'} to kit-logs/${day}/` : `Nothing changed since the last export (${repos.length} repos checked).`);
+console.log(index.length ? `Exported ${index.length} repo${index.length === 1 ? '' : 's'} to kit-logs/${day}/${person}/` : `Nothing changed since the last export (${repos.length} repos checked).`);
+// Committing and pushing stays a step the dev sees: these logs hold ticket text and store details.
+if (index.length || removed) console.log(`To share them, from ${ROOT}:\n  git add kit-logs\n  git commit -m "kit logs: ${person} ${day}"\n  git pull --rebase\n  git push`);
 if (!repos.length) console.log('No repos listed yet: they join when the kit is installed or updated, or with node update.mjs --scan <folder>.');
 if (removed) console.log(`Removed ${removed} export${removed === 1 ? '' : 's'} older than ${KEEP_DAYS} days.`);

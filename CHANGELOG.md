@@ -4,7 +4,7 @@
 
 From the second review round, and one new command.
 
-- **`node export-logs.mjs`** copies the task logs of every kit repo on the machine (theme and app) into `kit-logs/<date>/`, so whoever improves the kit can read real runs. Text only (no screenshots, theme pulls or A/B code); each run takes only tasks changed since the last; same-named repos get a short tag from their path; exports older than 90 days are deleted. `kit-logs/` is git-ignored.
+- **`node export-logs.mjs`** copies the task logs of every kit repo on the machine (theme and app) into `kit-logs/<date>/<person>/`, and prints the git commands to commit and push them, so the maintainer reads everyone's runs with `git pull`. Text only (no screenshots, theme pulls or A/B code); each run takes only tasks changed since the last; same-named repos get a short tag from their path; exports older than 90 days are deleted. The logs hold ticket text and store details, so the kit repo must stay private.
 - **Fixes to recent changes:**
   - The always-loaded run rules (both kits) no longer tell the agent to ask Gate 1 with AskUserQuestion, which undid the 1.5.0 hand-over.
   - `set draft.themeId` to another theme clears the old one's verified and pushed commits and points the preview and editor URLs at the new id (the way out the 1.3.0 branch refusal suggests).

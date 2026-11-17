@@ -677,11 +677,14 @@ try {
   const exported = spawnSync(process.execPath, [join(KIT, 'export-logs.mjs')], { encoding: 'utf8', env: exportEnv });
   const exportAgain = spawnSync(process.execPath, [join(KIT, 'export-logs.mjs')], { encoding: 'utf8', env: exportEnv });
   const today = readdirSync(exportsDir).find((d) => /^\d{4}-\d{2}-\d{2}$/.test(d) && d !== '2000-01-01');
-  const exportedRepos = today ? readdirSync(join(exportsDir, today)).filter((d) => d !== 'index.md') : [];
-  ok('export-logs copies every repo\'s tasks into a dated folder, keeps same-named repos apart, exports only changes, and drops old exports',
+  // One folder per person (the clone's git user), then one per repo.
+  const people = today ? readdirSync(join(exportsDir, today)) : [];
+  const personDir = people.length === 1 ? join(exportsDir, today, people[0]) : '';
+  const exportedRepos = personDir ? readdirSync(personDir).filter((d) => d !== 'index.md') : [];
+  ok('export-logs copies every repo\'s tasks into a dated folder per person, keeps same-named repos apart, exports only changes, drops old exports and prints the git steps',
     exported.status === 0 && exportedRepos.length === 2 && exportedRepos.every((d) => /^theme-[0-9a-f]{6}$/.test(d))
-      && exportedRepos.some((d) => existsSync(join(exportsDir, today, d, 'logs', KEY, 'brief.md'))) && !existsSync(join(exportsDir, '2000-01-01'))
-      && /Nothing changed/.test(exportAgain.stdout), exported.stdout + exported.stderr + exportAgain.stdout + JSON.stringify(exportedRepos));
+      && exportedRepos.some((d) => existsSync(join(personDir, d, 'logs', KEY, 'brief.md'))) && existsSync(join(personDir, 'index.md')) && !existsSync(join(exportsDir, '2000-01-01'))
+      && /git add kit-logs/.test(exported.stdout) && /Nothing changed/.test(exportAgain.stdout), exported.stdout + exported.stderr + exportAgain.stdout + JSON.stringify(people) + JSON.stringify(exportedRepos));
   // VERSION stays put between releases, so the build id carries the kit commit the installer recorded.
   const installed = JSON.parse(readFileSync(manifestPath, 'utf8'));
   const buildId = `${readFileSync(join(KIT, '.claude', 'VERSION'), 'utf8').trim()}+${installed.commit.slice(0, 7)}${installed.uncommitted ? '-dirty' : ''}`;
