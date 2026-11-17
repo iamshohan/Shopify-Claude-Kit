@@ -37,3 +37,14 @@ Use these headings, so the main session can copy the report into `design.md`:
 - **Not in Figma:** states, breakpoints or elements the acceptance criteria need that no frame shows.
 - **Assets:** node, what it is, URL.
 - **Unclear:** frames you couldn't tell apart, annotations that contradict a frame, and values you couldn't read.
+- **Checks (JSON):** the same Elements and Spacing values as one fenced `json` block, which the main session saves as `design-checks.json` and QA audits automatically. Leave every `selector`, `from`, `to`, `container` and `element` empty: the plan fills in the classes the build creates. Put a value in `fixed` only if you read it from Figma (not inferred), in `getComputedStyle` form with kebab-case property names. A layer that fills its parent gets `"fill": "parent"` instead of a width.
+
+  ```json
+  { "viewports": { "desktop": { "width": 1440, "height": 900,
+      "elements": [ { "name": "Bundle title", "node": "12:34", "selector": "", "fixed": { "font-size": "16px", "line-height": "24px", "font-weight": "600", "color": "#1d1d1b" } },
+                    { "name": "Size button", "node": "12:40", "selector": "", "fixed": { "border-radius": "4px", "padding": "8px 12px" }, "fill": "parent" } ],
+      "spacing": [ { "name": "Title → cards", "type": "siblingGap", "from": "", "to": "", "axis": "vertical", "expected": 16 },
+                   { "name": "Card padding", "type": "containerPad", "container": "", "child": "", "sides": { "top": 8, "right": 8, "bottom": 8, "left": 8 } },
+                   { "name": "Cards gap", "type": "trackGap", "container": "", "axis": "horizontal", "expected": 12 },
+                   { "name": "Section to screen edge", "type": "toViewport", "element": "", "sides": { "left": 16, "right": 16 } } ] } } }
+  ```

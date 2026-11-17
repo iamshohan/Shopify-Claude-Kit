@@ -107,7 +107,9 @@ Aim for 300 lines or fewer. A small fix gets a short plan: write "none" under a 
   - the customizer contract: name, presets, where it can be added, labels and defaults (checked by `contract.mjs`)
   - untouched pages for the regression check
   - **bug fixes:** one row that reproduces the bug, its Criterion starting "Repro:", and Expected saying what live shows today (the failure) and what the draft must show. `done plan` refuses a bug fix without it.
-  - **the design** (when `design.md` exists): one row per element group and viewport, and one per spacing group. Expected quotes the values with their Figma node ("Figma 12:34: 16px/24px 600 #1d1d1b"), or the theme value the dev chose. Name the element by the class the plan creates. A size that fills or flexes becomes behaviour ("fills its column at 390"), not a pixel value.
+  - **the design** (when `design.md` exists), by the mode in status:
+    - **exact:** fill every empty selector in `design-checks.json` with the class the plan creates (Files and Markup). Where the dev chose the theme's value over Figma (§ Decided), or a value is a setting, put the theme value or the setting's default in `fixed`: the audit checks the default state. Then add one QA row per viewport: "Design matches Figma (kit.mjs design-audit <KEY> <viewport>)", default state. `done plan` refuses an empty selector or a missing audit row.
+    - **reference:** one row per viewport for layout: the elements present, their order and alignment, what shows and hides at that width, and sizes that fill or flex as behaviour ("fills its column at 390"). No pixel values.
 - **QA setup.**
   - Placement on the draft. If the merchant places the feature after merge, the draft needs preview overrides that place it.
   - A feature CSS class prefix that appears nowhere else in the theme (check with Grep). Record it: `kit.mjs set <KEY> featurePrefix=<prefix>`.

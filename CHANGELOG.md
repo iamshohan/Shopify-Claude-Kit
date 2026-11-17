@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.4.0 — 2026-11-17
+
+- **Design checks have two modes, and the agent picks.** At analyze, with the recon and extractor reports in hand, the agent records `design.mode` and tells the dev in one line. It never asks; the dev can reply to switch.
+  - **exact:** the build must reproduce the design and Figma is its only spec (a new custom component, a landing section, complex UI, or a ticket that says to match Figma).
+  - **reference:** the build reuses the theme's own sections, colour schemes and type scale, and Figma shows layout and content. QA checks presence, order, visibility and fill/flex behaviour only.
+  - Tasks without a Figma design, A/B ports and bug fixes are unchanged: no design check.
+- **Exact mode is audited automatically, every value.** The design-extractor also returns its values as JSON, saved as `design-checks.json`. The plan fills in the classes the build creates (`done plan` refuses an empty selector or a missing audit row). Values the dev moved to a theme token or a setting are checked against that value, in the default state. QA runs `kit.mjs design-audit <KEY> <viewport>`, which writes one file with the audit and that viewport's spec, then runs it in the page: one call checks every property and spacing, with shadow-drip-exps' style-checker tolerances (colours and fonts exact, type ±1px, spacing ±2px, sizes ±5px). This replaces the hand-measured design rows.
+
 ## 1.3.0 — 2026-11-17
 
 From a teammate's review of POP-1150: "If the kit recommends something it hasn't tested yet, it should say so clearly when asking for approval, offer a safe backup option, and not finish the task until that part is tested and works." The task's log showed why: the plan rested on two unverified assumptions (the set product's option layout, which the store rate-limited; Restock Rocket for another product), both only in § Risks, which Gate 1 doesn't show. Then the run stopped at the draft stage with its 22 QA criteria unmeasured.

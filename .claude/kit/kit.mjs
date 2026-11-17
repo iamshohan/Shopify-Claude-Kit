@@ -5,7 +5,7 @@
 // One folder per ticket: .claude/logs/<KEY>/ (state.json, brief.md, plan.md, report.md or investigation.md,
 // kit-notes.md). Also reads the guard's _guard.jsonl and writes logs/kit-feedback.md and kit/probe.*.js.
 import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, mkdtempSync, rmSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { join, dirname, relative } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
 import {
   ROOT, KIT_DIR, LOGS, KIT_VERSION, STAGES, stagesFor, THEME_DIRS, MERCHANT_JSON, print, fail, parseArgs, normKey, now, run, git, currentBranch,
@@ -58,6 +58,7 @@ const SETTABLE = {
   'abtest.running': oneOf('yes', 'no', 'unknown'),
   'abtest.reference': String,
   'design.figma': String, // a Figma link, or "none"
+  'design.mode': oneOf('exact', 'reference'), // the agent picks it at analyze and tells the dev, who can switch
   featurePrefix: String,
   buildOutputs: list,
   'qa.paths': (v) => list(v).map(storefrontPath),
@@ -316,6 +317,8 @@ const EXIT_CHECKS = {
     st.type === 'abtest' && !filled(key, 'brief.md', '### A/B inventory', '## Found') && 'fill brief.md § Found → A/B inventory',
     hasDesign(st) && !tableRows(key, 'design.md', '## Elements').length
       && 'run the design-extractor agent and write .claude/logs/<KEY>/design.md from .claude/kit/templates/design.md (or kit.mjs set <KEY> design.figma=none to skip the design check)',
+    hasDesign(st) && !st.design?.mode && 'pick the design check\'s mode and tell the dev in one line: kit.mjs set <KEY> design.mode=exact|reference',
+    hasDesign(st) && designChecks(key).problem && `write .claude/logs/<KEY>/design-checks.json from the extractor's JSON (${designChecks(key).problem})`,
   ],
   // The questions are asked (AskUserQuestion) before the plan is written, so the plan exit checks their record too.
   plan: (key, st) => [
@@ -326,6 +329,7 @@ const EXIT_CHECKS = {
       && 'record the questions you asked and the dev\'s answers in brief.md § Decided → Questions and answers (at least the control-surface confirmation)',
     ...glanceProblems(key),
     ...unprovenProblems(key),
+    ...(hasDesign(st) && st.design?.mode === 'exact' ? exactDesignProblems(key) : []),
     !tableRows(key, 'plan.md', '## Files').length && 'fill plan.md § Files (builder detail): one table row per file',
     !planCriteria(key).size && 'write plan.md § QA criteria: one numbered row per criterion',
     st.type === 'bugfix' && !reproRows(tableRows(key, 'plan.md', '## QA criteria')).length
@@ -472,6 +476,37 @@ function draftBehind(st) {
 // ── Status and summary output ──
 
 /** What start, status, done and back print: the stage, the skill to load next, and the task's facts. */
+// ── Design checks (design-checks.json) ──
+// The extractor's values per viewport, as data: exact mode audits all of them in one call per viewport
+// (kit.mjs design-audit); reference mode keeps them for the builder and checks only layout and visibility.
+
+/** { spec, problem }: the parsed file, or why it can't be used. */
+function designChecks(key) {
+  const p = join(LOGS, key, 'design-checks.json');
+  if (!existsSync(p)) return { problem: 'missing' };
+  let spec;
+  try { spec = JSON.parse(read(p)); } catch (e) { return { problem: `not valid JSON: ${e.message.slice(0, 80)}` }; }
+  const vps = Object.entries(spec?.viewports || {});
+  if (!vps.length) return { problem: 'no viewports: { "viewports": { "desktop": { "width": 1440, "height": 900, "elements": [], "spacing": [] } } }' };
+  return { spec, vps };
+}
+
+/** Exact mode, at plan: every check names the selector the build creates, and a QA criterion runs the audit. */
+function exactDesignProblems(key) {
+  const { vps, problem } = designChecks(key);
+  if (problem) return [`design-checks.json: ${problem}`];
+  const refs = { siblingGap: ['from', 'to'], trackGap: ['container'], containerPad: ['container'], toViewport: ['element'] };
+  const unnamed = vps.flatMap(([vp, v]) => [
+    ...(v.elements || []).filter((e) => !e.selector).map((e) => `${vp}: ${e.name}`),
+    ...(v.spacing || []).filter((s) => (refs[s.type] || ['?']).some((f) => !s[f])).map((s) => `${vp}: ${s.name}`),
+  ]);
+  return [
+    unnamed.length && `design-checks.json: fill the selector the build creates for ${unnamed.slice(0, 6).join('; ')}${unnamed.length > 6 ? ` and ${unnamed.length - 6} more` : ''}`,
+    ![...planCriteria(key).values()].some((t) => /design-audit/.test(t))
+      && 'add a QA criterion per viewport that runs the design audit: "Design matches Figma (kit.mjs design-audit <KEY> <viewport>)", default state',
+  ];
+}
+
 // ── Not proven yet ──
 // What the plan relies on but couldn't verify (a data shape the store didn't show, an app API for another product…).
 // Gate 1 shows it with a fallback, QA measures it, and Gate 2 won't take it untested unless the dev names it (POP-1150).
@@ -550,7 +585,7 @@ function summaryLines(key, st, cfg) {
   if (st.baseTheme) lines.push(`Base theme: ${st.baseTheme} stands in for live (live is a campaign theme): drift checks, the draft copy and QA's comparison use it.`);
   if (qaProgress(key, st)) lines.push(qaProgress(key, st));
   if (st.type === 'abtest') lines.push(`A/B (variation and code: brief.md): tool ${st.abtest?.tool || '?'} · running ${st.abtest?.running || '?'}${st.abtest?.reference ? ` · force link ${st.abtest.reference}` : ''}`);
-  if (hasDesign(st)) lines.push(`Design: Figma ${st.design.figma} (values in design.md)`);
+  if (hasDesign(st)) lines.push(`Design: Figma ${st.design.figma} (values in design.md)${st.design.mode ? ` · ${st.design.mode} mode${st.design.mode === 'exact' ? ': QA runs kit.mjs design-audit per viewport' : ': QA checks layout and visibility'}` : ''}`);
   if (cfg?.draftRoute === 'github' && !st.test && !st.draft?.themeId) lines.push('Draft route: GitHub-connected (draftRoute in shopify-kit.json). The dev connects the task branch; the kit adopts it with shopify.mjs draft <KEY> --github.');
   if (st.mutations?.length) lines.push(`Store mutations run: ${st.mutations.length} (ids: kit.mjs status ${key} --json)`);
   lines.push(`Logs: .claude/logs/${key}/ (brief.md, plan.md, report.md)`);
@@ -667,6 +702,22 @@ function selftest() {
   const day = 86400000;
   eq('update notice due', [due(undefined), due('garbage'), due(new Date(Date.now() - 14 * day).toISOString()), due(new Date(Date.now() - 15 * day).toISOString())], [true, true, false, true]);
   eq('update notice newer', [newerVersion('1.1.2', ['1.2.0', null]), newerVersion('1.1.2', [null, '1.1.10']), newerVersion('1.2.0', ['1.1.2', '1.2.0']), newerVersion('1.2.0', [null, null])], ['1.2.0', '1.1.10', null, null]);
+  // design-audit.js with fake elements: normalisation, tolerances, spacing and the missing-selector report.
+  const designAudit = new Function(`${read(join(KIT_DIR, 'design-audit.js'))}\nreturn designAudit;`)();
+  const box = (top, left, width, height) => ({ top, left, width, height, right: left + width, bottom: top + height });
+  const els = {
+    '.t': { s: { color: 'rgb(29, 29, 27)', 'font-size': '16.4px', 'font-family': '"Open Sans", sans-serif', padding: '0px 11px' }, r: box(0, 0, 100, 20) },
+    '.b': { s: { 'background-color': 'rgba(0, 0, 0, 0)' }, r: box(36, 0, 100, 40) },
+  };
+  const fakeEnv = { q: (s) => (els[s] ? s : null), qa: () => [], vw: () => 390, rect: (el) => els[el].r,
+    style: (el) => ({ getPropertyValue: (p) => els[el].s[p] || '' }) };
+  const audited = designAudit({ elements: [
+    { name: 'title', selector: '.t', fixed: { color: '#1D1D1B', 'font-size': '16px', 'font-family': 'Open Sans', padding: '0px 10px' } },
+    { name: 'button', selector: '.b', fixed: { 'background-color': '#ffffff' } },
+    { name: 'gone', selector: '.x', fixed: { color: '#000' } },
+  ], spacing: [{ name: 'title → button', type: 'siblingGap', from: '.t', to: '.b', expected: 16 }] }, fakeEnv);
+  eq('design audit: within tolerance passes, a wrong colour and a missing element fail', [audited.checked, audited.passed, audited.failures.map((f) => `${f.name}:${f.what}`), audited.missing, audited.verdict],
+    [6, 5, ['button:background-color'], ['gone: .x'], 'FAIL']);
   eq('design set', hasDesign({ design: { figma: 'https://www.figma.com/design/abc/x' } }), true);
   eq('design none or unset', [hasDesign({ design: { figma: 'none' } }), hasDesign({})], [false, false]);
   eq('cells', cells('| 3 | a \\| b | PASS |'), ['3', 'a \\| b', 'PASS']);
@@ -870,6 +921,27 @@ switch (verb) {
     st.history.push({ at: now(), event: 'set', values: rest });
     writeState(key, st);
     print(`Recorded: ${rest.join(' ')}`);
+    break;
+  }
+
+  // The audit and one viewport's spec in one file, run with browser_run_code_unsafe: no JSON copied by hand.
+  case 'design-audit': {
+    const key = normKey(rawKey);
+    readState(key);
+    const { spec, problem } = designChecks(key);
+    if (problem) fail(`design-checks.json: ${problem}`);
+    const vp = rest[0];
+    const v = spec.viewports[vp] || fail(`Name a viewport: ${Object.keys(spec.viewports).join(', ')}`);
+    const file = join(LOGS, key, `design-audit-${vp}.js`);
+    const src = read(join(KIT_DIR, 'design-audit.js'));
+    writeFileSync(file, `// Generated by kit.mjs design-audit ${key} ${vp} from design-checks.json; regenerate after changing it.\n`
+      + `async (page) => page.evaluate((spec) => {\n${src}\n  const r = designAudit(spec);\n`
+      + `  if (spec.width && r.viewport !== spec.width) r.verdict = 'WRONG VIEWPORT: resize to ' + spec.width + ' first';\n  return r;\n}, ${JSON.stringify(v)});\n`);
+    print({
+      file: relative(ROOT, file).replaceAll('\\', '/'),
+      checks: (v.elements || []).length + (v.spacing || []).length,
+      run: `browser_resize to ${v.width || '?'}×${v.height || '?'}, open the page in the default state (settings at the plan's defaults), then browser_run_code_unsafe with filename "${relative(ROOT, file).replaceAll('\\', '/')}". Record the result with qa-row: measured "<passed>/<checked>, failures: …".`,
+    });
     break;
   }
 

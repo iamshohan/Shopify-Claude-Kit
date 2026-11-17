@@ -3,6 +3,8 @@
 > The Figma values this task must match, from the design-extractor agent (analyze). The plan turns them into QA criteria, and QA measures them on the draft. Figma decides the values; the tickets and the dev's answers decide the scope.
 
 - **Figma:** (file link, and each frame used: name · node · width)
+- **Mode:** (exact or reference, and why in one line; the dev may switch it)
+- **Checks:** `design-checks.json`, the same values as data
 
 ## Elements
 

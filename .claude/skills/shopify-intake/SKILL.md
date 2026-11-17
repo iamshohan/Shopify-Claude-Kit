@@ -73,6 +73,12 @@ user-invocable: false
 
    Keep the citations. Cut what the plan won't need, and keep the section under about 150 lines.
 3. **Write `design.md`** (Figma design only). Copy `.claude/kit/templates/design.md` to `.claude/logs/<KEY>/design.md` and fill it from the extractor's report. Then fill § Differs from the theme or the A/B code yourself, from the recon and analyst reports: a Figma colour that isn't in the theme's colour schemes, a size off the theme's type scale, a value the winning variation changed. In § Found, add one line: "Design: design.md, N elements, M spacing checks".
+   - **Save the extractor's JSON** as `.claude/logs/<KEY>/design-checks.json`, as it is.
+   - **Pick the mode** from the task and the code you now know, and record it: `kit.mjs set <KEY> design.mode=exact|reference`. Write the reason in design.md's Mode line.
+     - **exact:** the build must reproduce the design, and Figma is its only spec. Examples: a new custom component or section with no existing code to follow, a landing or campaign section, a complex UI (cards, sliders, states), or a ticket that says to match Figma. QA audits every value automatically.
+     - **reference:** the build mostly reuses what the theme already has (its sections, blocks, colour schemes, type scale), so Figma shows layout and content rather than values to match. QA checks layout, order and visibility only.
+     - When unsure, pick exact: its QA is one audit call per viewport, not more work.
+   - **Tell the dev in one line**, with the way to switch: "Design check: exact (new custom section, Figma is the only spec). Say 'reference' to check layout only." Don't ask; switch if they reply.
    - **`NO FIGMA ACCESS`:** ask the dev whether to connect Figma and run the extractor again, to paste the key values per viewport (you write `design.md` from those), or to skip the design check (`kit.mjs set <KEY> design.figma=none`).
 4. If a report says something is missing or unclear (A/B code incomplete, target template not found, src and build disagree), ask the dev now rather than planning around a guess.
 

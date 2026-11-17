@@ -180,6 +180,25 @@ try {
   const noDesign = kit('kit.mjs', 'done', KEY, 'analyze');
   ok('analyze asks for design.md only while a Figma design is set',
     withDesign.code !== 0 && /design-extractor/.test(withDesign.all) && !/design-extractor/.test(noDesign.all), withDesign.all + noDesign.all);
+  ok('analyze asks for the design mode and design-checks.json', /design\.mode=exact\|reference/.test(withDesign.err) && /design-checks\.json from the extractor's JSON \(missing\)/.test(withDesign.err), withDesign.all);
+  // Exact mode: the plan names every selector and runs the audit; design-audit builds one file per viewport.
+  const checksPath = join(repo, '.claude', 'logs', KEY, 'design-checks.json');
+  const checks = (selector) => ({ viewports: { desktop: { width: 1440, height: 900,
+    elements: [{ name: 'Title', node: '1:2', selector, fixed: { 'font-size': '16px' } }],
+    spacing: [{ name: 'Title → cards', type: 'siblingGap', from: selector, to: selector && '.cards', expected: 16 }] } } });
+  writeFileSync(checksPath, JSON.stringify(checks('')));
+  kit('kit.mjs', 'set', KEY, 'design.figma=https://www.figma.com/design/abc/Feature', 'design.mode=exact');
+  writeFileSync(statePath, JSON.stringify({ ...state(), stage: 'plan' }));
+  const exactPlan = kit('kit.mjs', 'done', KEY, 'plan');
+  writeFileSync(checksPath, JSON.stringify(checks('.feat__title')));
+  const audit = kit('kit.mjs', 'design-audit', KEY, 'desktop');
+  const auditFile = join(repo, '.claude', 'logs', KEY, 'design-audit-desktop.js');
+  ok('exact mode: plan wants every selector and an audit row; design-audit writes the audit with the spec built in',
+    /fill the selector the build creates for desktop: Title; desktop: Title → cards/.test(exactPlan.err) && /design-audit ABC-1 <viewport>/.test(exactPlan.err)
+      && audit.code === 0 && /function designAudit/.test(readFileSync(auditFile, 'utf8')) && readFileSync(auditFile, 'utf8').includes('"selector":".feat__title"')
+      && kit('kit.mjs', 'design-audit', KEY, 'mobile').code === 1 && /Design: Figma .* exact mode/.test(kit('kit.mjs', 'status', KEY).out), exactPlan.all + audit.all);
+  rmSync(checksPath);
+  rmSync(auditFile);
   writeFileSync(statePath, fresh);
   git('switch', '-q', '--no-track', '-c', KEY, 'origin/main');
   const base = git('rev-parse', 'origin/main');
