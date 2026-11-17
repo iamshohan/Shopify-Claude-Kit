@@ -45,8 +45,16 @@ const readFile = (p) => readFileSync(join(REPO, p), 'utf8');
 const scopeConst = (name) => readFile('.claude/kit/shopify.mjs').match(new RegExp(`const ${name} = '([^']+)'`))?.[1];
 const kitScopes = `${scopeConst('IMPLEMENT_SCOPES')},${scopeConst('INVESTIGATE_SCOPES')}`;
 const readmeScopes = readFile('.claude/README.md').match(/shopify store auth --store \S+ --scopes (\S+)/)?.[1];
+// "What you need" repeats setup's commands for people who haven't installed yet; the pinned ones must agree.
+const readme = readFile('.claude/README.md');
+const setup = readFile('.claude/commands/shopify-setup.md');
+const prereqDrift = [/claude mcp add kit-browser [^`\n]+/, /claude plugin install \S+?(?=`)/, /(\d+\.\d+\.\d+) or newer/]
+  .map((re) => [readme.match(re)?.[0], setup.match(re)?.[0]])
+  .filter(([a, b]) => !a || a !== b)
+  .map(([a, b]) => `FAIL README: ${a}\n      setup:  ${b}`);
 const results = [{ name: 'command names', ok: !clashes.length, out: clashes.join('\n') || 'no command shares a skill\'s name', secs: 0 },
   { name: 'README login scopes', ok: readmeScopes === kitScopes, out: readmeScopes === kitScopes ? 'match shopify.mjs' : `FAIL README: ${readmeScopes}\nshopify.mjs: ${kitScopes}`, secs: 0 },
+  { name: 'README prerequisites', ok: !prereqDrift.length, out: prereqDrift.join('\n') || 'match /shopify-setup', secs: 0 },
   ...await Promise.all(SUITES.map(run))];
 for (const { name, ok, out, secs } of results) {
   console.log(`${ok ? 'ok  ' : 'FAIL'}  ${name.padEnd(20)} ${out.split('\n').pop()} (${secs.toFixed(1)}s)`);

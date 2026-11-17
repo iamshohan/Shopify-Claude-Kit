@@ -2,8 +2,9 @@
 
 ## 1.1.0 — 2026-11-17
 
-Shared with the team. Two gates instead of four, a guard that trusts the agent and blocks its mistakes, shared code with the new app kit, and fixes from first use: `/shopify-investigate` runs again, the Admin API login command is back in the README, and `cli-check` passes on Shopify CLI 5.
+Shared with the team. Two gates instead of four, a guard that trusts the agent and blocks its mistakes, shared code with the new app kit, and fixes from first use: `/shopify-investigate` runs again, the Admin API login command and the "What you need" list are back in the README, and `cli-check` passes on Shopify CLI 5.
 
+- **"What you need" is back in `.claude/README.md`:** what to get before `/shopify-setup`, including the parts that come from other people (a staff account, someone who can install apps), plus a new optional Figma row. `node test/all.mjs` fails if its `kit-browser` command, plugin install or Claude Code version differs from `/shopify-setup`.
 - **`cli-check` passes on Shopify CLI 5.0.1.**
   - CLI 5 moved the `store auth list` session fields behind a `$ref`, so the check reported all four (`store`, `subdomain`, `scopes`, `expiresAt`) as gone. It now follows `$ref`s (in the nested result schema or the top level) and still reads CLI 4's inline shape. The `store execute` error check reads the same way.
   - A field that is really missing is still reported.

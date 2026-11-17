@@ -8,6 +8,24 @@ A Claude Code setup for Shopify theme repos.
 
 It never publishes a theme, writes to the live theme, or pushes or merges into the base branch. Merging stays with you.
 
+## What you need
+
+Get these before `/shopify-setup`. It checks each one and gives the fix, but some come from other people and take time.
+
+| Need | Check or get it |
+| --- | --- |
+| Claude Code 2.1.295 or newer | `claude --version` |
+| Node 20+ and git | `node --version` |
+| Shopify CLI | `npm i -g @shopify/cli@latest`; `/shopify-setup` checks the commands the kit uses |
+| A staff account on the store: themes, metafields and metaobjects | the store owner |
+| The Shopify plugin for Claude Code, per person (the kit opts out of its telemetry) | `claude plugin install shopify-ai-toolkit@claude-plugins-official` |
+| Claude in Chrome, logged into the store admin, with access to the storefront and `admin.shopify.com` (theme editor and admin checks) | the browser tools show up in Claude Code |
+| The `kit-browser` server: an isolated Playwright browser for storefront QA, once per machine | `claude mcp add kit-browser --scope user -- npx -y @playwright/mcp@0.0.83 --isolated --headless` |
+| A Jira API token | id.atlassian.com → Security → API tokens |
+| Optional: the Admin API login, which installs Shopify's CLI app on the store | [Admin API login](#admin-api-login-optional-once-per-store) below; someone allowed to install apps |
+| Optional, for tickets with a Figma design: Figma connected in Claude Code | the Figma tools show up in Claude Code; without them you paste the values or skip the design check |
+| For A/B ports: the test's code | e.g. a shadow-drip-exps checkout |
+
 ## Install
 
 ```
