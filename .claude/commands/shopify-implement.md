@@ -12,7 +12,7 @@ You are running the Shopify Implementation Kit for one Jira ticket. The work mov
 
 1. No key given → run `node .claude/kit/kit.mjs list`, ask the dev which task to continue or which key to start, and stop until they answer.
 2. `.claude/shopify-kit.json` missing → tell the dev to run `/shopify-setup` first, and stop.
-3. Once per session, run `node .claude/kit/shopify.mjs cli-check`. It's fast unless the Shopify CLI or plugin changed. If it reports problems (exit 2), tell the dev to run `/shopify-update`, and stop: the kit may no longer match the CLI.
+3. Once per session, run `node .claude/kit/shopify.mjs cli-check`. If it reports problems (exit 2), tell the dev to run `/shopify-update`, and stop: the kit may no longer match the CLI.
 4. Run `node .claude/kit/kit.mjs status <KEY>`. If it says "not started", run `node .claude/kit/kit.mjs start <KEY>`. Add `--test` when the arguments include `--test` or the dev calls it a test run.
 5. The status names the current stage and the skill that owns it. **Load that skill with the Skill tool and do only that stage.**
 6. When the stage's "Done when" holds, run `node .claude/kit/kit.mjs done <KEY> <stage>`. Gate stages also need `--answer "<the dev's words>"`. The script refuses if the stage's output is missing. Read its message, fix the gap, and run it again.

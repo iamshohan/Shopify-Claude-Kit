@@ -127,4 +127,4 @@ Aim for 300 lines or fewer. A small fix gets a short plan: write "none" under a 
    - **Approval** ("approve", "looks good, go") → `kit.mjs done <KEY> approve --answer "<their words>"`. Only an explicit approval counts; if the reply could be read either way, ask.
    - **Rejection** → `kit.mjs back <KEY> plan --reason "<their words>"`.
 
-Changes at the gate edit the plan, so `done approve` runs the plan's checks again. After approval, change `plan.md` only when the work needs it, under **Amendments** with the date and the reason. `done approve` keeps a copy; `done build` and Gate 2 list every change since, and every changed file § Files doesn't name.
+Changes at the gate edit the plan, so `done approve` runs the plan's checks again. After approval, change `plan.md` only when the work needs it, under **Amendments** with the date and the reason.

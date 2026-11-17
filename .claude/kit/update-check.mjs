@@ -36,7 +36,8 @@ function main() {
   const manifest = JSON.parse(readFileSync(join(claudeDir, '.kit-manifest.json'), 'utf8'));
   const clone = manifest.source;
   if (!clone || !existsSync(join(clone, '.git'))) return;
-  const statePath = process.env.SHOPIFY_KIT_UPDATE_STATE || join(clone, '.update-check.json');
+  // One clock per kit: an up-to-date app kit mustn't silence a newer theme kit for 15 days.
+  const statePath = process.env.SHOPIFY_KIT_UPDATE_STATE || join(clone, manifest.kit === 'app' ? '.update-check-app.json' : '.update-check.json');
   let state = {};
   try { state = JSON.parse(readFileSync(statePath, 'utf8')); } catch { /* first check */ }
   if (!due(state.checkedAt)) return;

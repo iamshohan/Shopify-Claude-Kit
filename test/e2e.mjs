@@ -5,7 +5,7 @@
 //   node test/e2e.mjs [--keep]      --keep leaves the temp folder for inspection
 // Exits 1 if any check fails.
 import { spawnSync, execFileSync } from 'node:child_process';
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { delimiter, dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -335,6 +335,13 @@ try {
   // POP-1150: the branch changed after a GitHub-connected draft was adopted, so the draft showed the old branch.
   const moveBranch = kit('kit.mjs', 'set', KEY, 'branch=other-branch');
   ok('set refuses a new branch while a GitHub-connected draft follows the old one', moveBranch.code === 1 && /connected to ABC-1 on GitHub/.test(moveBranch.err) && state().branch === KEY, moveBranch.all);
+  // The way out it offers (a new theme id) must not keep the old theme's verified commit and URLs.
+  const draftBefore = state().draft;
+  writeFileSync(statePath, JSON.stringify({ ...state(), draft: { ...draftBefore, verifiedCommit: 'abc1234', previewUrl: `https://x/?preview_theme_id=${draftBefore.themeId}` } }));
+  kit('kit.mjs', 'set', KEY, 'draft.themeId=99');
+  const swapped = state().draft;
+  writeFileSync(statePath, JSON.stringify({ ...state(), draft: draftBefore }));
+  ok('a new draft theme id clears the old theme\'s verified commit and points the URLs at the new one', !swapped.verifiedCommit && /preview_theme_id=99/.test(swapped.previewUrl), JSON.stringify(swapped));
   // A campaign theme is live: the theme that follows the base branch stands in for live.
   writeFileSync(join(store, 'themes.json'), JSON.stringify([...JSON.parse(readFileSync(join(store, 'themes.json'), 'utf8')), { id: 7, name: 'Regular', role: 'unpublished' }]));
   cpSync(join(store, 'themes', '1'), join(store, 'themes', '7'), { recursive: true });
@@ -659,6 +666,22 @@ try {
   const afterFail = JSON.parse(readFileSync(checkFile, 'utf8'));
   ok('a failed cli-check keeps the last verified CLI version as previous',
     failedAgain.status === 2 && afterFail.ok === false && afterFail.previous?.cliVersion === '4.9.4', failedAgain.stdout);
+  // export-logs: tasks from every listed repo into a dated folder; same-named repos kept apart; old exports removed.
+  const exportsDir = join(tmp, 'exports');
+  const twin = join(tmp, 'clients', 'theme');
+  mkdirSync(join(twin, '.claude', 'logs', 'XYZ-9'), { recursive: true });
+  writeFileSync(join(twin, '.claude', 'logs', 'XYZ-9', 'plan.md'), '# plan\n');
+  writeFileSync(process.env.SHOPIFY_KIT_REGISTRY, JSON.stringify({ [resolve(repo)]: 'theme', [resolve(twin)]: 'theme' }));
+  mkdirSync(join(exportsDir, '2000-01-01'), { recursive: true });
+  const exportEnv = { ...process.env, SHOPIFY_KIT_EXPORT: exportsDir };
+  const exported = spawnSync(process.execPath, [join(KIT, 'export-logs.mjs')], { encoding: 'utf8', env: exportEnv });
+  const exportAgain = spawnSync(process.execPath, [join(KIT, 'export-logs.mjs')], { encoding: 'utf8', env: exportEnv });
+  const today = readdirSync(exportsDir).find((d) => /^\d{4}-\d{2}-\d{2}$/.test(d) && d !== '2000-01-01');
+  const exportedRepos = today ? readdirSync(join(exportsDir, today)).filter((d) => d !== 'index.md') : [];
+  ok('export-logs copies every repo\'s tasks into a dated folder, keeps same-named repos apart, exports only changes, and drops old exports',
+    exported.status === 0 && exportedRepos.length === 2 && exportedRepos.every((d) => /^theme-[0-9a-f]{6}$/.test(d))
+      && exportedRepos.some((d) => existsSync(join(exportsDir, today, d, 'logs', KEY, 'brief.md'))) && !existsSync(join(exportsDir, '2000-01-01'))
+      && /Nothing changed/.test(exportAgain.stdout), exported.stdout + exported.stderr + exportAgain.stdout + JSON.stringify(exportedRepos));
   // VERSION stays put between releases, so the build id carries the kit commit the installer recorded.
   const installed = JSON.parse(readFileSync(manifestPath, 'utf8'));
   const buildId = `${readFileSync(join(KIT, '.claude', 'VERSION'), 'utf8').trim()}+${installed.commit.slice(0, 7)}${installed.uncommitted ? '-dirty' : ''}`;

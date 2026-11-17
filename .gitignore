@@ -7,4 +7,5 @@
 .claude/.kit-manifest.json
 node_modules/
 .installs.json
-.update-check.json
+.update-check*.json
+kit-logs/

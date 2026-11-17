@@ -281,7 +281,9 @@ function reproProblems(rows) {
   const tests = rows.filter((s) => s.check.kind === 'test').map((s) => ({ id: s.id, key: testKey(s.check.file, s.check.name), file: s.check.file, name: s.check.name }));
   if (!tests.length) return [];
   const results = runTests(ROOT, tests);
-  if (tests.some((t) => results.get(t.key)?.ran && results.get(t.key).verdict === 'FAIL')) return [];
+  // A new Function fixture fails on its missing instruction baseline, whatever the code does: not a reproduction.
+  const reproduces = (r) => r?.ran && r.verdict === 'FAIL' && !/baseline/i.test(r.note || '');
+  if (tests.some((t) => reproduces(results.get(t.key)))) return [];
   return [`fix: no bound test fails on the unfixed code (${tests.map((t) => `${t.id}: ${results.get(t.key)?.verdict || 'NOT RUN'}`).join(', ')}), so none reproduces the bug. Bind a scenario to a test that fails now, with the failure § Reproduce describes`];
 }
 
@@ -306,8 +308,8 @@ function proposeProblems(cfg, id, st) {
     // A data model, a new webhook, extension, app proxy or config change: the decisions and the deploy order are approved at Gate 1 too.
     isHeavy(decl) && (!design.length || saysNone(design)) && `fill proposal.md § Design: § Surfaces declares ${decl.filter((d) => d.op !== '-' && HEAVY.test(d.key)).map((d) => d.key).join(', ')}. Say the decisions, the data model and migration, which authenticate.* each new route uses, and the deploy order`,
     type === 'fix' && !filled(cfg, id, st, '## Reproduce') && 'fill proposal.md § Reproduce: the failing test (or the steps) and the failure seen before the fix',
-    // Only once the rest is in order: it runs the tests.
-    ...(type === 'fix' && !scenarioProblems(rows).length ? reproProblems(rows) : []),
+    // Only before the first Gate 1 (after it the fix may be built, so its test passes), and once the rest is in order.
+    ...(type === 'fix' && !st.approved && !scenarioProblems(rows).length ? reproProblems(rows) : []),
     type === 'ab' && !filled(cfg, id, st, '## Gate') && 'fill proposal.md § Gate: the attribute key and values, and what happens without it',
     type === 'ab' && !filled(cfg, id, st, '## Sunset') && 'fill proposal.md § Sunset: when the test ends and how the extension is removed',
     ...retiresFrom(md).filter((c) => !ledger.has(testKey(c.file, c.name))).map((c) => `§ Retires → ${checkKey(c)} isn't a test an archived change bound; list only those there`),

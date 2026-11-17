@@ -183,7 +183,7 @@ function info(cfg) {
   const store = devStore(cfg);
   return {
     app: app.name, clientId: app.client_id, embedded: app.embedded, account: d.account?.email || null,
-    devStore: cached,
+    cliCachedStore: cached,
     appDev: `! shopify app dev ${[...configFlag(cfg), '--store', store].join(' ')}`,
     ...(cached && store && cached !== store ? { devStoreWarning: `The CLI's cached dev store is ${cached}, not ${store}: have the dev run the appDev command above, which names the store.` } : {}),
     extensions: (d.project.extensionConfigFiles || []).flatMap((f) => (f.content?.extensions || [f.content]).map((e) => ({ handle: e.handle, type: e.type || f.content.type, apiVersion: f.content.api_version }))),

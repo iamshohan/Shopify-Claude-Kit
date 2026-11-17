@@ -71,7 +71,12 @@ for (const [repo, kit] of repos) {
   }
   const run = spawnSync(process.execPath, [join(ROOT, 'install.mjs'), repo, ...(kit === 'app' ? ['--app'] : [])], { cwd: ROOT, encoding: 'utf8' });
   const headline = (run.stdout || '').split(/\r?\n/).find((l) => /^(Updating|Installing)/.test(l)) || '';
-  if (run.status === 0) console.log(`  ok ${repo}: ${headline.replace(/ in .*$/, '') || 'updated'}`);
+  if (run.status === 0) {
+    console.log(`  ok ${repo}: ${headline.replace(/ in .*$/, '') || 'updated'}`);
+    // The installer's warnings and settings moves are what the dev must act on; the rest is routine.
+    const notes = [...(run.stderr || '').split(/\r?\n/), ...(run.stdout || '').split(/\r?\n/).filter((l) => /settings\.(local|pre-kit)/.test(l))].filter((l) => l.trim());
+    for (const n of notes) console.log(`       ${n}`);
+  }
   else { failed++; console.log(`  !! ${repo}: ${(run.stderr || run.stdout).trim().split(/\r?\n/)[0]}`); }
 }
 writeRegistry(ROOT, registry);

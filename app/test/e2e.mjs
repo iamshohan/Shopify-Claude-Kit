@@ -468,6 +468,11 @@ writeFileSync(outFile, JSON.stringify({ testResults: files.map((file) => ({ name
   ok('the bound fixture counts as a changed test, and runs with the toml\'s export', /^PASS scenarios/.test(check(fxv2, 'scenarios')) && /^PASS function gift/.test(check(fxv2, 'function gift'))
     && calls().filter((c) => c.cmd === 'app function run' && !c.flags.help).every((c) => c.flags.export === 'run'), fxv2.out);
   commit('fix-3 verify');
+  // Back to propose after the fix is built (to declare a surface, say): its test passes now, and Gate 1 must still be reachable.
+  app('back', FX, 'propose', '--reason', 'declare a surface');
+  const fxAgain = app('done', FX, 'propose', '--answer', 'Approved again');
+  ok('a fix sent back to propose after it was built passes Gate 1 again', fxAgain.code === 0, fxAgain.all);
+  commit('fix-3: Gate 1 again');
 
   // ── Maintain: no new scenarios needed, a QA re-check allowed, the regression through archive ──
   // A hotfix on main adds a webhook outside the kit; the next change is cut from it.

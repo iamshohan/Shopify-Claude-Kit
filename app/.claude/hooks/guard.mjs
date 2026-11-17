@@ -137,7 +137,7 @@ function writeKind(rel, P) {
 
 // Files of a change folder that app.mjs writes whole; the agent records results through its verbs instead.
 const KIT_WRITTEN = {
-  'change.json': 'Change state goes through node .claude/kit/app.mjs (start, set, done, back).',
+  'change.json': 'Change state goes through node .claude/kit/app.mjs (start, done, back).',
   'handoff.md': 'app.mjs handoff writes handoff.md.',
 };
 
@@ -310,7 +310,7 @@ function decideCommand(raw, ctx, depth = 0, cwd = null) {
   }
   // The CLI by name or as the program itself: npx shopify app info, a full path to shopify.cmd.
   if (CLI_WORD.test(runnable) || CLI_PATH.test(runnable) || CLI_PKG.test(runnable) || CLI_ENV.test(runnable) || segs.some(runsShopifyCli)) {
-    if (DEV_RUNS.test(runnable)) return { decision: 'deny', reason: `That needs the dev's login or a running session. Ask the dev to run it with the ! prefix (for example: ! shopify app dev). (${cmd.slice(0, 200)})` };
+    if (DEV_RUNS.test(runnable)) return { decision: 'deny', reason: `That needs the dev's login or a running session. Ask the dev to run it with the ! prefix; for app dev, the appDev command node .claude/kit/shopify.mjs info prints (it names the dev app and store). (${cmd.slice(0, 200)})` };
     return { decision: 'deny', reason: USE_WRAPPER };
   }
   const SECRETS_WHY = '.env files (API secret, DATABASE_URL), SQLite databases (session tokens), Jira and Shopify tokens and the Shopify CLI\'s login folders are never read or written by Claude. Ask the dev for a value you need, without the secret.';
@@ -323,7 +323,7 @@ function decideCommand(raw, ctx, depth = 0, cwd = null) {
   if (/(^|[\s;&|])(export\s+|set\s+|\$env:)?JIRA_\w+\s*=/i.test(scanned)) return { decision: 'deny', reason: 'Jira settings come from the dev\'s .claude/.env.local and the kit\'s settings, not from the command line.' };
   // Not in a read (grep -n guard-seal .claude/kit/shopify.mjs).
   if (SEAL.test(runnable)) return { decision: 'deny', reason: `Only the guard writes ${SEAL_FILE}: it records what the dev was shown for a mutate.` };
-  if (/change\.json/i.test(runnable)) return { decision: 'deny', reason: 'Change state goes through node .claude/kit/app.mjs: status <ID> --json to read it; set, done, back to change it.' };
+  if (/change\.json/i.test(runnable)) return { decision: 'deny', reason: 'Change state goes through node .claude/kit/app.mjs: status <ID> --json to read it; done and back to change it.' };
   const pathRe = (...ps) => new RegExp(ps.map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\//g, '[\\\\/]')).join('|'), 'i');
   const only = kitOnly(P);
   const KIT_ONLY_WHY = `${only.dirs[0]}, ${only.files.slice(0, 3).join(', ')} and the kit's manifest change only through the kit (app.mjs, the installer). Read them freely.`;
@@ -340,7 +340,7 @@ function decideCommand(raw, ctx, depth = 0, cwd = null) {
     return { kind: isGlob(rel) ? 'glob' : writeKind(rel, P), rel };
   });
   if (kinds.some((k) => k.kind === 'kit-only')) return { decision: 'deny', reason: KIT_ONLY_WHY };
-  if (kinds.some((k) => k.kind === 'state')) return { decision: 'deny', reason: 'Change state goes through node .claude/kit/app.mjs (start, set, done, back).' };
+  if (kinds.some((k) => k.kind === 'state')) return { decision: 'deny', reason: 'Change state goes through node .claude/kit/app.mjs (start, done, back).' };
   const shut = kinds.filter((k) => k.kind === 'change').map((k) => changeClosed(k.rel, P, ctx)).find(Boolean);
   if (shut) return { decision: 'deny', reason: shut };
   const whole = kinds.find((k) => k.kind === 'change-dir');

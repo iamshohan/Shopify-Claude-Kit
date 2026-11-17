@@ -10,16 +10,18 @@ function designAudit(spec, env) {
     rect: (el) => el.getBoundingClientRect(),
     vw: () => innerWidth,
   };
-  const hex = (v) => {
-    const m = String(v).match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?/);
-    if (!m) return String(v).trim().toLowerCase();
-    if (m[4] !== undefined && Number(m[4]) === 0) return 'transparent';
-    return '#' + [m[1], m[2], m[3]].map((x) => Number(x).toString(16).padStart(2, '0')).join('');
+  // rgb()/rgba() anywhere in a value (colours, borders, shadows) → #rrggbb; a partly transparent one keeps its alpha.
+  const hex = (m, r, g, b, a) => {
+    if (a !== undefined && Number(a) === 0) return 'transparent';
+    const h = '#' + [r, g, b].map((x) => Number(x).toString(16).padStart(2, '0')).join('');
+    return a !== undefined && Number(a) < 1 ? `${h}/${Number(a)}` : h;
   };
   const norm = (prop, v) => {
-    if (/color/.test(prop)) return hex(v);
     if (prop === 'font-family') return String(v).replace(/["']/g, '').split(',')[0].trim().toLowerCase();
-    return String(v).trim().toLowerCase().replace(/(-?[\d.]+)px/g, (_, n) => `${Math.round(Number(n))}px`);
+    let s = String(v).trim().toLowerCase().replace(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/g, hex);
+    // An unset letter-spacing computes to "normal"; Figma writes it as 0px.
+    if (prop === 'letter-spacing' && s === 'normal') s = '0px';
+    return s.replace(/(-?[\d.]+)px/g, (_, n) => `${Math.round(Number(n))}px`);
   };
   // px tolerance per property; anything else must match exactly after normalising.
   const TOL = { 'font-size': 1, 'line-height': 2, 'letter-spacing': 1, gap: 2, 'row-gap': 2, 'column-gap': 2, 'border-radius': 2,
@@ -35,7 +37,12 @@ function designAudit(spec, env) {
   const out = { checked: 0, passed: 0, failures: [], missing: [] };
   const fail = (name, what, expected, actual) => out.failures.push({ name, what, expected, actual });
   const count = (ok, name, what, expected, actual) => { out.checked++; if (ok) out.passed++; else fail(name, what, expected, actual); };
-  const find = (name, sel) => { const el = sel ? env.q(sel) : null; if (!el) out.missing.push(`${name}: ${sel || '(no selector)'}`); return el; };
+  // Themes often render a desktop and a mobile copy and hide one: measure the visible one.
+  const find = (name, sel) => {
+    const el = sel ? env.qa(sel).find((x) => env.rect(x).width > 0) || env.q(sel) : null;
+    if (!el) out.missing.push(`${name}: ${sel || '(no selector)'}`);
+    return el;
+  };
 
   for (const e of spec.elements || []) {
     const el = find(e.name, e.selector);

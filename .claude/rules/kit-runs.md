@@ -5,7 +5,7 @@ paths:
 
 # Kit runs (/shopify-implement and /shopify-investigate)
 
-- **Gates are the dev's decisions.** Ask with AskUserQuestion, wait for the answer, and record their words. Never infer an answer. Silence is not approval.
+- **Gates are the dev's decisions.** Gate 1 hands the plan over and waits for the dev's reply (shopify-plan); the others ask with AskUserQuestion. Wait for the answer, and record their words. Never infer an answer. Silence is not approval.
 - **`--answer` is one line of at most 200 characters, in the dev's words, without quotes, backticks or `$`** (they break shell quoting). The full answers go in the documents.
 - **You write the task documents** in `.claude/logs/<KEY>/`. Agents return reports; you put what matters into the documents.
 - **Long verbs take minutes:** `shopify.mjs draft`, `push`, `verify` and `check`, and `compare.mjs`. The kit's settings give Bash enough time; wait for them.

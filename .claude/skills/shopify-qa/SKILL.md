@@ -32,7 +32,7 @@ Never write "QA passed" while any row is FAIL, NOT TESTED or BLOCKED.
    - **Storefront (the draft, live for comparison): the `kit-browser` tools** (`mcp__kit-browser__*`, an isolated Playwright browser that `/shopify-setup` adds). It isn't logged in anywhere, so nothing it does can reach the admin.
    - **Theme editor and admin pages: Chrome** (load the `claude-in-chrome` skill, then open a new tab and keep it in front: background tabs freeze animations and timers). Chrome runs as the dev's admin account.
    - **No `kit-browser` tools?** Stop and ask the dev to add the server (the command is in `/shopify-setup`, step 8) and restart Claude Code. The storefront isn't measured in Chrome: it can't set the viewport.
-5. **Viewports.** `browser_resize` to each width × height the criteria need, then read `innerWidth` back. `browser_click` is a real pointer click on the element: give it a CSS selector, or a ref from `browser_find`. Actions return no page snapshot (`--snapshot-mode none`); take `browser_snapshot` only when you need the page's structure. Touch-only behaviour (swipes, `touchstart` handlers) stays a by-hand row.
+5. **Viewports.** `browser_resize` to each width × height the criteria need, then read `innerWidth` back. `browser_click` is a real pointer click on the element: give it a CSS selector, or a ref from `browser_find`. Actions return no page snapshot (`--snapshot-mode none`); take `browser_snapshot` only when you need the page's structure. If `browser_navigate` does return a page snapshot, this machine's kit-browser predates kit 1.7.0: tell the dev once (fix: `/shopify-setup` step 8) and go on. Touch-only behaviour (swipes, `touchstart` handlers) stays a by-hand row.
 6. **Plan the order.** Work page by page, then viewport by viewport, and measure every criterion for that page and width before navigating again.
 7. **Plain HTML checks** (does the draft render X, which theme served it) don't need the browser: `node .claude/kit/shopify.mjs fetch <KEY> <path> --find <text>`.
 
@@ -44,7 +44,7 @@ Never write "QA passed" while any row is FAIL, NOT TESTED or BLOCKED.
      ```js
      sessionStorage.getItem('__qaSrc') ? ((0, eval)(sessionStorage.getItem('__qaSrc')), 'probe ready') : 'NO PROBE: inject probe.inject.js'
      ```
-2. **Right theme.** Run `__qa.env()`. Its `theme.id` must equal the draft id. A URL alone doesn't prove it, because the preview cookie survives redirects. When comparing with live, `theme.role` must be `main`. Read it once `document.readyState` is `complete`; earlier, `Shopify.theme` can still be unset, and null means "not loaded yet", not a wrong theme.
+2. **Right theme.** Run `__qa.env()`. Its `theme.id` must equal the draft id. A URL alone doesn't prove it, because the preview cookie survives redirects. When comparing with live, `theme.role` must be `main`; with a base theme in status (live is a campaign theme), "live" means `?preview_theme_id=<baseTheme>`, and `theme.id` must equal it. Read it once `document.readyState` is `complete`; earlier, `Shopify.theme` can still be unset, and null means "not loaded yet", not a wrong theme.
 3. **Right width.** Read `window.innerWidth` after every reload. If it isn't the viewport you asked for, ask the dev; never record a mobile result measured at desktop width.
 4. **Change present.** `__qa.live('<prefix>')` must find the feature where it should render.
 
@@ -107,9 +107,6 @@ Never write "QA passed" while any row is FAIL, NOT TESTED or BLOCKED.
 - **§ Summary:**
   - "N criteria: x PASS, y FAIL, z NOT TESTED, w BLOCKED."
   - "Gates: theme ✓ <id>, viewport ✓ <widths>."
-  - "Not covered: …"
-  - "Dev checks by hand: …"
-  - "The draft is a copy of live plus this branch."
 - **Screenshots** only for things a human must judge visually, saved in `.claude/logs/<KEY>/screenshots/`.
 
 **Done when:** every criterion has a verdict recorded with qa-row, the draft is at the branch head, and the summary is written. Then run `kit.mjs done <KEY> qa`.

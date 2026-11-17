@@ -75,7 +75,7 @@ function label(value, where) {
 
 // Rows for the contract table, plus the schema mistakes a merchant would hit: duplicate ids,
 // defaults outside their options or range, visible_if pointing at an unknown setting.
-function settingsOf(list, where) {
+function settingsOf(list, where, scope) {
   const ids = new Set();
   const rows = [];
   for (const s of list || []) {
@@ -96,9 +96,10 @@ function settingsOf(list, where) {
     }
     rows.push(row);
   }
+  // Only references into this list's own scope: a block may read section.settings, and theme settings span groups.
   for (const r of rows) {
-    for (const m of String(r.visible_if || '').matchAll(/settings\.(\w+)/g)) {
-      if (!ids.has(m[1])) problems.push(`${where}: visible_if of "${r.id}" refers to unknown setting "${m[1]}"`);
+    for (const m of String(r.visible_if || '').matchAll(/\b(section|block)\.settings\.(\w+)/g)) {
+      if (m[1] === scope && !ids.has(m[2])) problems.push(`${where}: visible_if of "${r.id}" refers to unknown setting "${m[2]}"`);
     }
   }
   return { rows, ids };
@@ -133,7 +134,7 @@ for (const file of files) {
     const old = new Map(before.map((g) => [g.name, JSON.stringify(g)]));
     for (const g of groups.filter((x) => Array.isArray(x.settings) && old.get(x.name) !== JSON.stringify(x))) {
       const name = label(g.name, `${file} group`);
-      entries.push({ file, kind: 'theme settings', name: `Theme settings → ${name}`, settings: settingsOf(g.settings, `theme settings "${name}"`).rows, blocks: [], presets: [], placedIn: [] });
+      entries.push({ file, kind: 'theme settings', name: `Theme settings → ${name}`, settings: settingsOf(g.settings, `theme settings "${name}"`, 'theme').rows, blocks: [], presets: [], placedIn: [] });
     }
     continue;
   }
@@ -143,10 +144,10 @@ for (const file of files) {
   try { schema = lenientJson(raw); } catch (e) { problems.push(`${where}: schema isn't valid JSON (${e.message})`); continue; }
   const kind = file.startsWith('blocks/') ? 'theme block' : 'section';
   const type = basename(file, '.liquid');
-  const own = settingsOf(schema.settings, where);
+  const own = settingsOf(schema.settings, where, kind === 'theme block' ? 'block' : 'section');
   const blocks = (schema.blocks || []).map((b) => {
     if (b.type?.startsWith('@')) return { type: b.type, note: b.type === '@app' ? 'accepts app blocks' : 'accepts theme blocks' };
-    const bs = settingsOf(b.settings, `${where} block "${b.type}"`);
+    const bs = settingsOf(b.settings, `${where} block "${b.type}"`, 'block');
     return { type: b.type, name: label(b.name, `${where} block ${b.type}`), limit: b.limit ?? null, settings: bs.rows, ids: bs.ids };
   });
   const blockTypes = new Set(blocks.map((b) => b.type));

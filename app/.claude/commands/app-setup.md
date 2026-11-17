@@ -14,7 +14,7 @@ disable-model-invocation: true
 2. **Plugin.** The `shopify-plugin:shopify` skill must be available (docs and GraphQL validation). If it isn't, tell the dev to enable `shopify-ai-toolkit@claude-plugins-official`. Then run `node .claude/kit/app.mjs optout`, telling the dev it creates an empty opt-out file for this machine: the plugin otherwise reports prompts and code to shopify.dev. Run `node .claude/kit/app.mjs detect` for the rest.
 3. **Settings.** Show the dev `detect`'s suggestion and ask (one AskUserQuestion) about the values that matter:
    - `devStore`: the only store the kit acts on. Default `drip-dev-eho-store.myshopify.com`. Never a client store.
-   - `appConfig`: with several `shopify.app.*.toml`, the **dev** app's config, so no CLI call can target production.
+   - `appConfig`: with several `shopify.app.*.toml`, the **dev** app's config, so no CLI call can target production. With only `shopify.app.toml`, ask the dev whether it's linked to a development app; if it's the production app, suggest they create a dev app (`! shopify app config link`), because `app dev` updates the linked app.
    - `baseBranch`, and `verify` (the commands verify runs: lint, typecheck, build and the repo's whole test suite, which is the regression; never deploy or migrate).
    - `securityCheck`: leave it out (verify runs `shopify app security check`); `false` only if the team decides to skip it.
    - `jiraBaseUrl`: e.g. `https://driperium.atlassian.net`. Leave it out if the team doesn't use Jira for this app.

@@ -35,14 +35,14 @@ The kit prepares everything and merges nothing. Creating the PR, merging, postin
    - **Jira comment, for the dev to post.** Jira stays read-only for the kit. Keep it short: what's done, the preview URL, what to review.
      - Tell the dev to move the ticket to the team's review status (in Drip's Jira usually "AC Review"), not to Done. Done can start billing automation.
      - The QA team reviews with `report.md` § Criteria.
-   - **Open points:** known gaps, the "dev checks by hand" list, "noticed, not touched" items, and leftover store data.
+   - **Open points:** known gaps, "see report.md § You must still do", "noticed, not touched" items, and leftover store data.
 4. **Cleanup.** Ask with AskUserQuestion:
    - **The draft theme:** keep it until client and AC review end (recommended), delete it after merge, or delete it now. Deleting uses `shopify.mjs delete-draft <KEY>`, and the dev approves it.
    - **QA test values** (in the summary's store changes): keep or remove? Each removal is a mutation the dev approves.
      - Order: `metafieldsDelete` first (only on owners this task created, such as its metaobjects), then a definition the kit created with `deleteAllAssociatedMetafields: true` (its values go with it), metaobject definitions last.
      - Never delete anything the kit didn't create. QA values set under a merchant's own definition (on their products, for example) are the dev's to remove in the admin; the kit refuses those deletes. List them in Open points.
 5. Run `kit.mjs done <KEY> handoff`. It refuses when the branch moved past the commit QA measured (or the draft isn't at the branch head): go back to qa as it says; a commit QA never saw doesn't reach the PR unmeasured.
-   If it prints a `retro` (the run looped back, had a stage exit refused, or hit a guard block), follow its `ask` before telling the dev: one `kit.mjs note` per thing the kit caused, or `kit.mjs note <KEY> --none`. Nothing printed: skip this.
+   If it prints a `retro`, follow its `ask` before telling the dev. Nothing printed: skip this.
 6. Tell the dev:
    - The branch is pushed.
    - The PR text, admin steps and Jira comment are in `.claude/logs/<KEY>/report.md`.

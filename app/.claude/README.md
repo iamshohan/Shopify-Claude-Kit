@@ -26,7 +26,7 @@ Run a command again with the same ID to continue.
 
 1. **propose:** `proposal.md` with the scenarios, the surfaces it adds (scopes, webhooks, extensions, models, dependencies), § Design for heavy surfaces, what needs your attention, and the tasks. A new extension: you generate it first (`! shopify app generate extension`). **Gate 1:** you review it, then approve or ask for changes in your own words.
 2. **build:** Claude implements; app code is editable only now.
-3. **verify:** surfaces vs proposal, each scenario's test, every test an archived change bound (the ledger), your verify commands, Function fixtures, bundle size, `shopify app security check`; `qa:` scenarios measured on the dev store. Start `! shopify app dev` when QA needs it.
+3. **verify:** surfaces vs proposal, each scenario's test, every test an archived change bound (the ledger), your verify commands, Function fixtures, bundle size, `shopify app security check`; `qa:` scenarios measured on the dev store. When QA needs the app running, start it with the `appDev` command the agent gives you (`shopify app dev` with the dev app's config and the dev store; the bare command uses whatever the CLI last used).
 4. **accept:** the measured result and anything changed since Gate 1 (scenarios, surfaces, retired tests). **Gate 2.**
 5. **handoff:** the change moves to `appspec/archive/` with `handoff.md`: PR text and deploy checklist. You open the PR, merge and deploy.
 

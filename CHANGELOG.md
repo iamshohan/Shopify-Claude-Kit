@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.8.0 — 2026-11-17
+
+From the second review round, and one new command.
+
+- **`node export-logs.mjs`** copies the task logs of every kit repo on the machine (theme and app) into `kit-logs/<date>/`, so whoever improves the kit can read real runs. Text only (no screenshots, theme pulls or A/B code); each run takes only tasks changed since the last; same-named repos get a short tag from their path; exports older than 90 days are deleted. `kit-logs/` is git-ignored.
+- **Fixes to recent changes:**
+  - The always-loaded run rules (both kits) no longer tell the agent to ask Gate 1 with AskUserQuestion, which undid the 1.5.0 hand-over.
+  - `set draft.themeId` to another theme clears the old one's verified and pushed commits and points the preview and editor URLs at the new id (the way out the 1.3.0 branch refusal suggests).
+  - The AC coverage check counts only QA criteria and the "Differs" bullet (a mention under "Merchant can change" isn't coverage), asks for numbered ACs instead of passing silently, and reads "AC #4".
+  - The design audit compares colours inside any value (borders, shadows), reads `letter-spacing: normal` as `0px`, measures the visible copy when a theme renders a desktop and a mobile one, and keeps a colour's transparency.
+- **QA:** a page snapshot after `browser_navigate` means the machine's kit-browser predates 1.7.0: the agent tells the dev once. With a base theme, "live" in QA's checks means that theme.
+- **Contract:** `visible_if` references are checked only within their own scope (a block may read `section.settings`).
+- **Build:** stages before the review, so new files count toward its size.
+- **Updates:** `update.mjs` shows each repo's installer warnings; each kit has its own 15-day notice clock.
+- **Setup:** asks for the store once, and reuses the CLI check's result.
+- **Smaller:** the kit help lists `design-audit`; stale and repeated instruction lines removed.
+
 ## 1.7.1 — 2026-11-17
 
 - **`/shopify-setup` checks the browser's options,** not just that it exists. If `claude mcp get kit-browser` shows no `--snapshot-mode none`, setup has the dev re-add it, so a machine that missed the 1.7.0 note is fixed on its next setup run. Marked temporary in the setup command: remove it once every machine has re-added the browser.

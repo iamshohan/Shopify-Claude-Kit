@@ -6,10 +6,10 @@ paths:
 
 # App kit runs (/app-change, /app-fix, /app-maintain, /app-ab)
 
-- **Gates are the dev's decisions.** Ask with AskUserQuestion, wait for the answer, and record their words. Never infer an answer. Silence is not approval. The kit records the words as the dev's, and the guard logs them for the retro.
+- **Gates are the dev's decisions.** Gate 1 hands the proposal over and waits for the dev's reply (app-propose); Gate 2 asks with AskUserQuestion. Record their words. Never infer an answer. Silence is not approval.
 - **`--answer` is one line of at most 200 characters, in the dev's words, without quotes, backticks or `$`** (they break shell quoting).
-- **The dev reads scenarios, not code.** At Gate 1 they approve behaviour: scenarios with concrete values, the surfaces, and how each scenario is checked. Write so that a reader who never opens the code can say yes or no.
-- **You write proposal.md** in `appspec/changes/<ID>/`; `app.mjs` writes `change.json`. Agents return reports; you put what matters into the documents.
+- **The dev reads scenarios, not code.** Write so that a reader who never opens the code can say yes or no.
+- **Agents return reports;** you put what matters into the documents.
 - **Long kit verbs** (`verify`, `drift --regression`, `onboard`) can take minutes: the settings give Bash a long default timeout, so don't pass a shorter one.
 - **Two failed attempts at the same thing → stop**, say what you tried and what you saw, and ask the dev.
 - **How you talk to the dev.** The documents hold the detail; chat carries what the dev has to act on.

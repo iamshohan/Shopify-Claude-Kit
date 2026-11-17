@@ -30,6 +30,7 @@ const HELP = `Usage: node .claude/kit/kit.mjs <verb> ...
                                          fill one row of report.md § Criteria (no hand-edited tables, no heredocs);
                                          PASS and FAIL need --measured and --how, on a draft at HEAD
   qa-row <KEY> <#,#,...> --carry "WHY"   keep PASS rows measured on an earlier commit: why the new commits can't affect them
+  design-audit <KEY> <viewport>          exact design mode: write the file QA runs to check every design-checks.json value
   reach <KEY>                            files in plan.md § Files that reach beyond the feature (merchant JSON, layout,
                                          snippets, sections and assets used elsewhere, files .shopifyignore excludes);
                                          each goes in Needs your attention
@@ -514,7 +515,7 @@ function exactDesignProblems(key) {
 /** Numbers in "AC 4", "ACs 4, 5", "AC 6/17", "AC 4–6". */
 function acRefs(text) {
   const out = new Set();
-  for (const m of text.matchAll(/\bACs?\s*((?:\d+\s*(?:[,/&–-]|and)?\s*)+)/g)) {
+  for (const m of text.replace(/#(?=\d)/g, '').matchAll(/\bACs?\s*((?:\d+\s*(?:[,/&–-]|and)?\s*)+)/g)) {
     for (const r of m[1].matchAll(/(\d+)\s*[–-]\s*(\d+)|(\d+)/g)) {
       if (r[3]) out.add(r[3]);
       else for (let n = Number(r[1]); n <= Number(r[2]) && n - Number(r[1]) < 50; n++) out.add(String(n));
@@ -524,10 +525,19 @@ function acRefs(text) {
 }
 
 function acCoverageProblems(key) {
-  const acs = added(key, 'brief.md', '### Acceptance criteria', '## Asked').map((l) => (l.match(/^(\d+)\.\s/) || [])[1]).filter(Boolean);
-  if (!acs.length) return [];
+  const lines = added(key, 'brief.md', '### Acceptance criteria', '## Asked');
+  const acs = lines.map((l) => (l.match(/^(\d+)\.\s/) || [])[1]).filter(Boolean);
+  if (!acs.length) {
+    return [lines.length && !saysNone(key, 'brief.md', '### Acceptance criteria', '## Asked')
+      && 'number the acceptance criteria in brief.md § Asked as one list ("1. …", "2. …", across tickets), so the plan can cite each one'];
+  }
   const plan = read(join(LOGS, key, 'plan.md'));
-  const cited = acRefs([...sectionLines(plan, '## QA criteria'), ...sectionLines(plan, '## At a glance')].join('\n'));
+  // Covered = checked by a QA row, or set aside under Differs. A mention elsewhere ("Merchant can change … AC 4") is neither.
+  const glance = sectionLines(plan, '## At a glance');
+  const from = glance.findIndex((l) => /^- \*\*Differs/.test(l));
+  const to = from === -1 ? -1 : glance.findIndex((l, i) => i > from && /^- \*\*/.test(l));
+  const differs = from === -1 ? [] : glance.slice(from, to === -1 ? undefined : to);
+  const cited = acRefs([...sectionLines(plan, '## QA criteria'), ...differs].join('\n'));
   const open = [...new Set(acs)].filter((n) => !cited.has(n));
   return [open.length && `acceptance criteria ${open.map((n) => `AC ${n}`).join(', ')} aren't covered: cite each in a QA criterion ("AC n"), or list it under At a glance → Differs from the ticket with why ("AC 14, the implementation video: a handoff step, not theme code")`];
 }
@@ -744,6 +754,9 @@ function selftest() {
   ], spacing: [{ name: 'title → button', type: 'siblingGap', from: '.t', to: '.b', expected: 16 }] }, fakeEnv);
   eq('design audit: within tolerance passes, a wrong colour and a missing element fail', [audited.checked, audited.passed, audited.failures.map((f) => `${f.name}:${f.what}`), audited.missing, audited.verdict],
     [6, 5, ['button:background-color'], ['gone: .x'], 'FAIL']);
+  els['.c'] = { s: { border: '1px solid rgb(229, 229, 229)', 'letter-spacing': 'normal', color: 'rgba(0, 0, 0, 0.5)' }, r: box(0, 0, 10, 10) };
+  const audited2 = designAudit({ elements: [{ name: 'card', selector: '.c', fixed: { border: '1px solid #E5E5E5', 'letter-spacing': '0px', color: '#000000' } }] }, fakeEnv);
+  eq('design audit: colours inside borders, letter-spacing normal, and a half-transparent colour', [audited2.passed, audited2.failures.map((f) => f.what)], [2, ['color']]);
   eq('design set', hasDesign({ design: { figma: 'https://www.figma.com/design/abc/x' } }), true);
   eq('design none or unset', [hasDesign({ design: { figma: 'none' } }), hasDesign({})], [false, false]);
   eq('cells', cells('| 3 | a \\| b | PASS |'), ['3', 'a \\| b', 'PASS']);
@@ -939,10 +952,18 @@ switch (verb) {
         && !rest.some((p) => p.startsWith('draft.themeId='))) {
         fail(`Draft ${st.draft.themeId} is connected to ${st.branch} on GitHub, so it would not show ${value}. Keep ${st.branch}, or connect a theme to ${value} in the admin (Add theme → Connect from GitHub) and record both at once: kit.mjs set ${key} draft.themeId=<its id> branch=${value}`);
       }
+      const before = st.draft?.themeId;
       const [head, sub] = name.split('.');
       if (sub) st[head] = { ...(st[head] || {}), [sub]: value };
       else st[head] = value;
-      if (name === 'draft.themeId') { st.draft.createdAt ||= now(); st.draft.route ||= 'manual'; delete st.draft.deletedAt; }
+      if (name === 'draft.themeId') {
+        st.draft.createdAt ||= now(); st.draft.route ||= 'manual'; delete st.draft.deletedAt;
+        // Another theme: what was verified or pushed, and the URLs, described the old one.
+        if (before && before !== value) {
+          delete st.draft.verifiedCommit; delete st.draft.lastPushedCommit;
+          for (const u of ['previewUrl', 'editorUrl']) if (st.draft[u]) st.draft[u] = st.draft[u].replaceAll(String(before), String(value));
+        }
+      }
     }
     st.history.push({ at: now(), event: 'set', values: rest });
     writeState(key, st);
