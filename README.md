@@ -5,12 +5,12 @@ Claude Code automation kits for Shopify development: the theme kit takes a Jira 
 ## Install
 
 ```
-git clone https://github.com/DripDevelopment/Shopify-Claude-Kit.git
+git clone https://github.com/iamshohan/Shopify-Claude-Kit.git
 node Shopify-Claude-Kit/install.mjs <path-to-theme-repo>          # theme kit
 node Shopify-Claude-Kit/install.mjs <path-to-app-repo> --app      # app kit
 ```
 
-Re-run the same command to update.
+To update: `git pull` in `Shopify-Claude-Kit`, then re-run the same command. A clone of the old `DripDevelopment` repo gets no more updates; switch it first with `git remote set-url origin https://github.com/iamshohan/Shopify-Claude-Kit.git`.
 
 ## Set up (once per repo and person)
 

@@ -1,4 +1,4 @@
-# Shopify Implementation Kit · v1.1.1
+# Shopify Implementation Kit · v1.1.2
 
 A Claude Code setup for Shopify theme repos.
 
@@ -29,7 +29,7 @@ Get these before `/shopify-setup`. It checks each one and gives the fix, but som
 ## Install
 
 ```
-git clone https://github.com/DripDevelopment/Shopify-Claude-Kit.git
+git clone https://github.com/iamshohan/Shopify-Claude-Kit.git
 node Shopify-Claude-Kit/install.mjs <path-to-theme-repo>
 ```
 
@@ -57,7 +57,7 @@ shopify store auth --store <store>.myshopify.com --scopes read_products,write_pr
 
 **Protect the base branch on GitHub** (require PRs). The guard is a seatbelt; branch protection is the boundary.
 
-**Updating:** `git pull` in your kit clone, then run the installer again. Your config, `.env.local`, `settings.local.json` and `logs/` are kept. After a Shopify CLI or plugin update, run `/shopify-update`.
+**Updating:** `git pull` in your kit clone, then run the installer again. A clone made from the old `DripDevelopment` repo gets no more updates; point it at the new one first: `git remote set-url origin https://github.com/iamshohan/Shopify-Claude-Kit.git`. Your config, `.env.local`, `settings.local.json` and `logs/` are kept. After a Shopify CLI or plugin update, run `/shopify-update`.
 
 ## Use
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.1.2 — 2026-11-17
+
+- **The kit moved** from `DripDevelopment/Shopify-Claude-Kit` to `github.com/iamshohan/Shopify-Claude-Kit` (both kits, one repo). Both READMEs clone from there. A clone of the old `DripDevelopment` repo gets no more updates: run `git remote set-url origin https://github.com/iamshohan/Shopify-Claude-Kit.git` in it, then update as usual.
+
 ## 1.1.1 — 2026-11-17
 
 - **The retro is back at the end of a run, only when something went wrong.** When `done handoff` (or `done conclude`) finishes a run that looped back, had a stage exit refused, or hit a guard block, it prints the run's signals and asks which ones the kit caused, to record with `kit.mjs note`. A clean run sees nothing, and the retro never blocks handoff. 1.1.0 had made the retro optional and nothing asked for it, so finished tasks left no judgement of the kit's part; `kit.mjs feedback` collects these notes for the kit maintainer.
