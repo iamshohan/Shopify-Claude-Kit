@@ -415,6 +415,40 @@ export function createdIds(response) {
     .map((o) => o?.id).filter((id) => typeof id === 'string' && id.startsWith('gid://shopify/')))];
 }
 
+// ── CLI output schemas (cli-check) ──
+
+/**
+ * A schema node with its "#/…" $ref followed. CLI 5 writes refs against the result schema's own definitions, and
+ * --json-schema nests that schema under definitions.Result, so a ref may resolve from the document root or from
+ * the nested schema (scope). Unresolvable → null, so a check reports the fields missing instead of passing.
+ */
+export function schemaNode(root, scope, node) {
+  const ref = node?.$ref;
+  if (typeof ref !== 'string' || !ref.startsWith('#/')) return node;
+  const at = (base) => ref.slice(2).split('/').reduce((o, k) => o?.[k], base);
+  return at(root) ?? at(scope) ?? null;
+}
+
+/** The documented fields of one `store auth list --json` session (CLI 4: inline; CLI 5: behind a $ref). */
+export function authSessionProps(schema) {
+  const result = schema?.definitions?.Result;
+  return schemaNode(schema, result, result?.properties?.sessions?.items)?.properties || {};
+}
+
+/** The documented fields of a `store execute` error. */
+export function execErrorProps(schema) {
+  const error = schema?.definitions?.Error;
+  const field = schemaNode(schema, error, error?.properties?.error);
+  return schemaNode(schema, error, field?.anyOf?.[0])?.properties || {};
+}
+
+/** The versions cli-check last verified: a failed run never becomes the version /shopify-update says to pin back to. */
+export function lastVerified(last) {
+  if (!last) return null;
+  if (!last.ok) return last.previous ?? null;
+  return { cliVersion: last.cliVersion, pluginVersion: last.pluginVersion, kitVersion: last.kitVersion ?? null, adminApiVersion: last.adminApiVersion ?? null };
+}
+
 /** Tokens with comments dropped and strings blanked, so neither can hide a field; code keeps strings (they hold ids). */
 export function gqlScan(text) {
   const tokens = [];

@@ -152,7 +152,9 @@ function cliCheck(force) {
   const inf = cli(['app', 'info', '--json'], cfg);
   if (inf.code === 0 && inf.data) problems.push(...infoShapeProblems(inf.data));
   else notes.push(`app info didn't answer (${cliError(inf).split('\n')[0].slice(0, 160)}), so its JSON shape wasn't checked; run cli-check --force once it works`);
-  const result = { ok: !problems.length, cliVersion: version, kitVersion: KIT_VERSION, previous: cached?.cliVersion || null, checkedAt: now(), problems, notes };
+  // previous is the last version that passed; a failed run must not replace it.
+  const previous = cached?.ok ? cached.cliVersion : (cached?.previous ?? null);
+  const result = { ok: !problems.length, cliVersion: version, kitVersion: KIT_VERSION, previous, checkedAt: now(), problems, notes };
   writeFileSync(CHECK_PATH, JSON.stringify(result, null, 2) + '\n');
   return result;
 }

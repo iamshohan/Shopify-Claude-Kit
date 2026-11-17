@@ -11,6 +11,7 @@ import {
   ROOT, KIT_DIR, LOGS, KIT_VERSION, STAGES, stagesFor, THEME_DIRS, MERCHANT_JSON, print, fail, parseArgs, normKey, now, run, git, currentBranch,
   readConfig, readState, writeState, owner, branchFor, protectedBranches, storefrontPath, parseCliJson, diagnosticJson, ignoreMatcher, TEST_SUFFIX,
   effectiveBase, namesKey, unMsys, unMsysFrom, mutationProblems, shopifyIgnore, themeDigest,
+  authSessionProps, execErrorProps, lastVerified,
 } from './lib.mjs';
 
 // ── Help and settable facts ──
@@ -594,6 +595,31 @@ function selftest() {
   delete process.env.SHOPIFY_FLAG_LIVE;
   eq('namesKey whole word', ['ABC-12', 'ABC-12 hero', 'kit test ABC-12-kit-test', 'abc-12'].map((n) => namesKey(n, 'ABC-12')), [true, true, true, true]);
   eq('namesKey not a longer key', ['ABC-123', 'ABC-123 hero', 'XABC-12', 'ABC-12B'].map((n) => namesKey(n, 'ABC-12')), [false, false, false, false]);
+  // cli-check's schema reads: CLI 4 inline, CLI 5.0.1 behind a $ref (definitions in the nested Result, or hoisted).
+  const session = { type: 'object', properties: { subdomain: {}, store: {}, scopes: {}, expiresAt: {}, connected: {} } };
+  const fields = (s) => ['store', 'subdomain', 'scopes', 'expiresAt'].filter((f) => authSessionProps(s)[f]).length;
+  const sessionsRef = { properties: { sessions: { type: 'array', items: { $ref: '#/definitions/StoreAuthListSession' } } } };
+  const { expiresAt, ...withoutExpiry } = session.properties;
+  eq('cli-check reads the auth session fields in every schema shape', [
+    fields({ definitions: { Result: { properties: { sessions: { items: session } } } } }),
+    fields({ definitions: { Result: { ...sessionsRef, definitions: { StoreAuthListSession: session } } } }),
+    fields({ definitions: { Result: sessionsRef, StoreAuthListSession: session } }),
+    fields({ definitions: { Result: { ...sessionsRef, definitions: { StoreAuthListSession: { properties: withoutExpiry } } } } }),
+    fields({ definitions: { Result: sessionsRef } }),
+    fields(null),
+  ], [4, 4, 4, 3, 0, 0]);
+  const errorShape = { properties: { message: {}, tryMessage: {}, nextSteps: {}, details: {} } };
+  eq('cli-check reads the execute error fields inline and behind a $ref', [
+    Object.keys(execErrorProps({ definitions: { Error: { properties: { error: { anyOf: [errorShape] } } } } })).length,
+    Object.keys(execErrorProps({ definitions: { Error: { properties: { error: { anyOf: [{ $ref: '#/definitions/ErrorBody' }] } }, definitions: { ErrorBody: errorShape } } } })).length,
+  ], [4, 4]);
+  const verified = { cliVersion: '4.9.4', pluginVersion: '2.1.0', kitVersion: '1.0.0', adminApiVersion: '2026-07' };
+  eq('cli-check keeps the last verified versions across failed runs', [
+    lastVerified({ ...verified, ok: true }).cliVersion,
+    lastVerified({ ok: false, cliVersion: '5.0.1', previous: verified }).cliVersion,
+    lastVerified({ ok: false, cliVersion: '5.0.1' }),
+    lastVerified(null),
+  ], ['4.9.4', '4.9.4', null, null]);
   eq('design set', hasDesign({ design: { figma: 'https://www.figma.com/design/abc/x' } }), true);
   eq('design none or unset', [hasDesign({ design: { figma: 'none' } }), hasDesign({})], [false, false]);
   eq('cells', cells('| 3 | a \\| b | PASS |'), ['3', 'a \\| b', 'PASS']);

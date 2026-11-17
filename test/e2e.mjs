@@ -529,6 +529,12 @@ try {
   const rerun = cliCheck();
   ok('cli-check reuses its last result only for the same kit and Admin API version',
     lastCheck.adminApiVersion === '2026-07' && /unchanged since/.test(cached.stdout) && !/unchanged since/.test(rerun.stdout), cached.stdout + rerun.stdout);
+  // /shopify-update pins previous.cliVersion, so a failed run (the fake CLI never passes) must not overwrite it.
+  writeFileSync(checkFile, JSON.stringify({ ...lastCheck, ok: false, cliVersion: '5.0.1', previous: { cliVersion: '4.9.4', pluginVersion: null, kitVersion: null, adminApiVersion: '2026-07' } }));
+  const failedAgain = cliCheck();
+  const afterFail = JSON.parse(readFileSync(checkFile, 'utf8'));
+  ok('a failed cli-check keeps the last verified CLI version as previous',
+    failedAgain.status === 2 && afterFail.ok === false && afterFail.previous?.cliVersion === '4.9.4', failedAgain.stdout);
   // VERSION stays put between releases, so the build id carries the kit commit the installer recorded.
   const installed = JSON.parse(readFileSync(manifestPath, 'utf8'));
   const buildId = `${readFileSync(join(KIT, '.claude', 'VERSION'), 'utf8').trim()}+${installed.commit.slice(0, 7)}${installed.uncommitted ? '-dirty' : ''}`;

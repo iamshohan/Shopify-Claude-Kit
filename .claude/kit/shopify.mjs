@@ -12,7 +12,7 @@ import {
   ROOT, LOGS, KIT_DIR, KIT_VERSION, THEME_DIRS, MERCHANT_JSON, WIN, print, fail, parseArgs, normKey, now, run, git,
   currentBranch, parseCliJson, diagnosticJson, readConfig, readState, writeState, secret, inTaskFolder,
   storefrontGet, renderedTheme, storefrontPath, isThemePath, mutationProblems, gqlScan, createdIds, namesKey, sealDigest, SEAL_FILE, draftNameFor, effectiveBase,
-  shopifyIgnore, themeDigest,
+  shopifyIgnore, themeDigest, authSessionProps, execErrorProps, lastVerified,
 } from './lib.mjs';
 
 const HELP = `Usage: node .claude/kit/shopify.mjs <verb> ...
@@ -97,11 +97,9 @@ function fullCliCheck(store) {
   }
   // Only the store commands publish output schemas; check the fields the wrapper reads.
   const schema = (cmd) => parseCliJson(run('shopify', [...cmd, '--json-schema'], { shell: true }).stdout);
-  const authSchema = schema(['store', 'auth', 'list']);
-  const sessionProps = authSchema?.definitions?.Result?.properties?.sessions?.items?.properties || {};
+  const sessionProps = authSessionProps(schema(['store', 'auth', 'list']));
   for (const field of ['store', 'subdomain', 'scopes', 'expiresAt']) if (!sessionProps[field]) problems.push(`store auth list --json no longer documents sessions[].${field}. Affects: auth-check scopes.`);
-  const execSchema = schema(['store', 'execute']);
-  const errorProps = execSchema?.definitions?.Error?.properties?.error?.anyOf?.[0]?.properties || {};
+  const errorProps = execErrorProps(schema(['store', 'execute']));
   for (const field of ['message', 'tryMessage', 'nextSteps', 'details']) if (!errorProps[field]) notes.push(`store execute errors no longer document error.${field}; error messages may lose detail.`);
   if (store) {
     const list = cli(['theme', 'list', '--store', store, '--json']);
@@ -523,7 +521,7 @@ switch (verb) {
     const result = fullCliCheck(cfg?.store);
     const report = {
       ok: result.problems.length === 0, cliVersion, pluginVersion, kitVersion: KIT_VERSION, adminApiVersion,
-      previous: last ? { cliVersion: last.cliVersion, pluginVersion: last.pluginVersion, kitVersion: last.kitVersion ?? null, adminApiVersion: last.adminApiVersion ?? null } : null,
+      previous: lastVerified(last),
       checkedAt: now(), problems: result.problems, notes: result.notes,
     };
     writeFileSync(CHECK_PATH, JSON.stringify(report, null, 2));
