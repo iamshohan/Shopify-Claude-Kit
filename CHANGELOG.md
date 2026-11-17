@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.7.0 — 2026-11-17
+
+Speed, from the review.
+
+- **`kit-browser` no longer returns a page snapshot after every action.** A Shopify product page's snapshot is about 4k tokens (measured), sent after each navigate, resize and click, and QA never read it: roughly 80–120k tokens per QA run. The setup command adds `--snapshot-mode none`; clicks take a CSS selector or a `browser_find` ref. **Re-add it once per machine:** `claude mcp remove kit-browser --scope user`, then the command in `/shopify-setup` step 8.
+- **The minute-long CLI check reruns only when it has to:** after a CLI or plugin update, a new Admin API version, or a kit release that changes the CLI contract or the bundled queries. Before, every kit release reran it in every repo.
+- **Setup asks for one restart**, covering both a newly installed plugin and the browser.
+- **Code review is sized to the change:** `medium` for a diff under about 150 lines that touches no shared file, `high` otherwise (both kits).
+
 ## 1.6.0 — 2026-11-17
 
 The second batch from the review: what reaches the gates.

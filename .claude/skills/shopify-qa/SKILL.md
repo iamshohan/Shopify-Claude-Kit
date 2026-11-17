@@ -32,7 +32,7 @@ Never write "QA passed" while any row is FAIL, NOT TESTED or BLOCKED.
    - **Storefront (the draft, live for comparison): the `kit-browser` tools** (`mcp__kit-browser__*`, an isolated Playwright browser that `/shopify-setup` adds). It isn't logged in anywhere, so nothing it does can reach the admin.
    - **Theme editor and admin pages: Chrome** (load the `claude-in-chrome` skill, then open a new tab and keep it in front: background tabs freeze animations and timers). Chrome runs as the dev's admin account.
    - **No `kit-browser` tools?** Stop and ask the dev to add the server (the command is in `/shopify-setup`, step 8) and restart Claude Code. The storefront isn't measured in Chrome: it can't set the viewport.
-5. **Viewports.** `browser_resize` to each width × height the criteria need, then read `innerWidth` back. `browser_click` is a real pointer click on the element. Touch-only behaviour (swipes, `touchstart` handlers) stays a by-hand row.
+5. **Viewports.** `browser_resize` to each width × height the criteria need, then read `innerWidth` back. `browser_click` is a real pointer click on the element: give it a CSS selector, or a ref from `browser_find`. Actions return no page snapshot (`--snapshot-mode none`); take `browser_snapshot` only when you need the page's structure. Touch-only behaviour (swipes, `touchstart` handlers) stays a by-hand row.
 6. **Plan the order.** Work page by page, then viewport by viewport, and measure every criterion for that page and width before navigating again.
 7. **Plain HTML checks** (does the draft render X, which theme served it) don't need the browser: `node .claude/kit/shopify.mjs fetch <KEY> <path> --find <text>`.
 

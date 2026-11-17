@@ -69,13 +69,14 @@ Work through these checks in order. Report each one as ✓ or ✗ with the exact
 
    The dev also needs a staff account on the store with theme permissions, and the right to manage metafields and metaobjects (or someone who has it, for the manual path). Re-run auth-check afterwards, and make sure `adminApi` in the config matches the result.
 7. **Shopify plugin.**
-   - Check that the `shopify-plugin:shopify` skill is in your skill list. Listing it in `.claude/settings.json` doesn't install it. If it's missing, the dev runs `! claude plugin install shopify-ai-toolkit@claude-plugins-official` and restarts Claude Code.
+   - Check that the `shopify-plugin:shopify` skill is in your skill list. Listing it in `.claude/settings.json` doesn't install it. If it's missing, the dev runs `! claude plugin install shopify-ai-toolkit@claude-plugins-official`. Check step 8's browser before asking for a restart, so one restart covers both.
    - Then run `node .claude/kit/kit.mjs optout`, telling the dev it creates an empty opt-out file for this machine. The plugin otherwise reports prompts and code to shopify.dev.
 8. **Browsers.** The kit uses two, and keeps them apart: the storefront in an isolated browser that is logged in nowhere, the admin and theme editor in the dev's Chrome.
-   - **Storefront: `kit-browser`.** Check that the `mcp__kit-browser__*` tools are available. If not, the dev adds the server once per machine (it serves every theme repo), then restarts Claude Code:
+   - **Storefront: `kit-browser`.** Check that the `mcp__kit-browser__*` tools are available. If not, the dev adds the server once per machine (it serves every theme repo), then restarts Claude Code once, for this and a plugin installed in step 7:
      ```
-     ! claude mcp add kit-browser --scope user -- npx -y @playwright/mcp@0.0.83 --isolated --headless
+     ! claude mcp add kit-browser --scope user -- npx -y @playwright/mcp@0.0.83 --isolated --headless --snapshot-mode none
      ```
+     `--snapshot-mode none` stops a full page snapshot (about 4k tokens on a product page) after every click and resize, which QA never reads. A `kit-browser` added before kit 1.7.0 lacks it: `! claude mcp remove kit-browser --scope user`, then the command above.
      Don't substitute the dev's own Playwright server: it may drive their logged-in Chrome (`--extension`). Storefront QA needs `kit-browser`: without it, the qa stage stops and asks for it.
    - **Admin and theme editor: Claude in Chrome.** Check that the `mcp__claude-in-chrome__*` tools are available.
    - The dev must be logged into the store admin in that Chrome profile.

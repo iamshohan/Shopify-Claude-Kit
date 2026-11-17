@@ -13,7 +13,7 @@ user-invocable: false
 5. **Surfaces.** Run `node .claude/kit/app.mjs surfaces <ID>`. `undeclared` and `unhappened` must both be empty. Something undeclared is either a mistake (undo it) or a missing declaration: then go back to propose (`app.mjs back <ID> propose --reason "…"`), declare it, and take Gate 1 again. Never "fix" this by editing the declaration without the dev: a surface is exactly what Gate 1 is for.
 6. **Commit** on the change branch with the repo's pattern, ticking the done tasks in proposal.md § Tasks. Never push here.
 7. **Review the diff** with fresh eyes (the builder doesn't review its own work):
-   1. Run the `code-review` skill with the argument `high` on the branch's diff against its base (`app.mjs status <ID>` names the diff base).
+   1. Run the `code-review` skill with the argument `high` (or `medium` for a diff under about 150 changed lines that declares no surface) on the branch's diff against its base (`app.mjs status <ID>` names the diff base).
    2. Then check yourself:
       - Every new route calls the right `authenticate.*`; webhook routes use `authenticate.webhook`; app proxy routes `authenticate.public.appProxy`. No route trusts a shop domain from the request.
       - Admin GraphQL: every operation validated with `shopify-plugin:shopify` against the app's API version; `userErrors` handled; pagination where lists can grow; no query inside a loop.

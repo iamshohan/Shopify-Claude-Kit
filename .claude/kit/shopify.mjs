@@ -74,6 +74,12 @@ const CLI_CONTRACT = [
   { cmd: ['store', 'auth', 'list'], flags: ['--json'], usedBy: 'auth-check scopes' },
 ];
 const CHECK_PATH = join(ROOT, '.claude', 'cli-check.json');
+// What the full check depends on from the kit: a release that doesn't change these doesn't need the minute-long check again.
+const contractSha = () => {
+  const h = createHash('sha256').update(JSON.stringify(CLI_CONTRACT));
+  for (const q of readdirSync(join(KIT_DIR, 'queries')).sort()) h.update(q).update(readFileSync(join(KIT_DIR, 'queries', q)));
+  return h.digest('hex').slice(0, 16);
+};
 
 // The Shopify AI Toolkit plugin's version and skill folder, from Claude Code's plugin registry; null if not installed.
 function pluginInfo() {
@@ -514,17 +520,18 @@ switch (verb) {
     if (v.code !== 0) fail('Shopify CLI not found. Ask the dev to install it: ! npm i -g @shopify/cli@latest');
     const cliVersion = v.stdout.trim().split('\n').pop();
     const pluginVersion = pluginInfo()?.version || null;
-    // A kit update can add CLI flags to the contract, and a new adminApiVersion needs the queries validated again.
+    // A kit update that changes the CLI contract or the queries, and a new adminApiVersion, need the full check again.
     const adminApiVersion = cfg?.adminApiVersion || ADMIN_API_VERSION;
+    const contract = contractSha();
     let last = null;
     try { last = existsSync(CHECK_PATH) ? JSON.parse(readFileSync(CHECK_PATH, 'utf8')) : null; } catch { /* unreadable: run the full check */ }
-    if (!flags.force && last?.ok && last.cliVersion === cliVersion && last.pluginVersion === pluginVersion && last.kitVersion === KIT_VERSION && last.adminApiVersion === adminApiVersion) {
+    if (!flags.force && last?.ok && last.cliVersion === cliVersion && last.pluginVersion === pluginVersion && last.contract === contract && last.adminApiVersion === adminApiVersion) {
       print({ ok: true, cliVersion, pluginVersion, kitVersion: KIT_VERSION, adminApiVersion, verifiedAt: last.checkedAt, note: 'unchanged since the last full check' });
       break;
     }
     const result = fullCliCheck(cfg?.store);
     const report = {
-      ok: result.problems.length === 0, cliVersion, pluginVersion, kitVersion: KIT_VERSION, adminApiVersion,
+      ok: result.problems.length === 0, cliVersion, pluginVersion, kitVersion: KIT_VERSION, adminApiVersion, contract,
       previous: lastVerified(last),
       checkedAt: now(), problems: result.problems, notes: result.notes,
     };

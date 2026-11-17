@@ -646,10 +646,13 @@ try {
   const lastCheck = JSON.parse(readFileSync(checkFile, 'utf8'));
   writeFileSync(checkFile, JSON.stringify({ ...lastCheck, ok: true }));
   const cached = cliCheck();
+  // A new kit release alone doesn't rerun the minute-long check in every repo; a changed CLI contract does.
   writeFileSync(checkFile, JSON.stringify({ ...lastCheck, ok: true, kitVersion: '0.0.1' }));
+  const newKit = cliCheck();
+  writeFileSync(checkFile, JSON.stringify({ ...lastCheck, ok: true, contract: 'older' }));
   const rerun = cliCheck();
-  ok('cli-check reuses its last result only for the same kit and Admin API version',
-    lastCheck.adminApiVersion === '2026-07' && /unchanged since/.test(cached.stdout) && !/unchanged since/.test(rerun.stdout), cached.stdout + rerun.stdout);
+  ok('cli-check reuses its last result across kit releases, but not after the CLI contract or queries change',
+    lastCheck.adminApiVersion === '2026-07' && /^[0-9a-f]{16}$/.test(lastCheck.contract) && /unchanged since/.test(cached.stdout) && /unchanged since/.test(newKit.stdout) && !/unchanged since/.test(rerun.stdout), cached.stdout + newKit.stdout + rerun.stdout);
   // /shopify-update pins previous.cliVersion, so a failed run (the fake CLI never passes) must not overwrite it.
   writeFileSync(checkFile, JSON.stringify({ ...lastCheck, ok: false, cliVersion: '5.0.1', previous: { cliVersion: '4.9.4', pluginVersion: null, kitVersion: null, adminApiVersion: '2026-07' } }));
   const failedAgain = cliCheck();
