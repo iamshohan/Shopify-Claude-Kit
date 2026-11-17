@@ -765,6 +765,17 @@ switch (verb) {
       print(sinceApproval(key, st).join('\n'));
       if (st.check?.crashed) print(`theme check didn't run (${st.check.crashed.slice(0, 160)}). Say so in report.md; Shopify still rejects Liquid syntax errors at push.`);
     }
+    // The finished run's retro, shown only when something went wrong and never blocking: a required retro made every
+    // clean run pay for it (1.1.0 dropped it), but without one a successful task left no judgement of the kit's part.
+    // Allowed and asked guard entries aren't problems, so only denies count.
+    if (st.stage === 'done') {
+      const signals = retroSignals(key, st);
+      if (signals.loopsBack.length || signals.refusedStages.length || signals.guardBlocks.some((g) => g.includes('[deny]'))) {
+        st.history.push({ at: now(), event: 'retro' });
+        writeState(key, st);
+        print({ retro: { ...signals, ask: RETRO_ASK } });
+      }
+    }
     break;
   }
 
@@ -946,7 +957,7 @@ switch (verb) {
     const st = readState(key);
     if (typeof flags.reason !== 'string' || !flags.reason.trim()) fail('Say why: --reason "..."');
     if (st.stage === 'abandoned') fail(`${key} is abandoned already.`);
-    // A dropped task is where the kit most often got in the way, so it gets the same retro as a handoff.
+    // A dropped task is where the kit most often got in the way, so it always gets the retro; a finished one only with signals.
     const signals = retroSignals(key, st);
     st.history.push({ at: now(), event: 'abandon', from: st.stage, reason: flags.reason.trim() }, { at: now(), event: 'retro' });
     st.stage = 'abandoned';

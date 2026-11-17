@@ -150,7 +150,7 @@ Check the size against the theme's code, not the ticket's length: count the file
    - Dig further (what?)
    - Wrong question
 
-   Record their words: `kit.mjs done <KEY> conclude --answer "<their words>"`. For "dig further" or "wrong question", run `kit.mjs back <KEY> gather --reason "…"` instead.
+   Record their words: `kit.mjs done <KEY> conclude --answer "<their words>"`. For "dig further" or "wrong question", run `kit.mjs back <KEY> gather --reason "…"` instead. If `done` prints a `retro`, follow its `ask` (a `kit.mjs note` per thing the kit caused, or `--none`).
 4. Tell the dev the next step in one line.
 
 **Done when:** § Answer, § Could not determine and § Next step are filled (feasibility: also § Estimate and § Review), theme files are unchanged, and the dev has accepted.

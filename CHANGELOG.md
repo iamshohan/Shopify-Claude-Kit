@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.1.1 — 2026-11-17
+
+- **The retro is back at the end of a run, only when something went wrong.** When `done handoff` (or `done conclude`) finishes a run that looped back, had a stage exit refused, or hit a guard block, it prints the run's signals and asks which ones the kit caused, to record with `kit.mjs note`. A clean run sees nothing, and the retro never blocks handoff. 1.1.0 had made the retro optional and nothing asked for it, so finished tasks left no judgement of the kit's part; `kit.mjs feedback` collects these notes for the kit maintainer.
+
 ## 1.1.0 — 2026-11-17
 
 Shared with the team. Two gates instead of four, a guard that trusts the agent and blocks its mistakes, shared code with the new app kit, and fixes from first use: `/shopify-investigate` runs again, the Admin API login command and the "What you need" list are back in the README, and `cli-check` passes on Shopify CLI 5.

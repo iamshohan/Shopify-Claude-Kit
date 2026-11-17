@@ -414,7 +414,8 @@ try {
   ok('the since-approval list at Gate 2 doesn\'t depend on the checkout', /doesn't name: [^\n]*sections\/header\.liquid/.test(offBranch.out), offBranch.all);
   kit('kit.mjs', 'done', KEY, 'accept', '--answer', 'Accept');
 
-  // Handoff: the pushed branch is the commit QA measured. No retro needed.
+  // Handoff: the pushed branch is the commit QA measured. The refused handoff below is a signal, so done shows the
+  // retro, without making it a condition.
   edit(KEY, 'report.md', '### PR\n', '### PR\n\nABC-1: add the e2e feature section and the product title; QA 3 PASS; preview on draft 2; merge after AC review.\n');
   git('push', '-q', '-u', 'origin', KEY);
   write('sections/feature.liquid', '<div class="e2e-feature" data-v="3"></div>\n');
@@ -423,7 +424,8 @@ try {
   ok('handoff refuses commits QA didn\'t check', lateHandoff.code === 1 && /commits QA didn't check/.test(lateHandoff.err) && /draft isn't at the branch head/.test(lateHandoff.err), lateHandoff.all);
   git('reset', '-q', '--hard', 'HEAD~1');
   const handoff = kit('kit.mjs', 'done', KEY, 'handoff');
-  ok('handoff passes on the QA\'d commit, without a retro', handoff.code === 0 && state().stage === 'done', handoff.all);
+  ok('handoff passes on the QA\'d commit and shows the retro for the refused handoff',
+    handoff.code === 0 && state().stage === 'done' && /handoff ×1/.test(handoff.out) && /kit\.mjs note/.test(handoff.out) && state().history.some((e) => e.event === 'retro'), handoff.all);
 
   // Handover: status names the owner and warns another git identity.
   const mine = kit('kit.mjs', 'status', KEY).out;
@@ -468,6 +470,16 @@ try {
   const debugConclude = kit('kit.mjs', 'done', 'ABC-4', 'conclude', '--answer', 'Accept');
   ok('an investigation at the old frame stage resumes at gather; a debug one needs no § Requirements and no evidence-checker',
     /hypotheses/.test(debugGather.err) && !/Requirements|current stage/.test(debugGather.all) && !/evidence-checker/.test(debugConclude.all), debugGather.all + debugConclude.all);
+  // A run with nothing to look back on finishes quietly: no retro printed or recorded.
+  kit('kit.mjs', 'start', 'ABC-9', '--investigate');
+  kit('kit.mjs', 'set', 'ABC-9', 'type=question');
+  fill('ABC-9', '## Answer', 'The menu comes from the main-menu linklist.');
+  fill('ABC-9', '## Could not determine', 'Nothing material.');
+  fill('ABC-9', '## Next step', 'Nothing to do: it works as designed.');
+  const st9 = join(repo, '.claude', 'logs', 'ABC-9', 'state.json');
+  writeFileSync(st9, JSON.stringify({ ...JSON.parse(readFileSync(st9, 'utf8')), stage: 'conclude' }));
+  const clean = kit('kit.mjs', 'done', 'ABC-9', 'conclude', '--answer', 'Accept');
+  ok('a clean run finishes without a retro', clean.code === 0 && !/retro/.test(clean.out) && !JSON.parse(readFileSync(st9, 'utf8')).history.some((e) => e.event === 'retro'), clean.all);
 
   // ── Bug fixes reproduce the bug ──
   kit('kit.mjs', 'start', 'ABC-6');
