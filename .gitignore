@@ -6,3 +6,5 @@
 .claude/cli-check.json
 .claude/.kit-manifest.json
 node_modules/
+.installs.json
+.update-check.json

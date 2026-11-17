@@ -11,7 +11,7 @@ import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { kitFiles, kitCommit, compareVersions, staleFiles, olderBuild } from './shared/installer-core.mjs';
+import { kitFiles, kitCommit, compareVersions, staleFiles, olderBuild, register } from './shared/installer-core.mjs';
 
 // The app kit is a separate product in app/ with its own installer. Without --app, everything below runs as before.
 {
@@ -191,7 +191,7 @@ for (const f of files) {
 }
 for (const f of stale) actions.push([`remove ${f} (no longer in the kit)`, () => rmSync(join(dest, f), { force: true })]);
 if (!existsSync(join(dest, '.gitignore'))) actions.push(['write .gitignore (keeps the kit out of git)', () => writeFileSync(join(dest, '.gitignore'), GITIGNORE)]);
-actions.push(['write .kit-manifest.json', () => writeFileSync(manifestPath, JSON.stringify({ version, commit: kitCommit(KIT), uncommitted: source.dirty.length > 0, installedAt: new Date().toISOString(), files, settingsSha: sha(kitSettings) }, null, 2))]);
+actions.push(['write .kit-manifest.json', () => writeFileSync(manifestPath, JSON.stringify({ version, commit: kitCommit(KIT), source: resolve(KIT, '..'), uncommitted: source.dirty.length > 0, installedAt: new Date().toISOString(), files, settingsSha: sha(kitSettings) }, null, 2))]);
 
 console.log(`${installed ? `Updating kit ${installed} → ${version}` : `Installing kit ${version}`} in ${dest}`);
 if (source.dirty.length) console.warn(`Warning: this kit checkout has uncommitted changes (${source.dirty.slice(0, 5).join(', ')}${source.dirty.length > 5 ? ' …' : ''}); they ship as they are, not as a release.${source.untracked.length ? ` Not shipped because git doesn't have them: ${source.untracked.slice(0, 5).join(', ')}.` : ''}`);
@@ -199,6 +199,8 @@ for (const [what, act] of actions) {
   if (!dry) { mkdirSync(dest, { recursive: true }); act(); }
   if (!what.startsWith('copy ') || dry) console.log(`${dry ? '[dry run] ' : ''}${what}`);
 }
+// So node update.mjs reaches this repo next time.
+if (!dry) register(resolve(KIT, '..'), repo, 'theme');
 console.log(`${dry ? '[dry run] would copy' : 'Copied'} ${files.length} kit files. Kept: shopify-kit.json, .env.local, settings.local.json, cli-check.json, logs/.`);
 if (moved && !unreadable) console.log('Your own permissions, hooks and env are in .claude/settings.local.json now. Add new ones there: settings.json is replaced on every update.');
 if (unreadable) console.log('Move your own entries from .claude/settings.pre-kit.json into .claude/settings.local.json by hand.');

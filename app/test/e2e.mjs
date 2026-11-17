@@ -18,6 +18,8 @@ const repo = join(tmp, 'app');
 const fakeDir = join(tmp, 'fake');
 const bin = join(tmp, 'bin');
 const results = [];
+// The installers list every repo they install into, in the kit clone; test repos go to a temp list instead.
+process.env.SHOPIFY_KIT_REGISTRY = join(tmp, 'installs.json');
 const STORE = 'kit-dev.myshopify.com';
 
 const ok = (name, pass, detail = '') => { results.push(pass); console.log(`${pass ? 'ok  ' : 'FAIL'}  ${name}${pass || !detail ? '' : `\n      ${String(detail).trim().split('\n').slice(0, 12).join('\n      ')}`}`); };
@@ -129,6 +131,10 @@ writeFileSync(outFile, JSON.stringify({ testResults: files.map((file) => ({ name
   const install = rootInstall(repo, '--app');
   ok('installer copies the kit with the real shared modules', install.status === 0 && existsSync(join(repo, '.claude', 'kit', 'app.mjs'))
     && !/Master repo only/.test(read('.claude/kit/core.mjs')), install.stderr || install.stdout);
+  // update.mjs re-runs the root installer with --app for repos listed as app.
+  const installList = JSON.parse(readFileSync(process.env.SHOPIFY_KIT_REGISTRY, 'utf8'));
+  ok('installer lists the repo as an app-kit repo, with the clone in its manifest',
+    Object.entries(installList).some(([p, k]) => k === 'app' && p.toLowerCase() === repo.toLowerCase()) && JSON.parse(read('.claude/.kit-manifest.json')).source === join(KIT, '..'), JSON.stringify(installList));
   ok('installer refuses a folder that isn\'t an app', spawnSync(process.execPath, [join(KIT, 'install.mjs'), tmp], { encoding: 'utf8' }).status === 1);
   const noFlag = rootInstall(repo);
   ok('root installer without --app refuses an app-kit repo', noFlag.status === 1 && /holds the app kit/.test(noFlag.stderr) && !existsSync(join(repo, '.claude', 'kit', 'kit.mjs')), noFlag.stderr || noFlag.stdout);

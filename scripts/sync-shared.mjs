@@ -8,7 +8,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..');
-const SHARED = ['guard-core.mjs', 'jira.mjs'];
+const SHARED = ['guard-core.mjs', 'jira.mjs', 'update-check.mjs'];
 const KITS = ['.claude/kit', 'app/.claude/kit'];
 const header = (f) => `// Generated from shared/${f} by scripts/sync-shared.mjs: edit that file, then run node scripts/sync-shared.mjs.\n`;
 

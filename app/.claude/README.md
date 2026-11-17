@@ -50,6 +50,7 @@ Commit `appspec/changes/<ID>/` with the work and `git push -u origin <branch>`. 
 
 ## Install, Jira, feedback
 
-- Install or update from the kit repo: `node install.mjs <path-to-app-repo> --app`. It never touches `appspec/` or `app-kit.json`.
+- Install from the kit repo: `node install.mjs <path-to-app-repo> --app`. It never touches `appspec/` or `app-kit.json`.
+- Update every kit repo on your machine (theme and app): `node update.mjs` from the kit repo. Repos installed before it existed: `node update.mjs --scan <folder>` once. Every 15 days, a session mentions it once when a newer kit is out.
 - Jira: put `JIRA_USER` and `JIRA_API_TOKEN` in `.claude/.env.local` (git-ignored, unreadable to Claude). Without it, paste the ticket text.
 - Kit problems: `node .claude/kit/app.mjs feedback` writes `.claude/logs/kit-feedback.md` for the kit's maintainer.

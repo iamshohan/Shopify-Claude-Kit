@@ -1,8 +1,8 @@
 // Install-time rules both installers share (install.mjs for the theme kit, app/install.mjs for the app kit). Installers run
 // from the kit repo itself, so both import this file directly; it is never copied into a theme or app repo.
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { isAbsolute, resolve, sep } from 'node:path';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { isAbsolute, join, resolve, sep } from 'node:path';
 
 const git = (cwd, args) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
 
@@ -41,6 +41,29 @@ export function olderBuild(kitDir, installedCommit) {
   try { git(kitDir, ['merge-base', '--is-ancestor', installedCommit, 'HEAD']); return null; } catch {
     return `it was installed from kit commit ${installedCommit.slice(0, 7)}, which this checkout's HEAD (${head.slice(0, 7)}) doesn't include (git pull, or check out that branch)`;
   }
+}
+
+// ── Installed repos (update.mjs) ──
+// Every repo this clone installed into, so `node update.mjs` can refresh them all. It lives in the clone, git-ignored:
+// paths are per machine. SHOPIFY_KIT_REGISTRY moves it (the e2e suites point it at a temp file).
+
+export const registryPath = (cloneRoot) => process.env.SHOPIFY_KIT_REGISTRY || join(cloneRoot, '.installs.json');
+
+/** { "<absolute repo path>": "theme" | "app" }; empty when missing or unreadable. */
+export function readRegistry(cloneRoot) {
+  try {
+    const r = JSON.parse(readFileSync(registryPath(cloneRoot), 'utf8'));
+    return r && typeof r === 'object' && !Array.isArray(r) ? r : {};
+  } catch { return {}; }
+}
+
+export function writeRegistry(cloneRoot, registry) {
+  writeFileSync(registryPath(cloneRoot), JSON.stringify(registry, null, 2) + '\n');
+}
+
+/** Records a repo after an install. A failed write only costs update.mjs that repo, so it never fails the install. */
+export function register(cloneRoot, repo, kit) {
+  try { writeRegistry(cloneRoot, { ...readRegistry(cloneRoot), [resolve(repo)]: kit }); } catch { /* read-only clone */ }
 }
 
 /** -1, 0 or 1 for dotted version numbers (1.0.0 against 1.2.0); text parts compare as 0. */

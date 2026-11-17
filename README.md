@@ -10,7 +10,13 @@ node Shopify-Claude-Kit/install.mjs <path-to-theme-repo>          # theme kit
 node Shopify-Claude-Kit/install.mjs <path-to-app-repo> --app      # app kit
 ```
 
-To update: `git pull` in `Shopify-Claude-Kit`, then re-run the same command. A clone of the old `DripDevelopment` repo gets no more updates; switch it first with `git remote set-url origin https://github.com/iamshohan/Shopify-Claude-Kit.git`.
+**To update every repo on your machine at once:**
+```
+node Shopify-Claude-Kit/update.mjs
+```
+It pulls the kit, then updates each theme and app repo you installed it into, and lists them as it goes. Repos installed before kit 1.2.0 aren't on its list yet: add them once with `node Shopify-Claude-Kit/update.mjs --scan <folder that holds your repos>` (`--list` shows the list). Every 15 days, a Claude Code session in a kit repo mentions it once when a newer version is out; updating stays your call.
+
+A clone of the old `DripDevelopment` repo gets no more updates; switch it first with `git remote set-url origin https://github.com/iamshohan/Shopify-Claude-Kit.git`.
 
 ## Set up (once per repo and person)
 

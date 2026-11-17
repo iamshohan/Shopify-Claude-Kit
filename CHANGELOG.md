@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.0 — 2026-11-17
+
+- **One command updates every repo on your machine:** `node Shopify-Claude-Kit/update.mjs`. It pulls the kit, then re-runs the installer in each theme and app repo it was installed into, and lists each one as it goes.
+  - The installers now keep that list themselves (`.installs.json` in the clone, git-ignored). Repos installed before 1.2.0 join it once with `update.mjs --scan <folder>`; `--list` shows it, `--no-pull` installs the checkout as it is.
+  - A repo whose kit is gone drops off the list. A failed pull updates nothing.
+- **Update notice.** A new SessionStart hook (`kit/update-check.mjs`, both kits) checks every 15 days whether a newer kit is out, on the clone's remote or already pulled into the clone. If so, it says so once, with the update command. It only informs: it never updates, and it stays quiet for the next 15 days whatever the dev decides. The check is per machine, not per repo, and an offline machine just gets no notice.
+- **Manifests name their clone** (`source`), which is how the notice finds it. Repos get it with their next install or update.
+
 ## 1.1.2 — 2026-11-17
 
 - **The kit moved** from `DripDevelopment/Shopify-Claude-Kit` to `github.com/iamshohan/Shopify-Claude-Kit` (both kits, one repo). Both READMEs clone from there. A clone of the old `DripDevelopment` repo gets no more updates: run `git remote set-url origin https://github.com/iamshohan/Shopify-Claude-Kit.git` in it, then update as usual.

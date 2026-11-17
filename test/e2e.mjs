@@ -6,7 +6,7 @@
 // Exits 1 if any check fails.
 import { spawnSync, execFileSync } from 'node:child_process';
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { delimiter, dirname, join } from 'node:path';
+import { delimiter, dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
@@ -20,6 +20,8 @@ const repo = join(tmp, 'theme');
 const store = join(tmp, 'store');
 const bin = join(tmp, 'bin');
 const results = [];
+// The installers list every repo they install into, in the kit clone; test repos go to a temp list instead.
+process.env.SHOPIFY_KIT_REGISTRY = join(tmp, 'installs.json');
 
 function resolveKit() { return join(dirname(fileURLToPath(import.meta.url)), '..'); }
 const ok = (name, pass, detail = '') => { results.push(pass); console.log(`${pass ? 'ok  ' : 'FAIL'}  ${name}${pass || !detail ? '' : `\n      ${String(detail).trim().split('\n').slice(0, 8).join('\n      ')}`}`); };
@@ -129,6 +131,36 @@ try {
   ok('the code both kits share is in step with shared/', spawnSync(process.execPath, [join(KIT, 'scripts', 'sync-shared.mjs'), '--check'], { encoding: 'utf8' }).status === 0);
   writeFileSync(join(repo, '.claude', 'VERSION'), readFileSync(join(KIT, '.claude', 'VERSION'), 'utf8'));
   reinstall();
+
+  // ── Updating every repo on the machine, and the update notice ──
+  const registry = () => JSON.parse(readFileSync(process.env.SHOPIFY_KIT_REGISTRY, 'utf8'));
+  ok('the installer lists the repo, and the manifest names the clone it came from',
+    registry()[resolve(repo)] === 'theme' && JSON.parse(readFileSync(manifestPath, 'utf8')).source === resolve(KIT), JSON.stringify(registry()));
+  const deletedRepo = join(tmp, 'deleted-theme');
+  writeFileSync(process.env.SHOPIFY_KIT_REGISTRY, JSON.stringify({ ...registry(), [deletedRepo]: 'theme' }));
+  const updateAll = spawnSync(process.execPath, [join(KIT, 'update.mjs'), '--no-pull'], { encoding: 'utf8' });
+  ok('update.mjs updates every listed repo and drops one whose kit is gone',
+    updateAll.status === 0 && updateAll.stdout.includes(`ok ${resolve(repo)}`) && /dropped/.test(updateAll.stdout) && !(deletedRepo in registry()), updateAll.stdout + updateAll.stderr);
+  writeFileSync(process.env.SHOPIFY_KIT_REGISTRY, '{}');
+  const scan = spawnSync(process.execPath, [join(KIT, 'update.mjs'), '--scan', tmp, '--list'], { encoding: 'utf8' });
+  ok('update.mjs --scan finds repos installed before the list existed', scan.status === 0 && registry()[resolve(repo)] === 'theme' && scan.stdout.includes(resolve(repo)), scan.stdout + scan.stderr);
+  // The notice reads the clone's own VERSION offline (SHOPIFY_KIT_NO_FETCH), and remembers its last check.
+  const stateFile = join(tmp, 'update-check.json');
+  const notice = () => spawnSync(process.execPath, [join(repo, '.claude', 'kit', 'update-check.mjs'), '--hook'], {
+    cwd: repo, encoding: 'utf8', env: { ...env, CLAUDE_PROJECT_DIR: repo, SHOPIFY_KIT_UPDATE_STATE: stateFile, SHOPIFY_KIT_NO_FETCH: '1', SHOPIFY_KIT_DEBUG: '1' },
+  });
+  const upToDate = notice();
+  const installedManifest = readFileSync(manifestPath, 'utf8');
+  writeFileSync(manifestPath, JSON.stringify({ ...JSON.parse(installedManifest), version: '0.0.1' }));
+  rmSync(stateFile, { force: true });
+  const behindNotice = notice();
+  const shown = (() => { try { return JSON.parse(behindNotice.stdout); } catch { return {}; } })();
+  const quiet = notice();
+  writeFileSync(manifestPath, installedManifest);
+  ok('the update notice says a newer kit is available once, then stays quiet until the next check',
+    upToDate.status === 0 && upToDate.stdout === '' && /is available \(this repo has 0\.0\.1\)/.test(shown.systemMessage || '')
+      && /update\.mjs/.test(shown.systemMessage) && shown.hookSpecificOutput?.hookEventName === 'SessionStart' && quiet.stdout === '',
+    `${upToDate.stdout}\n${behindNotice.stdout}${behindNotice.stderr}\n${quiet.stdout}`);
   // Back to a clean install, then the config /shopify-setup would write.
   rmSync(localPath);
   rmSync(join(repo, '.claude', 'CLAUDE.md.pre-kit'));

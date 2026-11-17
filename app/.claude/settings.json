@@ -118,6 +118,22 @@
     ]
   },
   "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PROJECT_DIR}/.claude/kit/update-check.mjs",
+              "--hook"
+            ],
+            "timeout": 20
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "matcher": "Bash|PowerShell|Monitor|Edit|Write|MultiEdit|NotebookEdit",

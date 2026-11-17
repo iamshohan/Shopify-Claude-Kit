@@ -13,6 +13,7 @@ import {
   effectiveBase, namesKey, unMsys, unMsysFrom, mutationProblems, shopifyIgnore, themeDigest,
   authSessionProps, execErrorProps, lastVerified,
 } from './lib.mjs';
+import { due, newerVersion } from './update-check.mjs';
 
 // ── Help and settable facts ──
 const HELP = `Usage: node .claude/kit/kit.mjs <verb> ...
@@ -620,6 +621,10 @@ function selftest() {
     lastVerified({ ok: false, cliVersion: '5.0.1' }),
     lastVerified(null),
   ], ['4.9.4', '4.9.4', null, null]);
+  // The session-start update notice: every 15 days, and only for a version newer than the installed one.
+  const day = 86400000;
+  eq('update notice due', [due(undefined), due('garbage'), due(new Date(Date.now() - 14 * day).toISOString()), due(new Date(Date.now() - 15 * day).toISOString())], [true, true, false, true]);
+  eq('update notice newer', [newerVersion('1.1.2', ['1.2.0', null]), newerVersion('1.1.2', [null, '1.1.10']), newerVersion('1.2.0', ['1.1.2', '1.2.0']), newerVersion('1.2.0', [null, null])], ['1.2.0', '1.1.10', null, null]);
   eq('design set', hasDesign({ design: { figma: 'https://www.figma.com/design/abc/x' } }), true);
   eq('design none or unset', [hasDesign({ design: { figma: 'none' } }), hasDesign({})], [false, false]);
   eq('cells', cells('| 3 | a \\| b | PASS |'), ['3', 'a \\| b', 'PASS']);

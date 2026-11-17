@@ -1,4 +1,4 @@
-# Shopify Implementation Kit · v1.1.2
+# Shopify Implementation Kit · v1.2.0
 
 A Claude Code setup for Shopify theme repos.
 
@@ -57,7 +57,7 @@ shopify store auth --store <store>.myshopify.com --scopes read_products,write_pr
 
 **Protect the base branch on GitHub** (require PRs). The guard is a seatbelt; branch protection is the boundary.
 
-**Updating:** `git pull` in your kit clone, then run the installer again. A clone made from the old `DripDevelopment` repo gets no more updates; point it at the new one first: `git remote set-url origin https://github.com/iamshohan/Shopify-Claude-Kit.git`. Your config, `.env.local`, `settings.local.json` and `logs/` are kept. After a Shopify CLI or plugin update, run `/shopify-update`.
+**Updating:** `node Shopify-Claude-Kit/update.mjs` pulls the kit and updates every repo on your machine that has it (theme and app kits). Repos installed before kit 1.2.0: add them once with `node Shopify-Claude-Kit/update.mjs --scan <folder that holds your repos>`. Every 15 days, a session here mentions it once when a newer kit is out; it never updates on its own. A clone made from the old `DripDevelopment` repo gets no more updates; point it at the new one first: `git remote set-url origin https://github.com/iamshohan/Shopify-Claude-Kit.git`. Your config, `.env.local`, `settings.local.json` and `logs/` are kept. After a Shopify CLI or plugin update, run `/shopify-update`.
 
 ## Use
 
