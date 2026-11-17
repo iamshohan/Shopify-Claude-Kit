@@ -54,7 +54,7 @@ export const INVESTIGATION_STAGES = [
 
 export const stagesFor = (st) => (st?.kind === 'investigation' ? INVESTIGATION_STAGES : STAGES);
 
-// Stages kit 1.0.0 dropped, and where a task that was in one resumes: teams have tasks in flight.
+// Stages kit 1.1.0 dropped, and where a task that was in one resumes: teams have tasks in flight.
 const RETIRED_STAGES = { clarify: 'plan', frame: 'gather' };
 
 // ── Output and arguments ──

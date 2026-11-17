@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 1.1.0 — 2026-11-17
+
+Shared with the team. Two gates instead of four, a guard that trusts the agent and blocks its mistakes, shared code with the new app kit, and fixes from first use: `/shopify-investigate` runs again, the Admin API login command is back in the README, and `cli-check` passes on Shopify CLI 5.
 
 - **`cli-check` passes on Shopify CLI 5.0.1.**
   - CLI 5 moved the `store auth list` session fields behind a `$ref`, so the check reported all four (`store`, `subdomain`, `scopes`, `expiresAt`) as gone. It now follows `$ref`s (in the nested result schema or the top level) and still reads CLI 4's inline shape. The `store execute` error check reads the same way.

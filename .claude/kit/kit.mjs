@@ -140,7 +140,7 @@ function planBody(md) {
   return `${md.split(/\r?\n/).filter((l) => { if (/^##\s/.test(l)) skip = /^##\s+As built\b/i.test(l.trim()); return !skip; }).join('\n').trimEnd()}\n`;
 }
 
-/** Lines added (+) and removed (-) in plan.md since Gate 1, or null when there is no approved copy (approved before kit 1.0.0's listing). */
+/** Lines added (+) and removed (-) in plan.md since Gate 1, or null when there is no approved copy (approved before kit 1.1.0's listing). */
 function planDiff(key) {
   const approved = join(LOGS, key, APPROVED_PLAN);
   if (!existsSync(approved)) return null;
