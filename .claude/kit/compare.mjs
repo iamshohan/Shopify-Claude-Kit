@@ -83,8 +83,11 @@ const results = [];
 for (const path of list) {
   const liveJar = new Map();
   const draftJar = new Map();
-  const liveUrl = origin + path;
-  const draftUrl = `${liveUrl}${liveUrl.includes('?') ? '&' : '?'}preview_theme_id=${draftId}`;
+  const pageUrl = origin + path;
+  const preview = (id) => `${pageUrl}${pageUrl.includes('?') ? '&' : '?'}preview_theme_id=${id}`;
+  // With a base theme set (live is a campaign theme on another branch), the draft is compared with that theme instead.
+  const liveUrl = st.baseTheme ? preview(st.baseTheme) : pageUrl;
+  const draftUrl = preview(draftId);
   const [live, draft] = await Promise.all([get(liveUrl, liveJar), get(draftUrl, draftJar)]);
   const lt = themeOf(live.html);
   const dt = themeOf(draft.html);
@@ -94,6 +97,7 @@ for (const path of list) {
   if (/\/password/.test(live.url) || /\/password/.test(draft.url)) { row.verdict = 'BLOCKED'; row.why = 'storefront is password-protected'; results.push(row); continue; }
   if (!lt || live.status >= 400) { row.verdict = 'BLOCKED'; row.why = `the live page didn't render a theme (HTTP ${live.status}; bot protection or a redirect?)`; results.push(row); continue; }
   if (dt?.id !== draftId) { row.verdict = 'BLOCKED'; row.why = `the draft request rendered theme ${dt?.id ?? 'unknown'}, not ${draftId}`; results.push(row); continue; }
+  if (st.baseTheme && lt.id !== st.baseTheme) { row.verdict = 'BLOCKED'; row.why = `the base theme request rendered theme ${lt.id}, not ${st.baseTheme}`; results.push(row); continue; }
   const a = sections(live.html);
   const b = sections(draft.html);
   row.sections = {

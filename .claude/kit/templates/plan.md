@@ -6,6 +6,11 @@
 
 ### Needs your attention
 
+### Not proven yet
+
+| What the plan relies on | Why it isn't proven | Fallback if it doesn't hold | QA # |
+| --- | --- | --- | --- |
+
 ### What changes
 
 | File | What happens |

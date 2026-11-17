@@ -299,17 +299,21 @@ function digestAt(commit, f) {
   return driftDigest(f, shown.status === 0 ? shown.stdout : null);
 }
 
+// When live is a campaign theme on another branch, the theme that follows the base branch (kit.mjs set <KEY> baseTheme=<id>,
+// which the guard asks about) stands in for live: comparing with the campaign flags every merchant file as a live edit.
+const baseThemeArgs = (st) => (st?.baseTheme ? ['--theme', String(st.baseTheme)] : ['--live']);
+
 /**
  * Branch files whose live copy differs from the base: pushing them overwrites those edits on the draft and, after the
  * merge, on live. Each result's `live` is a digest of live's copy. `undeployed`: live holds an earlier version from the
  * base branch's history, so the base branch is ahead of live (merged, not deployed yet), and nothing on live is lost.
  */
-function liveDrift(files, base) {
+function liveDrift(st, files, base) {
   if (!files.length) return [];
   const dir = mkdtempSync(join(tmpdir(), 'kit-live-'));
   try {
     for (const batch of batches(files)) {
-      const r = cli(['theme', 'pull', '--store', cfg.store, '--live', '--path', dir, '--nodelete', '--force', ...batch.flatMap((f) => ['--only', f])]);
+      const r = cli(['theme', 'pull', '--store', cfg.store, ...baseThemeArgs(st), '--path', dir, '--nodelete', '--force', ...batch.flatMap((f) => ['--only', f])]);
       if (r.code !== 0) failCli(cfg.store, r, 'Pulling live files for the drift check');
     }
     return files.flatMap((f) => {
@@ -329,7 +333,7 @@ function liveDrift(files, base) {
  * buildOutputs aren't in git at the base, so live always "differs" from it there: they're left out.
  */
 function driftCheck(key, st, files, base) {
-  const drift = liveDrift(files.filter((f) => !(st.buildOutputs || []).includes(f)), base);
+  const drift = liveDrift(st, files.filter((f) => !(st.buildOutputs || []).includes(f)), base);
   const edited = drift.filter((d) => !d.undeployed);
   const refused = openDrift(key, st, edited.filter((d) => MERCHANT_JSON.test(d.file)));
   st.draft.liveEdits = edited.filter((d) => !MERCHANT_JSON.test(d.file)).map((d) => d.file);
@@ -610,7 +614,7 @@ switch (verb) {
 
   case 'pull-live': {
     const key = normKey(pos[0]);
-    readState(key);
+    const st = readState(key);
     const files = pos.slice(1);
     if (!files.length) fail('Name the files or globs to pull, e.g. pull-live ABC-123 "templates/product*.json"');
     const odd = files.filter((f) => !isThemePath(f));
@@ -618,7 +622,7 @@ switch (verb) {
     const dest = join(LOGS, key, 'live');
     mkdirSync(dest, { recursive: true });
     // --force: the CLI refuses a non-theme folder that already has files (the second pull of a task).
-    const r = cli(['theme', 'pull', '--store', cfg.store, '--live', '--path', dest, '--nodelete', '--force', ...files.flatMap((f) => ['--only', f])]);
+    const r = cli(['theme', 'pull', '--store', cfg.store, ...baseThemeArgs(st), '--path', dest, '--nodelete', '--force', ...files.flatMap((f) => ['--only', f])]);
     if (r.code !== 0) failCli(cfg.store, r, 'Pulling live files');
     print({ folder: relative(ROOT, dest).replaceAll('\\', '/'), files: walk(dest) });
     break;
@@ -671,7 +675,10 @@ switch (verb) {
       break;
     }
     const name = draftNameFor(key, st);
-    const live = themes.find((t) => t.role === 'live') || fail('No live theme found in the store.');
+    // The draft copies the theme the branch follows: live, or the base theme when live is a campaign theme.
+    const live = st.baseTheme
+      ? themes.find((t) => t.id === st.baseTheme) || fail(`Base theme ${st.baseTheme} isn't in the store. Check the id: kit.mjs set ${key} baseTheme=<id>.`)
+      : themes.find((t) => t.role === 'live') || fail('No live theme found in the store.');
     const same = themes.find((t) => t.name.toUpperCase() === name.toUpperCase() && t.role === 'unpublished');
     const others = themes.filter((t) => t.role !== 'live' && t !== same && namesKey(t.name, key));
     const record = (theme, source, route = 'cli') => {

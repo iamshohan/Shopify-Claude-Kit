@@ -27,7 +27,9 @@ user-invocable: false
    Tell the dev the type you picked. If two types fit, ask.
 
    The kit only implements tickets that change theme code. For a feasibility check, a debugging task or a question, suggest `/shopify-investigate <KEY>` and stop. App development and content-only work are out of scope.
-4. **Which theme.** The kit builds on a copy of the **live** theme. If the ticket targets another theme (e.g. a campaign theme), say that it's out of scope for the kit, and stop.
+4. **Which theme.** The kit builds on the theme that follows the base branch, normally the **live** theme.
+   - **Live is a campaign theme** on another branch, and the ticket is for the regular theme: ask the dev for the theme that follows the base branch, and record it with `kit.mjs set <KEY> baseTheme=<id>` (the guard asks the dev). The drift check, `pull-live`, the draft copy and QA's regression comparison then use it instead of live.
+   - **The ticket targets the campaign theme itself:** say that it's out of scope for the kit, and stop.
 5. **A/B ports only.** Ask in one AskUserQuestion round, skipping anything the tickets already state:
    - Which variation won? (offer the variations named in the ticket)
    - Where is the A/B code? If you already found a copy on this machine, the first option is "Use the copy at <path>" (Recommended): copy it into `.claude/logs/<KEY>/abtest/` yourself instead of waiting for the dev. Other options:

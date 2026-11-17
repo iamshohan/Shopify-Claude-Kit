@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.3.0 — 2026-11-17
+
+From a teammate's review of POP-1150: "If the kit recommends something it hasn't tested yet, it should say so clearly when asking for approval, offer a safe backup option, and not finish the task until that part is tested and works." The task's log showed why: the plan rested on two unverified assumptions (the set product's option layout, which the store rate-limited; Restock Rocket for another product), both only in § Risks, which Gate 1 doesn't show. Then the run stopped at the draft stage with its 22 QA criteria unmeasured.
+
+- **"Not proven yet" at Gate 1.** plan.md § At a glance lists everything the plan relies on but couldn't verify, each with why, a fallback the dev could choose, and the QA criterion that tests it, or says "none". `done plan` refuses a row without a fallback or with a criterion that doesn't exist. The approval question names how many there are.
+- **Gate 2 won't wave them through.** A "not proven yet" criterion that didn't pass is shown first, with its fallback. The options become: use the fallback (back to build), accept it untested by name, fix, or test more. `done accept` refuses unless the dev's answer names each one.
+- **A run that stopped before QA says so.** `kit.mjs list` and `status` show "QA: 0 of 22 criteria measured, so the build is unchecked" between build and QA.
+- **A GitHub-connected draft keeps its branch.** `kit.mjs set <KEY> branch=…` refuses while a GitHub-connected draft follows the old branch (POP-1150 switched branches after adopting its draft). To move, connect a theme to the new branch and set `draft.themeId` and `branch` together.
+- **A campaign theme on live.** When live is a campaign theme on another branch, `kit.mjs set <KEY> baseTheme=<id>` (the guard asks) names the theme that follows the base branch. The drift check, `pull-live`, the draft copy and QA's regression comparison then use it, instead of flagging every merchant file as a live edit. Intake asks for it instead of stopping.
+- **Guard self-test:** the `cd` cases quote their paths, so the self-test passes in a repo under a folder with spaces.
+
 ## 1.2.0 — 2026-11-17
 
 - **One command updates every repo on your machine:** `node Shopify-Claude-Kit/update.mjs`. It pulls the kit, then re-runs the installer in each theme and app repo it was installed into, and lists each one as it goes.

@@ -298,6 +298,19 @@ try {
   setLive('templates/product.json', product('A', 'D5'));
   const ghVerify = kit('shopify.mjs', 'verify', KEY, '--wait', '0');
   ok('verify on a GitHub-connected draft doesn\'t record it as verified while live drift is refused', ghVerify.code === 3 && state().draft.verifiedCommit === null, ghVerify.all);
+  // POP-1150: the branch changed after a GitHub-connected draft was adopted, so the draft showed the old branch.
+  const moveBranch = kit('kit.mjs', 'set', KEY, 'branch=other-branch');
+  ok('set refuses a new branch while a GitHub-connected draft follows the old one', moveBranch.code === 1 && /connected to ABC-1 on GitHub/.test(moveBranch.err) && state().branch === KEY, moveBranch.all);
+  // A campaign theme is live: the theme that follows the base branch stands in for live.
+  writeFileSync(join(store, 'themes.json'), JSON.stringify([...JSON.parse(readFileSync(join(store, 'themes.json'), 'utf8')), { id: 7, name: 'Regular', role: 'unpublished' }]));
+  cpSync(join(store, 'themes', '1'), join(store, 'themes', '7'), { recursive: true });
+  writeFileSync(join(store, 'themes', '7', 'templates', 'product.json'), product('A', 'BASE'));
+  kit('kit.mjs', 'set', KEY, 'baseTheme=7');
+  const pulledBase = kit('shopify.mjs', 'pull-live', KEY, 'templates/product.json');
+  ok('with baseTheme set, pull-live reads the base theme instead of live, and status says so',
+    pulledBase.code === 0 && /"BASE"/.test(readFileSync(join(repo, '.claude', 'logs', KEY, 'live', 'templates', 'product.json'), 'utf8')) && /Base theme: 7 stands in for live/.test(kit('kit.mjs', 'status', KEY).out), pulledBase.all);
+  const { baseTheme, ...withoutBase } = state();
+  writeFileSync(statePath, JSON.stringify(withoutBase));
   setLive('templates/product.json', product('A', 'D3'));
   writeFileSync(statePath, JSON.stringify({ ...state(), draft: { ...state().draft, route: 'cli', verifiedCommit: verifiedAt } }));
 
@@ -360,7 +373,13 @@ try {
 
   // Approve runs the plan's checks again: "Approve with changes" edits the plan at the gate.
   writeFileSync(statePath, JSON.stringify({ ...state(), stage: 'approve', type: 'feature' }));
+  const unproven = '| What the plan relies on | Why it isn\'t proven | Fallback if it doesn\'t hold | QA # |\n| --- | --- | --- | --- |\n';
+  const noUnproven = kit('kit.mjs', 'done', KEY, 'approve', '--answer', 'Approve');
+  edit(KEY, 'plan.md', unproven, `${unproven}| the header nav markup | rate-limited | | 9 |\n`);
   const unchecked = kit('kit.mjs', 'done', KEY, 'approve', '--answer', 'Approve');
+  ok('plan needs "Not proven yet" filled, and each row with a fallback and a QA criterion that exists',
+    /Not proven yet: one row per thing/.test(noUnproven.err) && /the header nav markup.*fallback/.test(unchecked.err) && /QA criterion 9 isn't in plan\.md/.test(unchecked.err), noUnproven.all + unchecked.all);
+  edit(KEY, 'plan.md', '| the header nav markup | rate-limited | | 9 |', '| the header nav markup | rate-limited | keep the header as it is | 3 |');
   edit(KEY, 'brief.md', '| Value | Where the merchant changes it | Type, options, default | Empty state | Why |\n| --- | --- | --- | --- | --- |\n',
     '| Value | Where the merchant changes it | Type, options, default | Empty state | Why |\n| --- | --- | --- | --- | --- |\n| Title | section a setting | text, "A2" | hidden | per placement |\n');
   edit(KEY, 'brief.md', '#### Stays in code (the merchant can\'t change it)\n', '#### Stays in code (the merchant can\'t change it)\n\nnone\n');
@@ -444,7 +463,18 @@ try {
   const offBranch = kit('kit.mjs', 'status', KEY);
   git('switch', '-q', KEY);
   ok('the since-approval list at Gate 2 doesn\'t depend on the checkout', /doesn't name: [^\n]*sections\/header\.liquid/.test(offBranch.out), offBranch.all);
-  kit('kit.mjs', 'done', KEY, 'accept', '--answer', 'Accept');
+  // A "not proven yet" criterion that didn't pass: Gate 2 takes it only when the dev names it.
+  const passed3 = state().qa.rows[3];
+  writeFileSync(statePath, JSON.stringify({ ...state(), qa: { ...state().qa, rows: { ...state().qa.rows, 3: { ...passed3, verdict: 'NOT TESTED' } } } }));
+  writeFileSync(statePath, JSON.stringify({ ...state(), stage: 'qa' }));
+  const listed = kit('kit.mjs', 'list').out;
+  writeFileSync(statePath, JSON.stringify({ ...state(), stage: 'accept' }));
+  const blindAccept = kit('kit.mjs', 'done', KEY, 'accept', '--answer', 'Accept');
+  const namedAccept = kit('kit.mjs', 'done', KEY, 'accept', '--answer', 'Accept, #3 untested: my risk');
+  ok('accept refuses an untested "not proven yet" criterion unless the dev names it',
+    blindAccept.code === 1 && /#3 \(NOT TESTED\)/.test(blindAccept.err) && namedAccept.code === 0, blindAccept.all + namedAccept.all);
+  ok('list shows how much of QA was measured for a task between build and accept', /QA: 3 of 3 criteria measured/.test(listed), listed);
+  writeFileSync(statePath, JSON.stringify({ ...state(), qa: { ...state().qa, rows: { ...state().qa.rows, 3: passed3 } } }));
 
   // Handoff: the pushed branch is the commit QA measured. The refused handoff below is a signal, so done shows the
   // retro, without making it a condition.

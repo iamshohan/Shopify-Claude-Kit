@@ -180,7 +180,7 @@ function gateDecision(segs) {
     const { w, i } = program(stripRedirects(seg));
     if (!/^node(\.exe)?$/i.test(w[i] || '') || !/(^|[\\/])kit\.mjs$/i.test(w[i + 1] || '')) {
       // node --no-warnings kit.mjs set … draft.themeId=: the guard can't read which theme, and every push goes there.
-      if (/kit\.mjs/i.test(seg) && /draft\.themeId=/.test(seg)) {
+      if (/kit\.mjs/i.test(seg) && /(draft\.themeId|baseTheme)=/.test(seg)) {
         return { decision: 'ask', reason: `This picks the draft theme in a form the guard can't read. Run it as node .claude/kit/kit.mjs set <KEY> draft.themeId=<id> so you see the id, or allow it as is? (${seg.slice(0, 300)})` };
       }
       const g = [...GATE_STAGES].find((s) => new RegExp(`\\b${s}\\b`).test(seg));
@@ -192,6 +192,9 @@ function gateDecision(segs) {
     const call = parseArgs(w.slice(i + 2));
     const themeId = call._[0] === 'set' && call._.find((a) => /^draft\.themeId=/.test(a));
     if (themeId) return { decision: 'ask', reason: `Record theme ${themeId.split('=')[1]} as ${call._[1]}'s draft? Every later push writes to it, so check it isn't a teammate's draft.` };
+    // baseTheme replaces live as what the drift check protects, so a wrong id would let a merchant's live edits through.
+    const baseTheme = call._[0] === 'set' && call._.find((a) => /^baseTheme=/.test(a));
+    if (baseTheme) return { decision: 'ask', reason: `Use theme ${baseTheme.split('=')[1]} instead of live as ${call._[1]}'s base theme (the theme that follows the base branch, when live is a campaign theme)? The drift check, the draft copy and QA's comparison then use it, so check it's the right one.` };
     const answer = typeof call.flags.answer === 'string' ? call.flags.answer : '';
     // Without --answer the kit refuses on its own.
     if (call._[0] !== 'done' || !GATE_STAGES.has(call._[2]) || !answer) continue;
@@ -794,13 +797,14 @@ function selftest() {
     [file('Write', `.claude/logs/${K}/state.json`), 'deny', ctx(K, {}, true)],
     [bash('cp x .claude/kit/kit.mjs'), null, ctx(K, {}, true)], [bash('cp x .claude/hooks/guard.mjs'), 'ask', ctx(K, {}, true)],
     // another repository: this repo's protected branch doesn't apply; pushes are checked wherever they run
-    [bash(`cd ${OUT} && git init -q && git commit -qm x`), null, ctx('main')],
-    [bash(`git -C ${OUT} commit -qm x`), null, ctx('main')],
+    // Paths quoted: a kit repo under a folder with spaces split the unquoted cd (POP-1150 kit note).
+    [bash(`cd "${OUT}" && git init -q && git commit -qm x`), null, ctx('main')],
+    [bash(`git -C "${OUT}" commit -qm x`), null, ctx('main')],
     [{ tool_name: 'Bash', tool_input: { command: 'git commit -qm x' }, cwd: OUT }, null, ctx('main')],
     [bash('cd .claude && git commit -m x'), 'deny', ctx('main')],
     [bash('cd "$D" && git commit -m x'), 'deny', ctx('main')],
-    [bash(`cd ${OUT} && cd ${ROOT.replaceAll('\\', '/')} && git commit -m x`), 'deny', ctx('main')],
-    [bash(`cd ${OUT} && git push origin main`), 'deny'],
+    [bash(`cd "${OUT}" && cd "${ROOT.replaceAll('\\', '/')}" && git commit -m x`), 'deny', ctx('main')],
+    [bash(`cd "${OUT}" && git push origin main`), 'deny'],
     // git behind a prefix, a backslash or a full path is still git
     ...['env git push origin main', 'time git push origin main', 'command git push origin main', '\\git push origin main', '/usr/bin/git push origin main',
       '"C:/Program Files/Git/cmd/git.exe" push origin main', 'env bash -c "git push origin main"', 'bash -lc "git push origin main"', 'timeout 10 git push origin main']
@@ -809,6 +813,9 @@ function selftest() {
     // a gate the guard can't read as a plain call is logged; a redirect on a kit.mjs call is scanned
     [bash(`node --no-warnings .claude/kit/kit.mjs done ${K} approve --answer "Approve"`), 'log'], [bash(`env node .claude/kit/kit.mjs done ${K} approve --answer "Approve"`), 'log'],
     [bash(`node --no-warnings .claude/kit/kit.mjs set ${K} draft.themeId=9`), 'ask'],
+    [bash(`node .claude/kit/kit.mjs set ${K} baseTheme=9`), 'ask'],
+    [bash(`node --no-warnings .claude/kit/kit.mjs set ${K} baseTheme=9`), 'ask'],
+    [bash(`node .claude/kit/kit.mjs set ${K} featurePrefix=x`), null],
     [bash(`node .claude/kit/kit.mjs status ${K} --json > .claude/logs/${K}/state.json`), 'deny'], [bash('node scripts/kit.mjs .env'), 'deny'],
     [bash(`node .claude/kit/kit.mjs status ${K} > status.txt`), null],
     // the master repo: the app kit's guard asks like this one's

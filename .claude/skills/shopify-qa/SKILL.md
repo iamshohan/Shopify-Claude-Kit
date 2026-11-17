@@ -121,9 +121,11 @@ Never write "QA passed" while any row is FAIL, NOT TESTED or BLOCKED.
    - § You must still do, as written in the report
    - "Since the plan was approved" from `kit.mjs status <KEY>`: changed files the plan didn't name, and the plan's changes. Say "none" when both are none.
    - anything noticed that the dev should decide about, at most three lines
-2. AskUserQuestion: "QA result for <KEY>". Options: **Accept, I'll do the N checks** (or **Accept** when nothing is open), **Fix the failures**, and **I'll test more first**.
+   - **"Not proven yet" rows that didn't pass** (plan.md § At a glance), each with its fallback, first and set apart: "#11 Restock Rocket for the set product: NOT TESTED. Fallback: no waitlist button."
+2. AskUserQuestion: "QA result for <KEY>". Options: **Accept, I'll do the N checks** (or **Accept** when nothing is open), **Fix the failures**, and **I'll test more first**. When a "not proven yet" row didn't pass, replace the first option with **Use the fallback for #…** and **Accept #… untested** (the dev's risk, named), and keep the other two. `done accept` refuses an untested not-proven row the answer doesn't name.
 3. Then:
-   - **Accept** → `kit.mjs done <KEY> accept --answer "<their words>"`.
+   - **Accept** (or **Accept #… untested**) → `kit.mjs done <KEY> accept --answer "<their words>"`.
+   - **Use the fallback for #…** → `kit.mjs back <KEY> build --reason "fallback for #…"`, record it under plan.md § Amendments, and continue as for fixes below.
    - **Fix the failures** → `kit.mjs back <KEY> build --reason "<the failing rows>"`. Then:
      1. Follow the build stage in fix mode: the builder gets the failing rows. Then commit.
      2. Run the draft stage again (push).

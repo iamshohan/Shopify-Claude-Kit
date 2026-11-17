@@ -52,6 +52,8 @@ const SETTABLE = {
   type: String, // checked against the task's kind in "set"
   branch: String,
   base: String,
+  // The theme that follows the base branch, when live is a campaign theme on another branch (the guard asks).
+  baseTheme: (v) => (/^\d+$/.test(v) ? Number(v) : fail('baseTheme must be a numeric theme id')),
   'abtest.tool': String,
   'abtest.running': oneOf('yes', 'no', 'unknown'),
   'abtest.reference': String,
@@ -323,6 +325,7 @@ const EXIT_CHECKS = {
     !tableRows(key, 'brief.md', '### Questions and answers', '## Decided').length
       && 'record the questions you asked and the dev\'s answers in brief.md § Decided → Questions and answers (at least the control-surface confirmation)',
     ...glanceProblems(key),
+    ...unprovenProblems(key),
     !tableRows(key, 'plan.md', '## Files').length && 'fill plan.md § Files (builder detail): one table row per file',
     !planCriteria(key).size && 'write plan.md § QA criteria: one numbered row per criterion',
     st.type === 'bugfix' && !reproRows(tableRows(key, 'plan.md', '## QA criteria')).length
@@ -469,6 +472,43 @@ function draftBehind(st) {
 // ── Status and summary output ──
 
 /** What start, status, done and back print: the stage, the skill to load next, and the task's facts. */
+// ── Not proven yet ──
+// What the plan relies on but couldn't verify (a data shape the store didn't show, an app API for another product…).
+// Gate 1 shows it with a fallback, QA measures it, and Gate 2 won't take it untested unless the dev names it (POP-1150).
+
+const UNPROVEN = ['### Not proven yet', '## At a glance'];
+/** Each row's plan QA criteria numbers. */
+const unprovenRows = (key) => tableRows(key, 'plan.md', ...UNPROVEN).map((r) => ({ row: r, cells: cells(r), qa: (cells(r)[3] || '').match(/\d+/g) || [] }));
+
+function unprovenProblems(key) {
+  const rows = unprovenRows(key);
+  if (!rows.length) return [!saysNone(key, 'plan.md', ...UNPROVEN) && 'fill plan.md § At a glance → Not proven yet: one row per thing the plan relies on that you couldn\'t verify in this theme or store, or "none"'];
+  const criteria = planCriteria(key);
+  return rows.flatMap(({ cells: c, qa }) => [
+    (!c[0] || !c[1] || !c[2]) && `Not proven yet → "${c[0] || '?'}": say why it isn't proven and the fallback if it doesn't hold`,
+    !qa.length && `Not proven yet → "${c[0]}": name the QA criterion that tests it`,
+    ...qa.filter((n) => !criteria.has(n)).map((n) => `Not proven yet → "${c[0]}": QA criterion ${n} isn't in plan.md § QA criteria`),
+  ]);
+}
+
+/** Not-proven criteria that didn't PASS and that the dev's Gate 2 answer doesn't name. */
+function unprovenUntested(key, st, answer) {
+  const named = (n) => new RegExp(`(^|\\D)${n}(?!\\d)`).test(answer);
+  const open = [...new Set(unprovenRows(key).flatMap((r) => r.qa))].filter((n) => st.qa?.rows?.[n]?.verdict !== 'PASS' && !named(n));
+  return open.length && `"Not proven yet" criteria ${open.map((n) => `#${n} (${st.qa?.rows?.[n]?.verdict || 'no verdict'})`).join(', ')} didn't pass. Test them, switch to the plan's fallback (kit.mjs back <KEY> build --reason "fallback for #…"), or accept them untested only if the dev names each one: --answer "<their words, naming ${open.map((n) => `#${n}`).join(', ')}>"`;
+}
+
+/**
+ * "QA: 0 of 22 criteria measured" for a task built but not through QA, or null. A run that stops at the draft looks
+ * finished to whoever picks the branch up (POP-1150: 22 criteria never measured), so list and status say so.
+ */
+function qaProgress(key, st) {
+  if (kindOf(st) === 'investigation' || !['build', 'draft', 'qa'].includes(st.stage)) return null;
+  const total = planCriteria(key).size;
+  const measured = Object.keys(st.qa?.rows || {}).length;
+  return total ? `QA: ${measured} of ${total} criteria measured${measured < total ? ', so the build is unchecked' : ''}` : null;
+}
+
 function summaryLines(key, st, cfg) {
   const stages = stagesFor(st);
   const i = stageIndex(st.stage, st);
@@ -507,6 +547,8 @@ function summaryLines(key, st, cfg) {
     if (st.draft.ignoredFiles?.length) lines.push(`Not on the draft (.shopifyignore; list them in report.md § You must still do): ${st.draft.ignoredFiles.join(', ')}`);
     if (st.draft.liveEdits?.length) lines.push(`Live edits since the base that the merge overwrites (report them in report.md § You must still do): ${st.draft.liveEdits.join(', ')}`);
   }
+  if (st.baseTheme) lines.push(`Base theme: ${st.baseTheme} stands in for live (live is a campaign theme): drift checks, the draft copy and QA's comparison use it.`);
+  if (qaProgress(key, st)) lines.push(qaProgress(key, st));
   if (st.type === 'abtest') lines.push(`A/B (variation and code: brief.md): tool ${st.abtest?.tool || '?'} · running ${st.abtest?.running || '?'}${st.abtest?.reference ? ` · force link ${st.abtest.reference}` : ''}`);
   if (hasDesign(st)) lines.push(`Design: Figma ${st.design.figma} (values in design.md)`);
   if (cfg?.draftRoute === 'github' && !st.test && !st.draft?.themeId) lines.push('Draft route: GitHub-connected (draftRoute in shopify-kit.json). The dev connects the task branch; the kit adopts it with shopify.mjs draft <KEY> --github.');
@@ -672,7 +714,8 @@ switch (verb) {
       const st = readState(k);
       const draft = st.draft?.themeId && !st.draft.deletedAt ? ` · draft ${st.draft.name || st.draft.themeId} not deleted by the kit` : '';
       const type = kindOf(st) === 'investigation' ? `investigation:${st.type || '-'}` : st.type || '-';
-      print(`${k}\t${type}${st.test ? ' (test run)' : ''}\t${st.stage}\t${st.updatedAt.slice(0, 10)}\t${st.owner?.name || ''}${draft}`);
+      const qa = qaProgress(k, st) ? ` · ${qaProgress(k, st)}` : '';
+      print(`${k}\t${type}${st.test ? ' (test run)' : ''}\t${st.stage}\t${st.updatedAt.slice(0, 10)}\t${st.owner?.name || ''}${draft}${qa}`);
     }
     break;
   }
@@ -746,7 +789,7 @@ switch (verb) {
     const def = stages[stageIndex(stage, st)];
     const answer = typeof flags.answer === 'string' ? flags.answer.trim() : '';
     if (def.gate && !answer) fail(`"${stage}" is a gate (${def.gate}). Ask the dev, then record their words: --answer "..."`);
-    const missing = (EXIT_CHECKS[stage]?.(key, st) || []).filter(Boolean);
+    const missing = [...(EXIT_CHECKS[stage]?.(key, st) || []), stage === 'accept' && unprovenUntested(key, st, answer)].filter(Boolean);
     if (missing.length) {
       // Kept for the retro: repeated refusals at one stage point at a skill that doesn't say what the check wants.
       st.history.push({ at: now(), event: 'refused', stage, missing: missing.map((m) => m.slice(0, 160)) });
@@ -813,6 +856,12 @@ switch (verb) {
       if (eq === -1 || !SETTABLE[name]) fail(`Can't set "${pair}". Allowed: ${Object.keys(SETTABLE).join(', ')}`);
       const value = SETTABLE[name](unMsys(pair.slice(eq + 1).trim()));
       if (name === 'type' && !TYPES[kindOf(st)].includes(value)) fail(`The type of ${kindOf(st) === 'investigation' ? 'an investigation' : 'an implementation'} is one of: ${TYPES[kindOf(st)].join(', ')}`);
+      // A GitHub-connected draft follows the branch it was connected to; switching the task's branch would leave QA
+      // measuring a draft without the new work (POP-1150).
+      if (name === 'branch' && st.branch && value !== st.branch && st.draft?.route === 'github' && !st.draft.deletedAt
+        && !rest.some((p) => p.startsWith('draft.themeId='))) {
+        fail(`Draft ${st.draft.themeId} is connected to ${st.branch} on GitHub, so it would not show ${value}. Keep ${st.branch}, or connect a theme to ${value} in the admin (Add theme → Connect from GitHub) and record both at once: kit.mjs set ${key} draft.themeId=<its id> branch=${value}`);
+      }
       const [head, sub] = name.split('.');
       if (sub) st[head] = { ...(st[head] || {}), [sub]: value };
       else st[head] = value;

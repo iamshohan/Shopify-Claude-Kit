@@ -67,6 +67,7 @@ Aim for 300 lines or fewer. A small fix gets a short plan: write "none" under a 
     - **Apps, the A/B tool or third-party scripts** the change touches, and anything else the dev must act on or watch.
 
     Example: "`snippets/icon.liquid` (rendered from 14 files): three icons added, the existing ones untouched → regression check on home, product and cart." When nothing qualifies, write "none: only new files the feature owns".
+  - **Not proven yet** comes next: every assumption the approach relies on that you couldn't verify in this theme or store. Examples: a product's option layout you couldn't read (rate-limited, no access), an app's JS API used in a way its docs or this theme don't show, a Liquid object or setting type the theme doesn't use yet. One row each: what it relies on, why it isn't proven, the fallback if it doesn't hold, and the QA criterion that tests it. The fallback is a real alternative the dev could pick at Gate 1, not a silent degradation. Write "none" when everything was verified. A risk you already verified belongs in § Risks, not here.
   - **What changes:** one row per file, or per group of files ("locales/*.schema.json ×5"), with the files from Needs your attention first. "What happens" is at most 15 words and describes the effect, not the anchor: "Winner layout when the mobile menu is set; old markup unchanged otherwise."
   - **Merchant can change** and **Stays in code:** one line each, from § Decided. Put "(vs AC n)" after any value in code that an editability line reaches.
   - **Differs from the ticket or the A/B test:** each deviation and who decided it ("no description field, AC 17: dev, Q3"), or "none".
@@ -118,7 +119,7 @@ Aim for 300 lines or fewer. A small fix gets a short plan: write "none" under a 
 ## Stage: approve (Gate 1)
 
 1. Show the dev `plan.md` § At a glance as it is. Nothing else: no file anchors, no restated criteria, no method notes. The path `.claude/logs/<KEY>/plan.md` is for the detail.
-2. AskUserQuestion: "Approve the plan for <KEY>?", naming what the approval covers when there is any: "…including 4 store writes and 3 values kept in code?" The options are **Approve**, **Approve with changes** (they type the changes), and **Reject**.
+2. AskUserQuestion: "Approve the plan for <KEY>?", naming what the approval covers when there is any: "…including 4 store writes, 3 values kept in code, and 2 approaches not proven yet (fallback for each)?" The options are **Approve**, **Approve with changes** (they type the changes, such as "use the fallback for the waitlist"), and **Reject**.
 3. Then:
    - **Approve** → `kit.mjs done <KEY> approve --answer "<their words>"`.
    - **Approve with changes** → edit `plan.md` and ask again.
