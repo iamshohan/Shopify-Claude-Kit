@@ -17,8 +17,9 @@
     '<svg width="30" height="30" viewBox="0 0 24 24"><path d="M4 2l16 11-7 1.5L9.5 21z" fill="#111" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/></svg>');
   const box = el('display:none;border:3px solid #2c6ecb;border-radius:8px;box-shadow:0 0 0 9999px rgba(0,0,0,.28);transition:all .35s');
   box.style.setProperty('display', 'none', 'important');
-  // Pure magenta squares at the viewport's corners: video.mjs looks for them in a screen grab to crop the recording.
-  const marks = ['left:0;top:0', 'right:0;top:0', 'left:0;bottom:0', 'right:0;bottom:0'].map((p) => el(`${p};width:14px;height:14px;background:#ff00ff`));
+  // Pure magenta squares near the viewport's corners: video.mjs looks for them in a screen grab and records the box
+  // between them. 28 px in, because Claude in Chrome tints about 26 px of the tab's edge.
+  const marks = ['left:28px;top:28px', 'right:28px;top:28px', 'left:28px;bottom:28px', 'right:28px;bottom:28px'].map((p) => el(`${p};width:14px;height:14px;background:#ff00ff`));
   let x = innerWidth / 2;
   let y = innerHeight / 2;
   let scale = 1;
@@ -44,9 +45,10 @@
       requestAnimationFrame(() => { r.style.transform = 'scale(1.25)'; r.style.opacity = '0'; });
       setTimeout(() => r.remove(), 700);
     },
-    /** A CSS selector (storefront) or a rect in CSS pixels; null clears it. */
+    /** A CSS selector, or a rect {left, top, width, height} in screenshot coordinates like move(); null clears it. */
     highlight(target) {
-      const r = typeof target === 'string' ? document.querySelector(target)?.getBoundingClientRect() : target;
+      const r = typeof target === 'string' ? document.querySelector(target)?.getBoundingClientRect()
+        : target && { left: target.left * scale, top: target.top * scale, width: target.width * scale, height: target.height * scale };
       if (!r) { box.style.setProperty('display', 'none', 'important'); return false; }
       Object.assign(box.style, { left: `${r.left - 6}px`, top: `${r.top - 6}px`, width: `${r.width + 12}px`, height: `${r.height + 12}px` });
       box.style.setProperty('display', 'block', 'important');

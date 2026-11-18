@@ -21,20 +21,18 @@ A short video (1-3 minutes) for the client, who isn't technical: what's new on t
    - `Query:` takes the A/B tool's opt-out parameter from plan.md § QA setup, if there is one.
 4. **Hand it over like Gate 1.** Give the storyboard's path, the scene count and the rough length, then wait. The dev edits it or says to record.
 5. Run `node .claude/kit/video.mjs record <KEY>`. It makes every scene's narration, records the storefront scenes and renders the slides. A FAILED scene: fix its row and run `record <KEY> --scene <N>`. A password page: make it a chrome scene.
-6. **Chrome scenes.** Tell the dev once, before the first: "Recording in your Chrome now (about N minutes). Leave that window alone: no tab switching, moving, hovering or clicking in it. Your other screen is fine." For each scene:
-   1. The recording tab must be in front, in a window the dev isn't using. If `chrome-start` finds no corner marks, ask the dev to drag the tab into its own window on a screen they aren't using, and wait.
-   2. Editor scenes: open `editorUrl` from `start`. Take a screenshot. It must show the draft's name with the **Draft** badge and a greyed-out **Save**. Anything else (another theme, a login or 2FA page): make the scene a slide.
-   3. After every page load, Read `.claude/kit/video-overlay.js` and run its text with `javascript_tool`, then `__kc.frame(<the screenshot's coordinate-frame width>)`. Find the click targets on a screenshot first.
-   4. Run `node .claude/kit/video.mjs chrome-start <KEY> <N>`. It prints `minimumSceneSeconds`.
-   5. **One `browser_batch` for the whole scene:**
-      - first, `javascript_tool`: `__kc.marks(false)`. Its result is `from`.
-      - for each click: `javascript_tool` `await __kc.move(x, y); __kc.ripple()`, then the click at the same screenshot coordinates, then a 2-3 s wait.
-      - last, `javascript_tool`: `__kc.now()`. Its result is `to`.
-      - The batch must last at least `minimumSceneSeconds`; add waits.
-      - A storefront scene in Chrome is a single `javascript_tool` that scrolls and highlights (`__kc.highlight(rect)`), then returns both marks.
-   6. Run `node .claude/kit/video.mjs chrome-stop <KEY> <N> --from <from> --to <to>`.
-   7. **Leave the editor as it was.** Set every changed setting back, then take a screenshot: **Save** must be grey again. If it isn't, use the editor's undo until it is. Never click Save, Publish, Remove section, delete or anything else that changes the store; on admin pages, open and scroll only.
-7. Run `node .claude/kit/video.mjs assemble <KEY>`, then `node .claude/kit/video.mjs frames <KEY>`, and look at `frames.png` (one frame per scene). Each frame must show what its Say describes: no login page, no other tab or window, nothing covering the feature. Re-record a wrong scene (step 5 or 6) and assemble again.
+6. **Chrome scenes.** Tell the dev once, before the first: "Recording in your Chrome now (about N minutes). Leave that window alone: no tab switching, moving, hovering or clicking in it. Your other screen is fine." Read `.claude/kit/video-overlay.js` once; you'll run its text after every page load. For each scene:
+   1. **Open the page in one `browser_batch`:** navigate, wait (the editor takes 8-40 s), run the overlay text plus `;__kc.frame(<the screenshot's coordinate-frame width>)` with `javascript_tool`, then a screenshot. In the editor that screenshot must show the draft's name with the **Draft** badge and a greyed-out **Save**. Anything else (another theme, a login or 2FA page): make the scene a slide.
+   2. Run `node .claude/kit/video.mjs chrome-start <KEY> <N>`. It prints `minimumSceneSeconds`. No corner marks found: the tab isn't in front in a window of its own. Ask the dev to drag it into its own window on a screen they aren't using, and wait.
+   3. **Record in batches.** Each `browser_batch` starts with `javascript_tool` `__kc.marks(false)` (the first time) or `__kc.now()`, and ends with `__kc.now()` and a screenshot. The two results are one stretch to keep.
+      - Each click is `javascript_tool` `await __kc.move(x, y); __kc.ripple()`, then the click at the same screenshot coordinates, then a 2-3 s wait.
+      - A batch can only click what its starting screenshot shows. When a click opens something new (a section's settings), end the batch there and plan the next one from its screenshot. The time you spend between batches is cut out.
+      - `__kc.highlight({left, top, width, height})` frames something, in screenshot coordinates; `__kc.highlight(null)` clears it.
+      - A storefront scene in Chrome is usually one `javascript_tool` that scrolls and highlights, and returns both marks.
+      - The kept stretches together should last `minimumSceneSeconds`, at most about 1 s more. Put waits before the last click, not after it.
+   4. **Leave the editor as it was,** in the last batch after its closing `__kc.now()` (this part isn't kept): set every changed setting back, then a screenshot. **Save** must be grey again; if not, use the editor's undo until it is. Never click Save, Publish, Remove section, delete, or anything else that changes the store. On admin pages, open and scroll only.
+   5. Run `node .claude/kit/video.mjs chrome-stop <KEY> <N> --keep <from>-<to>[,<from>-<to>…]`.
+7. Run `node .claude/kit/video.mjs assemble <KEY>` and look at the `frames.png` it writes, one frame per scene. Each frame must show what its Say describes. Nothing else may show: no login page, no other tab or window, no dev-only UI (an extension's badge, a toolbar), and nothing covering the feature. Re-record a wrong scene (step 5 or 6) and assemble again: only changed scenes are re-encoded.
 8. Tell the dev the video's path and length, and that they watch it before it goes to the client. Ask with AskUserQuestion: watched it and it can go, or change something. A change: edit the storyboard, re-record those scenes, assemble. Watched: `node .claude/kit/video.mjs reviewed <KEY> --answer "<the dev's words>"`.
 
 Sending it to the client is the dev's step.

@@ -9,9 +9,9 @@
 //   record <KEY> [--scene N]                     narration for every scene, then the storefront scenes and slides
 //   overlay                                      prints the path of the cursor script for the Chrome tab
 //   chrome-start <KEY> <N>                       find the tab on screen by its corner marks, start recording the screen
-//   chrome-stop <KEY> <N> --from <ms> --to <ms>  stop, and keep the stretch between the two marks
-//   assemble <KEY>                               join the scenes into video/<KEY>-walkthrough.unreviewed.mp4
-//   frames <KEY>                                 one frame per scene in video/frames.png, to check before the dev watches
+//   chrome-stop <KEY> <N> --keep <a-b,c-d>       stop, and keep the stretches between the scene's Date.now() marks
+//   assemble <KEY>                               join the scenes into video/<KEY>-walkthrough.unreviewed.mp4, and
+//                                                video/frames.png (one frame per scene) for the agent's check
 //   reviewed <KEY> --answer "<dev's words>"      the dev watched it: drops .unreviewed from the name
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -30,10 +30,11 @@ const KINDS = ['slide', 'storefront', 'chrome'];
 const DEFAULT_VOICE = 'en-US-AvaNeural';
 // 1920x1080 frame: the picture fits the top 900 px, captions get the band below.
 const W = 1920, PIC = 900, H = 1080, BG = '0x1f2124';
-const LEAD = 0.3, TAIL = 0.9; // seconds of picture before the voice starts and after it ends
+const LEAD = 0.3, TAIL = 0.5; // seconds of picture before the voice starts and after it ends (the mp3s add ~0.3 s each)
+const RATE = '-10%'; // the voice's default runs near 200 words a minute; walkthroughs read better nearer 170
+const FPS = 25; // both recorders capture at 25: another output rate repeats frames and motion judders
 const DESKTOP = { width: 1440, height: 675 }; // 16:7.5, the picture area's shape
 const MOBILE = { width: 390, height: 844 };
-const INSET = 6; // px trimmed from each edge of a Chrome recording
 
 // ── Storyboard ──
 
@@ -124,9 +125,8 @@ export function findMarks(buf, width, height) {
   if (![[x0, y0], [x1, y0], [x0, y1], [x1, y1]].every(([x, y]) => near(x, y))) return { problem: 'only some corner marks are visible: something covers part of the Chrome tab' };
   const w = x1 - x0 + 1, h = y1 - y0 + 1;
   if (w < 400 || h < 300) return { problem: `the marked area is only ${w}x${h}: is the Chrome window that small?` };
-  // Claude in Chrome tints the tab's edges; a few pixels in, the page is clean.
-  const inW = w - 2 * INSET, inH = h - 2 * INSET;
-  return { x: x0 + INSET, y: y0 + INSET, w: inW - (inW % 2), h: inH - (inH % 2) };
+  // The overlay puts the marks 28 px in from the corners, past Claude in Chrome's tinted edge, so the box is clean.
+  return { x: x0, y: y0, w: w - (w % 2), h: h - (h % 2) };
 }
 
 // ── Tools ──
@@ -163,19 +163,44 @@ const hash = (s) => createHash('sha1').update(s).digest('hex').slice(0, 12);
 const nn = (n) => String(n).padStart(2, '0');
 
 async function narration(dir, voice, say) {
-  const file = join(dir, `${hash(`${voice}\0${say}`)}.mp3`);
+  const file = join(dir, `${hash(`${voice}\0${RATE}\0${say}`)}.mp3`);
   if (!existsSync(file)) {
     const { MsEdgeTTS, OUTPUT_FORMAT } = await dep('msedge-tts');
-    const tmp = join(dir, `tmp-${process.pid}`);
+    // Each call writes "audio.mp3" into its folder, so parallel calls need folders of their own.
+    const tmp = join(dir, `tmp-${hash(say)}-${process.pid}`);
     mkdirSync(tmp, { recursive: true });
     const tts = new MsEdgeTTS();
     try {
       await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_96KBITRATE_MONO_MP3);
-      const { audioFilePath } = await tts.toFile(tmp, say);
+      const { audioFilePath } = await tts.toFile(tmp, say, { rate: RATE });
       renameSync(audioFilePath, file);
     } finally { tts.close(); rmSync(tmp, { recursive: true, force: true }); }
   }
   return { file, seconds: seconds(file) };
+}
+
+/** Narration for every scene, four at a time: { [scene number]: { file, seconds } }. */
+async function narrateAll(dir, voice, scenes) {
+  const out = {};
+  const queue = [...scenes];
+  await Promise.all(Array.from({ length: Math.min(4, queue.length) }, async () => {
+    while (queue.length) { const s = queue.shift(); out[s.n] = await narration(dir, voice, s.say); }
+  }));
+  return out;
+}
+
+/** The screen recording's start in wall-clock ms: when its first progress line was seen, minus the time it reports. */
+export function captureStart(log, seenAt) {
+  const m = log.match(/time=(\d+):(\d+):([\d.]+)/);
+  return m ? seenAt - Math.round((m[1] * 3600 + m[2] * 60 + Number(m[3])) * 1000) : seenAt;
+}
+
+/** "--keep 1000-5000,9000-12000" (the scene's Date.now() marks) → stretches in ms. */
+export function parseKeep(text) {
+  const parts = String(text || '').split(',').map((p) => p.trim()).filter(Boolean).map((p) => p.split('-').map(Number));
+  if (!parts.length || parts.some(([a, b]) => !(a > 0 && b > a))) throw new Error('--keep takes start-end pairs of the Date.now() marks, e.g. --keep 1700000000000-1700000009000');
+  if (parts.some(([a], i) => i && a < parts[i - 1][1])) throw new Error('--keep stretches must be in order and not overlap');
+  return parts;
 }
 
 const fontArg = () => {
@@ -281,7 +306,7 @@ async function recordStorefront(browser, t, scene, board, voiceSeconds) {
     const late = (Date.now() - t0) / 1000 - length;
     const file = join(t.scenes, `${nn(scene.n)}.webm`);
     renameSync(raw, file);
-    return { kind: 'storefront', file, from: Math.max(0, (tStart - t0) / 1000 - late), length: (tEnd - tStart) / 1000 };
+    return { kind: 'storefront', file, parts: [{ from: Math.max(0, (tStart - t0) / 1000 - late), length: (tEnd - tStart) / 1000 }] };
   } finally {
     await ctx.close().catch(() => {});
     rmSync(tmp, { recursive: true, force: true });
@@ -332,6 +357,7 @@ async function main() {
   mkdirSync(t.vdir, { recursive: true });
 
   if (cmd === 'start') {
+    if (!has('playwright-core') || !has('msedge-tts') || !ffmpegBin()) fail('The video tools aren\'t installed on this machine. Ask the dev to run, once:\n  ! node .claude/kit/video.mjs setup');
     if (!existsSync(t.storyboard)) writeFileSync(t.storyboard, readFileSync(join(KIT_DIR, 'templates', 'storyboard.md'), 'utf8').replaceAll('{{KEY}}', key));
     const warn = t.st.qa?.commit && t.st.draft.lastPushedCommit && t.st.qa.commit !== t.st.draft.lastPushedCommit
       ? `The draft is at ${t.st.draft.lastPushedCommit.slice(0, 7)}, QA accepted ${t.st.qa.commit.slice(0, 7)}: the video may show unaccepted code.` : null;
@@ -351,8 +377,7 @@ async function main() {
   if (cmd === 'record') {
     const only = args.flags.scene ? [sceneOf(args.flags.scene)] : board.scenes;
     const out = [];
-    const voices = {};
-    for (const s of only) voices[s.n] = (await narration(t.voice, board.voice, s.say)).seconds;
+    const voices = Object.fromEntries(Object.entries(await narrateAll(t.voice, board.voice, only)).map(([n, v]) => [n, v.seconds]));
     const visual = only.filter((s) => s.kind !== 'chrome');
     let browser;
     if (visual.length) { const { chromium } = await dep('playwright-core'); browser = await chromium.launch({ channel: 'chrome', headless: true }); }
@@ -401,10 +426,12 @@ async function main() {
     { detached: true, stdio: ['ignore', 'ignore', openSync(log, 'w')], windowsHide: true });
     child.unref();
     const until = Date.now() + 10000;
-    while (Date.now() < until && !/frame=\s*\d+/.test(existsSync(log) ? readFileSync(log, 'utf8') : '')) await new Promise((r) => setTimeout(r, 100));
-    if (!/frame=\s*\d+/.test(readFileSync(log, 'utf8'))) { try { process.kill(child.pid); } catch {} fail(`The screen recording didn't start:\n${readFileSync(log, 'utf8').trim().split(/\r?\n/).slice(-3).join('\n')}`); }
-    writeFileSync(join(t.scenes, `${nn(s.n)}.capture.json`), JSON.stringify({ pid: child.pid, startedAt: Date.now(), area, file }, null, 2));
-    return print({ recording: true, scene: s.n, area, voice: Number(voice.seconds.toFixed(1)), minimumSceneSeconds: Number((LEAD + voice.seconds + TAIL).toFixed(1)), hint: 'Now one browser_batch: __kc.marks(false) (its result is --from), the clicks, __kc.now() (its result is --to). Then chrome-stop.' });
+    let text = '';
+    while (Date.now() < until && !/frame=\s*\d+/.test(text)) { await new Promise((r) => setTimeout(r, 50)); text = existsSync(log) ? readFileSync(log, 'utf8') : ''; }
+    const seenAt = Date.now();
+    if (!/frame=\s*\d+/.test(text)) { try { process.kill(child.pid); } catch {} fail(`The screen recording didn't start:\n${text.trim().split(/\r?\n/).slice(-3).join('\n')}`); }
+    writeFileSync(join(t.scenes, `${nn(s.n)}.capture.json`), JSON.stringify({ pid: child.pid, startedAt: captureStart(text, seenAt), area, file }, null, 2));
+    return print({ recording: true, scene: s.n, voice: Number(voice.seconds.toFixed(1)), minimumSceneSeconds: Number((LEAD + voice.seconds + TAIL).toFixed(1)) });
   }
 
   if (cmd === 'chrome-stop') {
@@ -415,61 +442,67 @@ async function main() {
     try { process.kill(cap.pid); } catch { /* it ended at its cap */ }
     await new Promise((r) => setTimeout(r, 800));
     rmSync(capPath);
-    const from = Number(args.flags.from), to = Number(args.flags.to);
-    if (!(from > 0 && to > from)) fail('--from and --to are the two Date.now() values the scene\'s batch returned (marks off, and the end).');
+    let keep;
+    try { keep = parseKeep(args.flags.keep); } catch (e) { fail(e.message); }
     const length = seconds(cap.file);
-    const start = (from - cap.startedAt) / 1000 + 0.2;
-    if (start < 0 || start + (to - from) / 1000 > length + 0.5) fail(`The marks (${start.toFixed(1)} s in, ${((to - from) / 1000).toFixed(1)} s long) don't fit the ${length.toFixed(1)} s recording. Record the scene again.`);
-    save(s.n, { kind: 'chrome', file: cap.file, from: start, length: (to - from) / 1000 - 0.2, area: cap.area });
-    return print({ scene: s.n, kept: `${((to - from) / 1000).toFixed(1)} s of ${length.toFixed(1)} s`, next: 'frames after assemble shows whether it caught the right thing' });
+    // The first 0.2 s of each stretch can still hold the corner marks being switched off.
+    const parts = keep.map(([a, b]) => ({ from: (a - cap.startedAt) / 1000 + 0.2, length: (b - a) / 1000 - 0.2 }));
+    const bad = parts.find((p) => p.from < 0 || p.from + p.length > length + 0.3);
+    if (bad) fail(`A stretch (${bad.from.toFixed(1)} s in, ${bad.length.toFixed(1)} s long) doesn't fit the ${length.toFixed(1)} s recording. Record the scene again.`);
+    save(s.n, { kind: 'chrome', file: cap.file, parts, area: cap.area });
+    return print({ scene: s.n, kept: `${parts.reduce((a, p) => a + p.length, 0).toFixed(1)} s of ${length.toFixed(1)} s` });
   }
 
   if (cmd === 'assemble') {
     const font = fontArg();
+    const voices = await narrateAll(t.voice, board.voice, board.scenes);
     const parts = [];
     const report = [];
+    const tiles = [];
     for (const s of board.scenes) {
-      const voice = await narration(t.voice, board.voice, s.say);
-      let shot = saved(s.n);
+      const voice = voices[s.n];
+      const shot = saved(s.n);
       if (!shot) {
         if (s.kind !== 'chrome') fail(`Scene ${s.n} isn't recorded yet: record ${key} --scene ${s.n}`);
         fail(`Scene ${s.n} (chrome) isn't recorded. Record it, or change its Kind to slide and run record --scene ${s.n}.`);
       }
-      const total = Math.max(shot.length || 0, LEAD + voice.seconds + TAIL);
-      const caps = captionChunks(s.say, voice.seconds).map((c, i) => {
-        writeFileSync(join(t.build, `${nn(s.n)}-${i}.txt`), c.text);
-        return `drawtext=textfile='${nn(s.n)}-${i}.txt':expansion=none:${font}:fontsize=40:fontcolor=white:line_spacing=12:x=(w-text_w)/2:y=${PIC}+(${H - PIC}-text_h)/2:enable='between(t,${(LEAD + c.from).toFixed(2)},${(LEAD + c.to).toFixed(2)})'`;
-      });
-      const input = shot.kind === 'slide' ? ['-loop', '1', '-t', total.toFixed(2), '-i', shot.file] : ['-ss', shot.from.toFixed(2), '-t', shot.length.toFixed(2), '-i', shot.file];
-      const freeze = shot.kind === 'slide' ? '' : `tpad=stop_mode=clone:stop_duration=${(total - shot.length + 0.2).toFixed(2)},`;
-      const out = join(t.build, `${nn(s.n)}.mp4`);
-      ff([...input, '-i', voice.file, '-filter_complex',
-        `[0:v]${freeze}scale=${W}:${PIC}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(${PIC}-ih)/2:color=${BG},${caps.join(',')},fps=30,format=yuv420p[v];[1:a]adelay=${LEAD * 1000}|${LEAD * 1000},apad[a]`,
-        '-map', '[v]', '-map', '[a]', '-t', total.toFixed(2), '-c:v', 'libx264', '-preset', 'medium', '-crf', '20', '-c:a', 'aac', '-b:a', '128k', '-ar', '48000', '-ac', '2', out], { cwd: t.build });
+      const stretches = shot.parts || [];
+      const footage = stretches.reduce((a, p) => a + p.length, 0);
+      const total = Math.max(footage, LEAD + voice.seconds + TAIL);
+      // A part is re-encoded only when what goes into it changed, so fixing one scene doesn't redo the rest.
+      const out = join(t.build, `${nn(s.n)}-${hash(JSON.stringify({ shot: { ...shot, at: null }, voice: voice.file, say: s.say, v: 2 }))}.mp4`);
+      if (!existsSync(out)) {
+        for (const f of readdirSync(t.build)) if (f.startsWith(`${nn(s.n)}-`) && f.endsWith('.mp4')) rmSync(join(t.build, f));
+        const caps = captionChunks(s.say, voice.seconds).map((c, i) => {
+          writeFileSync(join(t.build, `${nn(s.n)}-${i}.txt`), c.text);
+          return `drawtext=textfile='${nn(s.n)}-${i}.txt':expansion=none:${font}:fontsize=40:fontcolor=white:line_spacing=12:x=(w-text_w)/2:y=${PIC}+(${H - PIC}-text_h)/2:enable='between(t,${(LEAD + c.from).toFixed(2)},${(LEAD + c.to).toFixed(2)})'`;
+        });
+        const look = `scale=${W}:${PIC}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(${PIC}-ih)/2:color=${BG},${caps.join(',')},fps=${FPS},format=yuv420p[v]`;
+        const video = shot.kind === 'slide'
+          ? `[0:v]${look}`
+          : `${stretches.map((p, i) => `[0:v]trim=start=${p.from.toFixed(3)}:end=${(p.from + p.length).toFixed(3)},setpts=PTS-STARTPTS[c${i}]`).join(';')};`
+            + `${stretches.map((_, i) => `[c${i}]`).join('')}concat=n=${stretches.length}:v=1:a=0,tpad=stop_mode=clone:stop_duration=${(total - footage + 0.2).toFixed(2)},${look}`;
+        // The voice files come out near -21 LUFS; +5 dB puts the video near -16, where web video sits.
+        ff([...(shot.kind === 'slide' ? ['-loop', '1', '-t', total.toFixed(2)] : []), '-i', shot.file, '-i', voice.file, '-filter_complex',
+          `${video};[1:a]volume=5dB,adelay=${LEAD * 1000}|${LEAD * 1000},apad[a]`,
+          '-map', '[v]', '-map', '[a]', '-t', total.toFixed(2), '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-c:a', 'aac', '-b:a', '128k', '-ar', '48000', '-ac', '2', out], { cwd: t.build });
+      }
       parts.push(out);
       report.push({ scene: s.n, kind: s.kind, seconds: Number(total.toFixed(1)) });
+      const png = join(t.build, `frame-${nn(s.n)}.png`);
+      ff(['-ss', (total / 2).toFixed(2), '-i', out, '-frames:v', '1', '-vf', 'scale=640:-2', '-update', '1', png]);
+      tiles.push(png);
     }
     const list = join(t.build, 'list.txt');
     writeFileSync(list, parts.map((p) => `file '${p.replace(/\\/g, '/')}'`).join('\n'));
     for (const f of readdirSync(t.vdir)) if (/-walkthrough(\.unreviewed)?\.mp4$/.test(f)) rmSync(join(t.vdir, f));
     const final = join(t.vdir, `${key}-walkthrough.unreviewed.mp4`);
     ff(['-f', 'concat', '-safe', '0', '-i', list, '-c', 'copy', '-movflags', '+faststart', final]);
-    return print({ video: final, seconds: Number(seconds(final).toFixed(1)), scenes: report, next: `frames ${key}, look at them, then hand the file to the dev to watch` });
-  }
-
-  if (cmd === 'frames') {
-    const tiles = [];
-    for (const s of board.scenes) {
-      const seg = join(t.build, `${nn(s.n)}.mp4`);
-      if (!existsSync(seg)) fail(`Assemble first: assemble ${key}`);
-      const png = join(t.build, `frame-${nn(s.n)}.png`);
-      ff(['-ss', (seconds(seg) / 2).toFixed(2), '-i', seg, '-frames:v', '1', '-vf', 'scale=640:-2', '-update', '1', png]);
-      tiles.push(png);
-    }
-    const out = join(t.vdir, 'frames.png');
-    const rows = Math.ceil(tiles.length / 2);
-    ff([...tiles.flatMap((p) => ['-i', p]), '-filter_complex', `${tiles.map((_, i) => `[${i}:v]`).join('')}xstack=inputs=${tiles.length}:layout=${tiles.map((_, i) => `${(i % 2) * 640}_${Math.floor(i / 2) * 360}`).join('|')}:fill=black`, '-frames:v', '1', '-update', '1', out]);
-    return print({ frames: out, order: `left to right, top to bottom: scenes ${board.scenes.map((s) => s.n).join(', ')} (${rows} rows)` });
+    // One frame from the middle of each scene, two per row, for the agent's check.
+    const frames = join(t.vdir, 'frames.png');
+    if (tiles.length === 1) ff(['-i', tiles[0], '-frames:v', '1', '-update', '1', frames]);
+    else ff([...tiles.flatMap((p) => ['-i', p]), '-filter_complex', `${tiles.map((_, i) => `[${i}:v]`).join('')}xstack=inputs=${tiles.length}:layout=${tiles.map((_, i) => `${(i % 2) * 640}_${Math.floor(i / 2) * 360}`).join('|')}:fill=black`, '-frames:v', '1', '-update', '1', frames]);
+    return print({ video: final, seconds: Number(seconds(final).toFixed(1)), scenes: report, frames, framesOrder: `two per row: scenes ${board.scenes.map((s) => s.n).join(', ')}` });
   }
 
   if (cmd === 'reviewed') {
@@ -513,7 +546,11 @@ function selftest() {
     ['url: stays on the store', new URL(sceneUrl('s.myshopify.com', 42, '/x')).host === 's.myshopify.com'],
     ['captions: at most two lines each', caps.every((c) => c.text.split('\n').length <= 2 && c.text.split('\n').every((l) => l.length <= 70))],
     ['captions: cover the narration exactly', Math.abs(caps.at(-1).to - 10) < 1e-9 && caps[0].from === 0],
-    ['marks: the box between the four corners, edges trimmed', full.x === 10 + INSET && full.y === 20 + INSET && full.w === 500 - 2 * INSET && full.h === 340 - 2 * INSET],
+    ['marks: the box between the four corners', full.x === 10 && full.y === 20 && full.w === 500 && full.h === 340],
+    ['capture start: first progress line minus its time', captureStart('frame=   12 fps=0.0 q=0.0 size=0kB time=00:00:00.48 bitrate', 10000) === 9520 && captureStart('time=N/A', 10000) === 10000],
+    ['keep: pairs in order', JSON.stringify(parseKeep('10-20, 30-45')) === '[[10,20],[30,45]]'],
+    ['keep: overlap refused', (() => { try { parseKeep('10-30,20-40'); return false; } catch { return true; } })()],
+    ['keep: a reversed pair refused', (() => { try { parseKeep('30-10'); return false; } catch { return true; } })()],
     ['marks: a covered corner is refused', /only some/.test(covered.problem || '')],
     ['marks: none on screen', /no corner marks/.test(scr([]).problem || '')],
   ];
