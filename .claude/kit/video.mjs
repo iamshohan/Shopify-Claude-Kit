@@ -7,10 +7,12 @@
 //   check                                        are they installed, and does the voice answer?
 //   start <KEY> [--accepted "<dev's words>"]     can this task be filmed? creates storyboard.md. --accepted: Gate 2 was
 //                                                held outside the kit, so the tracker never reached handoff
+//   durations <KEY>                              narration for every scene; writes each scene's seconds into the Sec column
 //   record <KEY> [--scene N]                     narration for every scene, then the storefront scenes and slides
 //   overlay                                      prints the path of the cursor script for the Chrome tab
 //   chrome-start <KEY> <N>                       find the tab on screen by its corner marks, start recording the screen
-//   chrome-stop <KEY> <N> --keep <a-b,c-d>       stop, and keep the stretches between the scene's Date.now() marks
+//   chrome-stop <KEY> <N> --keep <a-b,c-d@f>     stop, and keep the stretches between the scene's Date.now() marks;
+//                                                "@x,y,w,h" (from __kc.focus) zooms a stretch to part of the tab
 //   assemble <KEY>                               join the scenes into video/<KEY>-walkthrough.unreviewed.mp4, and
 //                                                video/frames.png (one frame per scene) for the agent's check
 //   reviewed <KEY> --answer "<dev's words>"      the dev watched it: drops .unreviewed from the name
@@ -27,12 +29,30 @@ const DEPS = process.env.SHOPIFY_KIT_VIDEO_DEPS || join(homedir(), '.shopify-kit
 // Pinned: a new recorder or voice release must not change every team video at once.
 const PINS = { 'playwright-core': '1.65.1', 'ffmpeg-static': '5.3.0', 'msedge-tts': '2.1.1' };
 const OVERLAY = join(KIT_DIR, 'video-overlay.js');
+// App overlays that covered storefront scenes: cookie banners by their apps' ids, and any other origin's iframe fixed to the
+// screen (review popups, chat bubbles). The theme's own fixed elements, a sticky header say, are same-origin and stay.
+const APP_OVERLAYS = ['#pandectes-banner', '#shopify-pc__banner', '#onetrust-consent-sdk', '#CybotCookiebotDialog', '#usercentrics-root', '#cmpbox', '#cmpwrapper', '.cc-window', '#cookie-law-info-bar'];
+const HIDE_APPS = `(() => {
+  if (window.top !== window) return;
+  const hide = (el) => el.style.setProperty('display', 'none', 'important');
+  const fixed = (el) => { for (let e = el; e && e !== document.documentElement; e = e.parentElement) if (getComputedStyle(e).position === 'fixed') return true; return false; };
+  const sweep = () => {
+    if (!document.documentElement) return;
+    if (!document.getElementById('kit-hide-apps')) { const s = document.createElement('style'); s.id = 'kit-hide-apps'; s.textContent = ${JSON.stringify(`${APP_OVERLAYS.join(',')}{display:none!important}`)}; document.documentElement.appendChild(s); }
+    for (const f of document.querySelectorAll('iframe')) {
+      let other = true;
+      try { other = new URL(f.src || 'about:blank', location.href).origin !== location.origin; } catch {}
+      if (other && f.src && fixed(f)) hide(f);
+    }
+  };
+  setInterval(sweep, 400);
+})();`;
 const KINDS = ['slide', 'storefront', 'chrome'];
 const DEFAULT_VOICE = 'en-US-AvaNeural';
 // 1920x1080 frame: the picture fits the top 900 px, captions get the band below.
 const W = 1920, PIC = 900, H = 1080, BG = '0x1f2124';
-const LEAD = 0.3, TAIL = 0.5; // seconds of picture before the voice starts and after it ends (the mp3s add ~0.3 s each)
-const RATE = '-10%'; // the voice's default runs near 200 words a minute; walkthroughs read better nearer 170
+const LEAD = 0.3, TAIL = 0.3; // seconds of picture before the voice starts and after it ends (the mp3s add ~0.3 s each)
+const RATE = '-10%'; // the voice's default runs near 200 words a minute; clients follow better nearer 170
 const FPS = 25; // both recorders capture at 25: another output rate repeats frames and motion judders
 const DESKTOP = { width: 1440, height: 675 }; // 16:7.5, the picture area's shape
 const MOBILE = { width: 390, height: 844 };
@@ -41,18 +61,30 @@ const MOBILE = { width: 390, height: 844 };
 
 const cells = (line) => line.trim().replace(/^\||\|$/g, '').split(/(?<!\\)\|/).map((c) => c.trim().replace(/\\\|/g, '|'));
 
-/** The storyboard's header lines and scene rows. Throws on a row the recorder couldn't follow. */
+/** Each numbered row's cells by its table's column names: Prio and Sec are optional, and older storyboards lack them. */
+function sceneRows(text) {
+  let names = ['#', 'kind', 'where', 'show', 'say'];
+  const rows = [];
+  text.split(/\r?\n/).forEach((line, index) => {
+    if (/^\|\s*#\s*\|/.test(line)) names = cells(line).map((c) => c.toLowerCase());
+    else if (/^\|\s*\d+\s*\|/.test(line)) rows.push({ index, names, values: cells(line) });
+  });
+  return rows;
+}
+
+/** The storyboard's header lines and scene rows. Throws on a row the recorder couldn't follow. Optional scenes (O1, O2…) aren't rows. */
 export function parseStoryboard(text) {
   const header = (name) => (text.match(new RegExp(`^${name}:[ \\t]*(.*)$`, 'mi'))?.[1] || '').trim();
-  const scenes = text.split(/\r?\n/).filter((l) => /^\|\s*\d+\s*\|/.test(l)).map((l) => {
-    const [n, kind, where, show, say] = cells(l);
-    return { n: Number(n), kind: kind.toLowerCase(), where, show: show || '', say: say || '' };
+  const scenes = sceneRows(text).map(({ names, values }) => {
+    const get = (name) => values[names.indexOf(name)] ?? '';
+    return { n: Number(values[0]), prio: get('prio').toUpperCase(), kind: get('kind').toLowerCase(), where: get('where'), show: get('show'), say: get('say') };
   });
   const problems = [];
   if (!scenes.length) problems.push('no scenes: add rows to the table');
   scenes.forEach((s, i) => {
     if (!KINDS.includes(s.kind)) problems.push(`scene ${s.n}: Kind "${s.kind}" isn't one of ${KINDS.join(', ')}`);
     if (!s.say) problems.push(`scene ${s.n}: Say is empty`);
+    if (s.prio && !/^P[123]$/.test(s.prio)) problems.push(`scene ${s.n}: Prio "${s.prio}" isn't P1, P2 or P3`);
     if (i && s.n <= scenes[i - 1].n) problems.push(`scene ${s.n}: numbers must go up`);
     if (s.kind === 'storefront') { try { parseShow(s.show); storefrontWhere(s.where); } catch (e) { problems.push(`scene ${s.n}: ${e.message}`); } }
   });
@@ -196,12 +228,55 @@ export function captureStart(log, seenAt) {
   return m ? seenAt - Math.round((m[1] * 3600 + m[2] * 60 + Number(m[3])) * 1000) : seenAt;
 }
 
-/** "--keep 1000-5000,9000-12000" (the scene's Date.now() marks) → stretches in ms. */
+/**
+ * "--keep 1000-5000,9000-12000@0.62,0.10,0.36,0.50" (the scene's Date.now() marks) → [[from, to, focus?]] in ms. A
+ * stretch's "@x,y,w,h" zooms it to that part of the tab, as fractions of the recorded box: what __kc.focus() returns.
+ */
 export function parseKeep(text) {
-  const parts = String(text || '').split(',').map((p) => p.trim()).filter(Boolean).map((p) => p.split('-').map(Number));
+  // Commas split stretches and also the focus fractions: a piece that starts "<n>-" begins a stretch.
+  const pieces = String(text || '').split(',').map((p) => p.trim()).filter(Boolean)
+    .reduce((acc, p) => (/^\d+-/.test(p) || !acc.length ? [...acc, p] : [...acc.slice(0, -1), `${acc.at(-1)},${p}`]), []);
+  const parts = pieces.map((p) => {
+    const [span, zoom] = p.split('@');
+    const [a, b] = span.split('-').map(Number);
+    const focus = zoom === undefined ? null : zoom.split(',').map(Number);
+    if (focus && (focus.length !== 4 || focus.some((v) => !(v >= 0 && v <= 1)) || !(focus[2] > 0 && focus[3] > 0))) throw new Error(`"@${zoom}" should be four fractions x,y,w,h: paste what __kc.focus() returned`);
+    return focus ? [a, b, focus] : [a, b];
+  });
   if (!parts.length || parts.some(([a, b]) => !(a > 0 && b > a))) throw new Error('--keep takes start-end pairs of the Date.now() marks, e.g. --keep 1700000000000-1700000009000');
   if (parts.some(([a], i) => i && a < parts[i - 1][1])) throw new Error('--keep stretches must be in order and not overlap');
   return parts;
+}
+
+/**
+ * The crop for a zoomed stretch, in the recording's pixels: the focus box widened to the picture's shape, so the zoom
+ * fills it, and to at least half the recording, so text isn't blown up past 2x. Even numbers, inside the recording.
+ */
+export function focusCrop([fx, fy, fw, fh], width, height) {
+  const aspect = W / PIC;
+  let w = Math.max(fw * width, fh * height * aspect, width / 2);
+  let h = w / aspect;
+  if (h > height) { h = height; w = h * aspect; }
+  w = Math.min(w, width);
+  const cx = (fx + fw / 2) * width, cy = (fy + fh / 2) * height;
+  const even = (v) => Math.max(2, Math.floor(v / 2) * 2);
+  const x = Math.min(Math.max(0, cx - w / 2), width - w), y = Math.min(Math.max(0, cy - h / 2), height - h);
+  return { x: even(x), y: even(y), w: even(w), h: even(h) };
+}
+
+/** The storyboard with each scene's Sec cell set (seconds by scene number); rows without a Sec column stay as they are. */
+export function withSeconds(text, seconds) {
+  const lines = text.split(/\r?\n/);
+  for (const { index, names, values } of sceneRows(text)) {
+    const at = names.indexOf('sec');
+    const n = Number(values[0]);
+    if (at < 0 || seconds[n] === undefined) continue;
+    const next = [...values];
+    while (next.length <= at) next.push('');
+    next[at] = String(Math.round(seconds[n]));
+    lines[index] = `| ${next.map((c) => c.replace(/\|/g, '\\|')).join(' | ')} |`;
+  }
+  return lines.join('\n');
 }
 
 const fontArg = () => {
@@ -263,6 +338,7 @@ async function recordStorefront(browser, t, scene, board, voiceSeconds) {
     recordVideo: { dir: tmp, size: mobile ? { width: vp.width * 2, height: vp.height * 2 } : vp },
   });
   await ctx.addInitScript({ path: OVERLAY });
+  await ctx.addInitScript(HIDE_APPS);
   const page = await ctx.newPage();
   const t0 = Date.now();
   try {
@@ -280,7 +356,7 @@ async function recordStorefront(browser, t, scene, board, voiceSeconds) {
       const el = page.locator(sel).first();
       if (!(await el.count())) throw new Error(`no element matches "${sel}"`);
       await el.evaluate((e) => e.scrollIntoView({ behavior: 'smooth', block: 'center' }));
-      await page.waitForTimeout(900);
+      await page.waitForTimeout(700);
       const b = await el.boundingBox();
       if (!b) throw new Error(`"${sel}" isn't visible`);
       return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
@@ -290,13 +366,14 @@ async function recordStorefront(browser, t, scene, board, voiceSeconds) {
       await page.evaluate(() => window.__kc.highlight(null));
       if (op === 'wait') { await page.waitForTimeout(arg * 1000); continue; }
       const at = await target(arg);
-      if (op === 'scroll') { await page.waitForTimeout(600); continue; }
-      if (op === 'highlight') { await page.evaluate((s) => window.__kc.highlight(s), arg); await page.waitForTimeout(1400); continue; }
+      // Short holds: the voice sets the scene's length anyway, and the dev found the first real video slow.
+      if (op === 'scroll') { await page.waitForTimeout(400); continue; }
+      if (op === 'highlight') { await page.evaluate((s) => window.__kc.highlight(s), arg); await page.waitForTimeout(1000); continue; }
       await page.evaluate(([x, y]) => window.__kc.move(x, y), [at.x, at.y]);
-      if (op === 'hover') { await page.mouse.move(at.x, at.y); await page.waitForTimeout(1200); continue; }
+      if (op === 'hover') { await page.mouse.move(at.x, at.y); await page.waitForTimeout(900); continue; }
       await page.evaluate(() => window.__kc.ripple());
       if (mobile) await page.touchscreen.tap(at.x, at.y); else await page.mouse.click(at.x, at.y);
-      await page.waitForTimeout(1500);
+      await page.waitForTimeout(1100);
     }
     const hold = tStart + (LEAD + voiceSeconds + TAIL) * 1000 - Date.now();
     if (hold > 0) await page.waitForTimeout(hold);
@@ -386,6 +463,22 @@ async function main() {
   const saved = (n) => { const p = join(t.scenes, `${nn(n)}.json`); return existsSync(p) ? JSON.parse(readFileSync(p, 'utf8')) : null; };
   const save = (n, v) => writeFileSync(join(t.scenes, `${nn(n)}.json`), JSON.stringify({ ...v, at: now() }, null, 2) + '\n');
 
+  // Real lengths before the hand-over: the narration is made here (and cached for record), so the dev judges the pace.
+  if (cmd === 'durations') {
+    const voices = await narrateAll(t.voice, board.voice, board.scenes);
+    const secs = Object.fromEntries(board.scenes.map((s) => [s.n, LEAD + voices[s.n].seconds + TAIL]));
+    const text = readFileSync(t.storyboard, 'utf8');
+    const next = withSeconds(text, secs);
+    if (next !== text) writeFileSync(t.storyboard, next);
+    const sum = (keep) => Math.round(board.scenes.filter(keep).reduce((a, s) => a + secs[s.n], 0));
+    return print({
+      scenes: board.scenes.map((s) => ({ scene: s.n, prio: s.prio || null, kind: s.kind, seconds: Math.round(secs[s.n]) })),
+      seconds: { all: sum(() => true), P1: sum((s) => s.prio === 'P1'), P2: sum((s) => s.prio === 'P2'), P3: sum((s) => s.prio === 'P3') },
+      sec: next.includes('| Sec |') ? 'written to the Sec column' : 'no Sec column in this storyboard',
+      note: 'The voice sets each length; a recorded scene runs at least this long.',
+    });
+  }
+
   if (cmd === 'record') {
     const only = args.flags.scene ? [sceneOf(args.flags.scene)] : board.scenes;
     const out = [];
@@ -461,11 +554,13 @@ async function main() {
     try { keep = parseKeep(args.flags.keep); } catch (e) { fail(e.message); }
     const length = seconds(cap.file);
     // The first 0.2 s of each stretch can still hold the corner marks being switched off.
-    const parts = keep.map(([a, b]) => ({ from: (a - cap.startedAt) / 1000 + 0.2, length: (b - a) / 1000 - 0.2 }));
+    const parts = keep.map(([a, b, focus]) => ({
+      from: (a - cap.startedAt) / 1000 + 0.2, length: (b - a) / 1000 - 0.2, ...(focus ? { crop: focusCrop(focus, cap.area.w, cap.area.h) } : {}),
+    }));
     const bad = parts.find((p) => p.from < 0 || p.from + p.length > length + 0.3);
     if (bad) fail(`A stretch (${bad.from.toFixed(1)} s in, ${bad.length.toFixed(1)} s long) doesn't fit the ${length.toFixed(1)} s recording. Record the scene again.`);
     save(s.n, { kind: 'chrome', file: cap.file, parts, area: cap.area });
-    return print({ scene: s.n, kept: `${parts.reduce((a, p) => a + p.length, 0).toFixed(1)} s of ${length.toFixed(1)} s` });
+    return print({ scene: s.n, kept: `${parts.reduce((a, p) => a + p.length, 0).toFixed(1)} s of ${length.toFixed(1)} s`, zoomed: parts.filter((p) => p.crop).length });
   }
 
   if (cmd === 'assemble') {
@@ -495,7 +590,8 @@ async function main() {
         const look = `scale=${W}:${PIC}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(${PIC}-ih)/2:color=${BG},${caps.join(',')},fps=${FPS},format=yuv420p[v]`;
         const video = shot.kind === 'slide'
           ? `[0:v]${look}`
-          : `${stretches.map((p, i) => `[0:v]trim=start=${p.from.toFixed(3)}:end=${(p.from + p.length).toFixed(3)},setpts=PTS-STARTPTS[c${i}]`).join(';')};`
+          // A zoomed stretch is cropped and scaled back to the recording's size, so every stretch joins at one size.
+          : `${stretches.map((p, i) => `[0:v]trim=start=${p.from.toFixed(3)}:end=${(p.from + p.length).toFixed(3)},setpts=PTS-STARTPTS${p.crop ? `,crop=${p.crop.w}:${p.crop.h}:${p.crop.x}:${p.crop.y},scale=${shot.area.w}:${shot.area.h}:flags=lanczos` : ''}[c${i}]`).join(';')};`
             + `${stretches.map((_, i) => `[c${i}]`).join('')}concat=n=${stretches.length}:v=1:a=0,tpad=stop_mode=clone:stop_duration=${(total - footage + 0.2).toFixed(2)},${look}`;
         // The voice files come out near -21 LUFS; +5 dB puts the video near -16, where web video sits.
         ff([...(shot.kind === 'slide' ? ['-loop', '1', '-t', total.toFixed(2)] : []), '-i', shot.file, '-i', voice.file, '-filter_complex',
@@ -566,6 +662,17 @@ function selftest() {
     ['keep: pairs in order', JSON.stringify(parseKeep('10-20, 30-45')) === '[[10,20],[30,45]]'],
     ['keep: overlap refused', (() => { try { parseKeep('10-30,20-40'); return false; } catch { return true; } })()],
     ['keep: a reversed pair refused', (() => { try { parseKeep('30-10'); return false; } catch { return true; } })()],
+    ['keep: a stretch takes a zoom, the next one starts after it', JSON.stringify(parseKeep('10-20@0.5,0.1,0.3,0.4, 30-45')) === '[[10,20,[0.5,0.1,0.3,0.4]],[30,45]]'],
+    ['keep: a zoom needs four fractions', (() => { try { parseKeep('10-20@0.5,1.2,0.3,0.4'); return false; } catch { return true; } })()],
+    ['zoom: a narrow panel widens to the picture\'s shape, inside the recording', (() => { const c = focusCrop([0.75, 0.1, 0.2, 0.3], 1864, 798); return c.w === 932 && c.h === 436 && c.x + c.w <= 1864 && c.y >= 0 && Math.abs(c.w / c.h - W / PIC) < 0.02; })()],
+    ['zoom: never past 2x', focusCrop([0.4, 0.4, 0.05, 0.05], 1000, 500).w >= 500],
+    ['storyboard: Prio and Sec columns by name; optional rows aren\'t scenes', (() => {
+      const v2 = 'Voice: x\n\n| # | Prio | Kind | Where | Show | Say | Sec |\n| --- | --- | --- | --- | --- | --- | --- |\n| 1 | P1 | slide | New | A | Hi. | |\n| 2 | p2 | chrome | Editor | open | Do it. | 9 |\n\n## Optional scenes\n\n| # | Prio | Sec | Shows |\n| --- | --- | --- | --- |\n| O1 | P3 | 10 | more |\n';
+      const p = parseStoryboard(v2);
+      const filled = withSeconds(v2, { 1: 4.4, 2: 12.6 });
+      return p.scenes.length === 2 && p.scenes[1].prio === 'P2' && p.scenes[1].say === 'Do it.' && /\| 1 \| P1 \| slide \| New \| A \| Hi\. \| 4 \|/.test(filled) && /\| Do it\. \| 13 \|/.test(filled) && filled.includes('| O1 | P3 | 10 | more |');
+    })()],
+    ['storyboard: an unknown Prio refused', /isn't P1, P2 or P3/.test(bad(board.replace('| # | Kind |', '| # | Prio | Kind |').replace('| --- | --- |', '| --- | --- | --- |').replace('| 1 | slide', '| 1 | P9 | slide').replace('| 2 | storefront', '| 2 | P1 | storefront').replace('| 3 | chrome', '| 3 | P1 | chrome')))],
     ['marks: a covered corner is refused', /only some/.test(covered.problem || '')],
     ['marks: none on screen', /no corner marks/.test(scr([]).problem || '')],
   ];

@@ -1,11 +1,11 @@
-# Shopify Implementation Kit · v1.9.2
+# Shopify Implementation Kit · v1.10.0
 
 A Claude Code setup for Shopify theme repos.
 
 - **`/shopify-implement <KEY>`** takes a Jira ticket (a winning A/B test, a feature or a bug fix) to a QA'd draft theme. It reads the ticket and the code, asks you every open decision, gets a file-by-file plan approved, builds on a task branch, pushes to an unpublished copy of the live theme, and checks the draft with measured values.
 - **`/shopify-investigate <KEY or question>`** answers feasibility, debugging and how-does-it-work questions, read-only and with evidence.
 - **`/shopify-feasibility <KEY>`** is the same flow set up for a ticket nobody has picked up yet: it asks you about unclear requirements, then says whether it can be built, the limitations, the approaches with their trade-offs, and a size (S/M/L) with what drives it.
-- **`/shopify-video <KEY>`** makes the client's walkthrough video once QA is accepted: what's new, how to change it in the theme editor, and where it lives. English voice with captions; you approve the storyboard first and watch the video before it goes out.
+- **`/shopify-video <KEY>`** makes the client's walkthrough video once QA is accepted: what's new, where it lives in the theme editor and what to watch out for, how it behaves with different values, and a storefront tour. English voice with captions; you approve the storyboard (with each scene's length, and optional scenes to add) and watch the video before it goes out.
 
 It never publishes a theme, writes to the live theme, or pushes or merges into the base branch. Merging stays with you.
 
@@ -124,7 +124,7 @@ The logs are history, not a knowledge base: every task reads the code fresh.
   - Handoff writes the report, marked "TEST RUN", and pushes nothing.
   - Afterwards, move `.claude/logs/<KEY>/` aside if you'll work the ticket for real on the same machine.
 - **Dropping a task:** `kit.mjs abandon <KEY> --reason "…"` lists the draft and store data left to clean up, and what the record shows went wrong with the kit.
-- **Client video:** `/shopify-video <KEY>` after QA is accepted, before the draft is deleted. It writes a storyboard for you to edit, records storefront scenes on its own, and records the theme editor in your Chrome: the recording tab needs its own window that you leave alone for a minute or two (your other screen is fine). A password-protected storefront is recorded in Chrome too. You watch the result before sending it.
+- **Client video:** `/shopify-video <KEY>` after QA is accepted, before the draft is deleted. It writes a storyboard for you to edit and has it reviewed for missing changes and jargon. It lists any QA test content it found on the draft, which you replace before recording. It records storefront scenes on its own, and records the theme editor in your Chrome: the recording tab needs its own window that you leave alone for a few minutes (your other screen is fine). A password-protected storefront is recorded in Chrome too. You watch the result before sending it.
 - **Reporting:** `kit.mjs summary <KEY>`: time per stage, loops, verdicts and store changes.
 - **Kit problems:** the agent notes them in `kit-notes.md` as they happen; `kit.mjs retro <KEY>` lists what the record shows went wrong. `node .claude/kit/kit.mjs feedback` collects every task's notes into `.claude/logs/kit-feedback.md`; send that to the kit maintainer.
 

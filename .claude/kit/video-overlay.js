@@ -11,8 +11,10 @@
   }
   const root = document.createElement('div');
   root.setAttribute('data-kit-video', '');
-  root.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:2147483647;display:block!important';
+  root.style.cssText = 'position:fixed;inset:0;width:auto;height:auto;margin:0;padding:0;border:0;background:transparent;overflow:visible;pointer-events:none;z-index:2147483647;display:block!important';
   document.documentElement.appendChild(root);
+  // The top layer sits above anything the page stacks, however high its z-index: an open settings panel hid the marks.
+  try { root.popover = 'manual'; root.showPopover(); } catch { /* older browser: the z-index has to do */ }
   // Shopify's "You are previewing" bar: not for the client's eyes, and it covers the bottom corner marks.
   const hide = document.createElement('style');
   hide.textContent = '#PBarNextFrameWrapper,#preview-bar-iframe{display:none!important}';
@@ -33,7 +35,7 @@
   window.__kc = {
     /** Screenshot coordinates → CSS pixels: pass the width of the screenshot's coordinate frame once. */
     frame(shotWidth) { scale = innerWidth / shotWidth; return scale; },
-    move(tx, ty, ms = 900) {
+    move(tx, ty, ms = 650) {
       const [sx, sy, ex, ey, t0] = [x, y, tx * scale, ty * scale, performance.now()];
       return new Promise((done) => {
         const step = (t) => {
@@ -58,6 +60,12 @@
       Object.assign(box.style, { left: `${r.left - 6}px`, top: `${r.top - 6}px`, width: `${r.width + 12}px`, height: `${r.height + 12}px` });
       box.style.setProperty('display', 'block', 'important');
       return true;
+    },
+    /** A rect in screenshot coordinates → "@x,y,w,h", its place in the box between the marks: append it to that stretch in --keep. */
+    focus({ left, top, width, height }) {
+      const bw = innerWidth - 56, bh = innerHeight - 56;
+      const f = [(left * scale - 28) / bw, (top * scale - 28) / bh, (width * scale) / bw, (height * scale) / bh].map((v) => Math.min(1, Math.max(0, v)).toFixed(3));
+      return `@${f.join(',')}`;
     },
     marks(on) { for (const m of marks) m.style.setProperty('display', on ? 'block' : 'none', 'important'); return Date.now(); },
     now: () => Date.now(),

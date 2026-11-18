@@ -15,6 +15,7 @@
       "Bash(node .claude/kit/contract.mjs:*)",
       "Bash(node .claude/kit/video.mjs check:*)",
       "Bash(node .claude/kit/video.mjs start:*)",
+      "Bash(node .claude/kit/video.mjs durations:*)",
       "Bash(node .claude/kit/video.mjs record:*)",
       "Bash(node .claude/kit/video.mjs overlay:*)",
       "Bash(node .claude/kit/video.mjs chrome-start:*)",

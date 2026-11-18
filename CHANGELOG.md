@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.10.0 — 2026-11-18
+
+`/shopify-video` reworked after the dev's review of the first real video (VSD-327).
+
+- **A new order:** the theme editor first, one feature at a time: where it lives, how to use it, what to watch out for. Then behaviour on the draft: a setting changed and the preview shown, everything set back. Then a short storefront tour.
+- **Complete before short:** every core change is a P1 scene, whatever the length. Scenes carry a priority, and the storyboard ends with 3-5 optional scenes the dev can add by number.
+- **Real lengths before recording:** `video.mjs durations <KEY>` makes the narration and writes each scene's seconds into the storyboard.
+- **A review before the hand-over:** the new `video-reviewer` agent checks the storyboard against the task for missing changes, watch-outs, jargon and padding. The agent also looks for QA test content on the draft ("QA Headline", test codes) and lists it, for the dev to replace before recording.
+- **Zoom in the editor:** a kept stretch can zoom onto the settings panel, or a setting and its preview, at up to 2x (`__kc.focus`).
+- **Brisker pace:** shorter holds after highlights and clicks, quicker cursor moves, less pause between scenes. The voice stays at -10%.
+- **App popups hidden in storefront scenes:** cookie banners by their apps' ids, and other sites' iframes fixed to the screen (review popups, chat bubbles).
+- **Corner marks above every panel:** the overlay draws in the browser's top layer, so an open settings panel no longer hides them.
+- **"Good, but…" is a change, not a sign-off:** only "it can go to the client" marks the video as watched.
+
 ## 1.9.2 — 2026-11-18
 
 More from the VSD-327 video run.
