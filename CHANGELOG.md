@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.10.1 — 2026-11-19
+
+From the second VSD-327 video run.
+
+- **Mobile storefront scenes fill the picture's height.** Playwright recorded the phone at its CSS size and padded it with grey to twice that, so the phone was a quarter of the frame. It now records at the viewport's size and is scaled to the full height, centred.
+- **A short hand-over:** the agent applies the reviewer's findings itself and hands over in a few lines: the path, the length, the optional scenes, and, before recording, only what changes what the client sees (QA test text on the draft) and the Chrome window.
+- **Editor scenes record in a new Chrome window,** which the dev maximises on the main screen; the agent closes it when recording is done. `chrome-start` refuses a tab smaller than 1100x560.
+- **`chrome-stop` keeps the recording when it refuses a `--keep`,** so a corrected one doesn't need a re-recording. A stretch ending up to 1 s past the file's end is cut to fit.
+- **The frame check also looks for QA test text** the dev didn't say to film.
+
 ## 1.10.0 — 2026-11-18
 
 `/shopify-video` reworked after the dev's review of the first real video (VSD-327).

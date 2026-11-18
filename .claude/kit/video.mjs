@@ -143,6 +143,13 @@ export function captionChunks(say, seconds, perLine = 70) {
   return chunks.map((text) => { const d = (seconds * text.length) / total; const c = { text, from: t, to: t + d }; t += d; return c; });
 }
 
+/** Clamps stretches that end just past the recording, in place; returns the first that still doesn't fit. */
+export function fitParts(parts, length) {
+  // Stopping loses up to the last half second, so a closing mark can land just past the file's end.
+  for (const p of parts) if (p.from + p.length > length && p.from + p.length <= length + 1) p.length = length - p.from;
+  return parts.find((p) => p.from < 0 || p.length <= 0 || p.from + p.length > length);
+}
+
 /** Bounding box of the four magenta corner marks in an RGB screen grab, or why it can't be used. */
 export function findMarks(buf, width, height) {
   let x0 = width, y0 = height, x1 = -1, y1 = -1;
@@ -335,7 +342,9 @@ async function recordStorefront(browser, t, scene, board, voiceSeconds) {
   rmSync(tmp, { recursive: true, force: true });
   const ctx = await browser.newContext({
     viewport: vp, deviceScaleFactor: mobile ? 2 : 1, isMobile: mobile, hasTouch: mobile,
-    recordVideo: { dir: tmp, size: mobile ? { width: vp.width * 2, height: vp.height * 2 } : vp },
+    // Playwright records CSS pixels and pads a larger size with grey, top-left: a 2x size left the phone a quarter of the
+    // frame. At the viewport's size, assemble scales it to the picture's full height.
+    recordVideo: { dir: tmp, size: vp },
   });
   await ctx.addInitScript({ path: OVERLAY });
   await ctx.addInitScript(HIDE_APPS);
@@ -520,6 +529,8 @@ async function main() {
     if (grab.status !== 0 || !desk) fail('Couldn\'t grab the screen.');
     const area = findMarks(grab.stdout, Number(desk[1]), Number(desk[2]));
     if (area.problem) fail(`Can't find the Chrome tab: ${area.problem}`);
+    // Smaller than this, the editor's settings can't be read even zoomed (a 1280x495 window in a real run).
+    if (area.w < 1100 || area.h < 560) fail(`The Chrome tab is only ${area.w}x${area.h} on screen. Ask the dev to maximise its window on their main screen, then run chrome-start again.`);
     const file = join(t.scenes, `${nn(s.n)}.mkv`);
     const log = join(t.scenes, `${nn(s.n)}.capture.log`);
     // Matroska survives being stopped mid-write; the cap ends a recording nobody stopped. Only the tab's rectangle is
@@ -547,9 +558,13 @@ async function main() {
     const capPath = join(t.scenes, `${nn(s.n)}.capture.json`);
     if (!existsSync(capPath)) fail(`No recording running for scene ${s.n}: chrome-start ${key} ${s.n}`);
     const cap = JSON.parse(readFileSync(capPath, 'utf8'));
-    try { process.kill(cap.pid); } catch { /* it ended at its cap */ }
-    await new Promise((r) => setTimeout(r, 800));
-    rmSync(capPath);
+    // Stopped once already (a --keep was refused): the pid may belong to another process by now, and the file is kept,
+    // so a corrected --keep doesn't cost a re-recording.
+    if (!cap.stopped) {
+      try { process.kill(cap.pid); } catch { /* it ended at its cap */ }
+      await new Promise((r) => setTimeout(r, 800));
+      writeFileSync(capPath, JSON.stringify({ ...cap, stopped: true }, null, 2));
+    }
     let keep;
     try { keep = parseKeep(args.flags.keep); } catch (e) { fail(e.message); }
     const length = seconds(cap.file);
@@ -557,8 +572,9 @@ async function main() {
     const parts = keep.map(([a, b, focus]) => ({
       from: (a - cap.startedAt) / 1000 + 0.2, length: (b - a) / 1000 - 0.2, ...(focus ? { crop: focusCrop(focus, cap.area.w, cap.area.h) } : {}),
     }));
-    const bad = parts.find((p) => p.from < 0 || p.from + p.length > length + 0.3);
-    if (bad) fail(`A stretch (${bad.from.toFixed(1)} s in, ${bad.length.toFixed(1)} s long) doesn't fit the ${length.toFixed(1)} s recording. Record the scene again.`);
+    const bad = fitParts(parts, length);
+    if (bad) fail(`A stretch (${bad.from.toFixed(1)} s in, ${bad.length.toFixed(1)} s long) doesn't fit the ${length.toFixed(1)} s recording, which spans __kc.now() ${Math.round(cap.startedAt)} to ${Math.round(cap.startedAt + length * 1000)}. Fix --keep and run chrome-stop again (the recording is kept), or record the scene again.`);
+    rmSync(capPath);
     save(s.n, { kind: 'chrome', file: cap.file, parts, area: cap.area });
     return print({ scene: s.n, kept: `${parts.reduce((a, p) => a + p.length, 0).toFixed(1)} s of ${length.toFixed(1)} s`, zoomed: parts.filter((p) => p.crop).length });
   }
@@ -649,6 +665,8 @@ function selftest() {
     ['storyboard: unknown action refused', /isn't an action/.test(bad(board.replace('hide .popup', 'type hello')))],
     ['storyboard: no rows refused', /no scenes/.test(bad('Voice: x\n'))],
     ['show: wait needs seconds', (() => { try { parseShow('wait soon'); return false; } catch { return true; } })()],
+    ['fit: a stretch 0.3 s past the end is clamped', (() => { const p = [{ from: 2, length: 3 }, { from: 6, length: 4.3 }]; return !fitParts(p, 10) && p[1].length === 4 && p[0].length === 3; })()],
+    ['fit: 2 s past the end or a negative start is refused', Boolean(fitParts([{ from: 6, length: 6 }], 10)) && Boolean(fitParts([{ from: -1, length: 2 }], 10))],
     ['where: mobile path', storefrontWhere('cart @mobile').path === '/cart' && storefrontWhere('cart @mobile').mobile],
     ['where: home is the root', storefrontWhere('home @desktop').path === '/'],
     ['where: a URL is refused', (() => { try { storefrontWhere('https://evil.example/x'); return false; } catch { return true; } })()],
