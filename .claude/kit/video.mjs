@@ -270,6 +270,7 @@ async function recordStorefront(browser, t, scene, board, voiceSeconds) {
     if (/\/password/.test(page.url())) throw new Error('the storefront is password-protected: make this a chrome scene (the dev\'s Chrome is logged in), or ask the dev to lift the password while recording');
     const theme = await page.evaluate(() => window.Shopify?.theme && { id: window.Shopify.theme.id, role: window.Shopify.theme.role });
     if (!theme || String(theme.id) !== String(t.st.draft.themeId) || theme.role === 'main') throw new Error(`the page rendered ${theme ? `theme ${theme.id} (${theme.role})` : 'no Shopify theme'}, not the draft ${t.st.draft.themeId}`);
+    await page.waitForFunction(() => window.__kc, null, { timeout: 5000 }).catch(() => { throw new Error('the cursor overlay didn\'t load on this page'); });
     const ops = parseShow(scene.show);
     for (const o of ops.filter((x) => x.op === 'hide')) await page.addStyleTag({ content: `${o.arg}{display:none!important}` });
     await page.evaluate(() => window.__kc.marks(false));
@@ -429,11 +430,14 @@ async function main() {
     const file = join(t.scenes, `${nn(s.n)}.mkv`);
     const log = join(t.scenes, `${nn(s.n)}.capture.log`);
     // Matroska survives being stopped mid-write; the cap ends a recording nobody stopped. Only the tab's rectangle is
-    // captured: grabbing the whole desktop and cropping dropped to 12 fps on two screens.
+    // captured: grabbing the whole desktop and cropping dropped to 12 fps on two screens. chrome-stop kills ffmpeg, which
+    // loses what it hasn't written: by default a cluster of ~5 s (a 16 s scene came out 10 s long). Half-second clusters,
+    // flushed, and no encoder frame delay lose at most the last half second, after the scene's closing mark.
     const cap = Math.ceil(voice.seconds + 120);
     const child = spawn(ffmpegBin(), ['-hide_banner', '-y', '-f', 'gdigrab', '-draw_mouse', '0', '-framerate', '25',
       '-offset_x', String(area.x + Number(desk[3])), '-offset_y', String(area.y + Number(desk[4])), '-video_size', `${area.w}x${area.h}`, '-i', 'desktop', '-t', String(cap),
-      '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '18', '-pix_fmt', 'yuv420p', file],
+      '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'zerolatency', '-crf', '18', '-pix_fmt', 'yuv420p',
+      '-flush_packets', '1', '-cluster_time_limit', '500', file],
     { detached: true, stdio: ['ignore', 'ignore', openSync(log, 'w')], windowsHide: true });
     child.unref();
     const until = Date.now() + 10000;

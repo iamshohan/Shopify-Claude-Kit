@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.9.2 — 2026-11-18
+
+More from the VSD-327 video run.
+
+- **Storefront scenes record again.** The cursor overlay ran before the page had an `<html>` element, so every storefront scene failed with `__kc` undefined.
+- **Chrome scenes keep their full length.** Stopping the screen recording lost up to 5 s that ffmpeg hadn't written yet (a 16 s scene came out 10 s long). It now writes every half second.
+
 ## 1.9.1 — 2026-11-18
 
 Fixes from the first real `/shopify-video` run (VSD-327, vetevo).

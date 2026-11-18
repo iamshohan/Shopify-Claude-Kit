@@ -2,8 +2,13 @@
 // find the tab on screen. Real clicks from Claude in Chrome or Playwright don't move a visible pointer, so viewers
 // would otherwise not see what was clicked. Runs in the top frame only: the theme editor is a cross-origin iframe,
 // and the overlay sits above it. Safe to run twice.
-(() => {
+(function kitOverlay() {
   if (window.top !== window || window.__kc) return 'ready';
+  // As a Playwright init script it runs before the page has an <html> element to attach to: wait for it.
+  if (!document.documentElement) {
+    new MutationObserver((_, o) => { if (document.documentElement) { o.disconnect(); kitOverlay(); } }).observe(document, { childList: true });
+    return 'waiting';
+  }
   const root = document.createElement('div');
   root.setAttribute('data-kit-video', '');
   root.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:2147483647;display:block!important';
