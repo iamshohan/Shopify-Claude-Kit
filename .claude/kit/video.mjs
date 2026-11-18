@@ -5,7 +5,8 @@
 // /shopify-video <KEY> runs it. The tools live once per machine in ~/.shopify-kit/video, outside every repo.
 //   setup                                        install the recorder, ffmpeg and the voice (the dev runs it, once)
 //   check                                        are they installed, and does the voice answer?
-//   start <KEY>                                  can this task be filmed? creates storyboard.md
+//   start <KEY> [--accepted "<dev's words>"]     can this task be filmed? creates storyboard.md. --accepted: Gate 2 was
+//                                                held outside the kit, so the tracker never reached handoff
 //   record <KEY> [--scene N]                     narration for every scene, then the storefront scenes and slides
 //   overlay                                      prints the path of the cursor script for the Chrome tab
 //   chrome-start <KEY> <N>                       find the tab on screen by its corner marks, start recording the screen
@@ -20,7 +21,7 @@ import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { KIT_DIR, LOGS, WIN, fail, normKey, now, parseArgs, print, readConfig, readState, run } from './lib.mjs';
+import { KIT_DIR, LOGS, WIN, fail, normKey, now, parseArgs, print, readConfig, readState, run, writeState } from './lib.mjs';
 
 const DEPS = process.env.SHOPIFY_KIT_VIDEO_DEPS || join(homedir(), '.shopify-kit', 'video');
 // Pinned: a new recorder or voice release must not change every team video at once.
@@ -222,7 +223,9 @@ function task(key) {
 /** Refuses a task whose draft can't show the accepted work. */
 function filmable(st) {
   if (st.kind === 'investigation') return 'an investigation has no draft theme to film';
-  if (!['handoff', 'done'].includes(st.stage)) return `QA isn't accepted yet (stage: ${st.stage}). Film it after Gate 2.`;
+  if (!['handoff', 'done'].includes(st.stage) && !st.videoAccepted) {
+    return `QA isn't accepted yet (stage: ${st.stage}). Film it after Gate 2. If QA and Gate 2 were held outside the kit, ask the dev, then: start ${st.key} --accepted "<the dev's words>"`;
+  }
   if (!st.draft?.themeId) return 'the task has no draft theme';
   if (st.draft.deletedAt) return 'its draft theme was deleted at cleanup. Push the branch to a new draft first (shopify.mjs draft), or film by hand.';
   return null;
@@ -352,6 +355,14 @@ async function main() {
   const key = normKey(rawKey);
   const t = task(key);
   t.st.key = key;
+  // Gate 2 held outside the kit (a push it couldn't make, a branch merged first): the dev's words stand in for the tracker.
+  if (cmd === 'start' && args.flags.accepted !== undefined && !['handoff', 'done'].includes(t.st.stage)) {
+    const answer = String(args.flags.accepted === true ? '' : args.flags.accepted).trim();
+    if (!answer) fail('--accepted "<the dev\'s words>": the dev confirms QA and Gate 2 were done for what the draft shows.');
+    t.st.videoAccepted = { answer, at: now(), stage: t.st.stage };
+    t.st.history.push({ at: now(), event: 'video-accepted', stage: t.st.stage });
+    writeState(key, t.st);
+  }
   const why = filmable(t.st);
   if (why) fail(`${key} can't be filmed: ${why}`);
   mkdirSync(t.vdir, { recursive: true });

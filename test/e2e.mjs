@@ -214,11 +214,16 @@ try {
   // ── The feature, a draft, a first push ──
   write('sections/feature.liquid', '<div class="e2e-feature"></div>\n');
   write('templates/product.json', product('A2', 'D'));
+  // A build's source in a subfolder: Shopify rejects it, so push leaves it out and says so.
+  write('assets/src/feature.css', '.e2e-feature{}\n');
   commit('feature');
   const draft = kit('shopify.mjs', 'draft', KEY);
   ok('draft copies live into an unpublished theme named after the key', draft.code === 0 && state().draft.themeId === 2, draft.all);
+  const firstPush = calls().length;
   const push1 = kit('shopify.mjs', 'push', KEY);
   ok('push uploads and verifies', push1.code === 0 && existsSync(join(store, 'themes', '2', 'sections', 'feature.liquid')), push1.all);
+  ok('push leaves out files in a subfolder Shopify doesn\'t store, and lists them',
+    !calls().slice(firstPush).some((c) => (c.flags.only || []).includes('assets/src/feature.css')) && json(push1).notUploadedSubfolderFiles?.[0] === 'assets/src/feature.css', push1.all);
 
   // ── Live drift ──
   // Live changes: a merchant edit that Shopify syncs into main, and a teammate's merged section.
@@ -250,6 +255,9 @@ try {
 
   const check1 = kit('shopify.mjs', 'check', KEY);
   ok('check doesn\'t count a merged-in offense as introduced', check1.code === 0 && json(check1).introducedErrors === 0, check1.all);
+  // This repo keeps no locales/: check runs on an empty one, removes it, and drops the translation findings it can't judge.
+  ok('check runs without a locales folder and says translations weren\'t checked',
+    /translation keys weren't checked/.test(json(check1).note || '') && !existsSync(join(repo, 'locales')), check1.all);
   write('sections/feature.liquid', '<div class="e2e-feature">OFFENSE</div>\n');
   commit('feature with an offense');
   // A dev's git config can change the diff's "+++ b/" prefix; check sets its own.
@@ -443,6 +451,14 @@ try {
   ok('approve runs the plan checks, and keeps a copy of the plan it approved', unchecked.code === 1 && /Control surface/.test(unchecked.err)
     && kit('kit.mjs', 'done', KEY, 'approve', '--answer', 'Approve').code === 0 && existsSync(logFile(KEY, 'plan.approved.md')), unchecked.all);
 
+  // A task whose Gate 2 was held outside the kit: video start takes the dev's words in place of the stage.
+  const video = (...a) => spawnSync(process.execPath, [join(repo, '.claude', 'kit', 'video.mjs'), ...a], { cwd: repo, env: { ...env, SHOPIFY_KIT_VIDEO_DEPS: join(tmp, 'no-video-tools') }, encoding: 'utf8' });
+  const tooEarly = video('start', KEY);
+  const byHand = video('start', KEY, '--accepted', 'QA and Gate 2 done by hand');
+  ok('video start refuses before Gate 2 and names --accepted; with the dev\'s words it goes on (to the missing tools here)',
+    tooEarly.status === 1 && /--accepted/.test(tooEarly.stderr) && /aren't installed/.test(byHand.stderr) && state().videoAccepted?.answer === 'QA and Gate 2 done by hand'
+    && video('start', KEY, '--accepted').status === 1, tooEarly.stderr + byHand.stderr);
+
   // Build: the last theme check decides, on the content it checked; files outside the plan and plan edits are listed, not refused.
   const build0 = kit('kit.mjs', 'done', KEY, 'build');
   ok('build refuses a theme check that ran on other content than the branch has', build0.code === 1 && /ran on other theme files/.test(build0.err) && !/errors this branch introduced/.test(build0.err), build0.all);
@@ -453,6 +469,12 @@ try {
   ok('build refuses while the last theme check found errors the branch introduced', build1.code === 1 && /found 1 errors this branch introduced/.test(build1.err) && !/other theme files/.test(build1.err), build1.all);
   const check2 = kit('shopify.mjs', 'check', KEY);
   ok('check records its result', check2.code === 0 && state().check?.head === head() && state().check.introducedErrors === 0 && !state().check.dirty, check2.all);
+  write('sections/feature.liquid', '<div class="e2e-feature">OFFENSE</div>\n');
+  const legacy = spawnSync(process.execPath, [join(repo, '.claude', 'kit', 'shopify.mjs'), 'check', KEY], { cwd: repo, env: { ...env, FAKE_LEGACY_CHECK: '1' }, encoding: 'utf8' });
+  const current = kit('shopify.mjs', 'check', KEY);
+  write('sections/feature.liquid', '<div class="e2e-feature"></div>\n');
+  ok('check reads both theme check output shapes, each on the right line',
+    JSON.parse(legacy.stdout || '{}').introduced?.[0]?.line === 1 && json(current).introduced[0]?.line === 1 && json(current).introducedErrors === 1, legacy.stdout + legacy.stderr + current.all);
   // A theme check that gives no report is recorded, so done build doesn't wait on it forever.
   const broken = join(tmp, 'broken-bin');
   mkdirSync(broken);
@@ -542,6 +564,18 @@ try {
   const handoff = kit('kit.mjs', 'done', KEY, 'handoff');
   ok('handoff passes on the QA\'d commit and shows the retro for the refused handoff',
     handoff.code === 0 && state().stage === 'done' && /handoff ×1/.test(handoff.out) && /kit\.mjs note/.test(handoff.out) && state().history.some((e) => e.event === 'retro'), handoff.all);
+
+  // The branch merged on GitHub: it meets origin/main at its own tip. Only the remote-tracking ref moves, then goes back.
+  const mainWas = git('rev-parse', 'origin/main');
+  const unmerged = json(kit('shopify.mjs', 'check', KEY));
+  git('update-ref', 'refs/remotes/origin/main', git('commit-tree', `${KEY}^{tree}`, '-p', mainWas, '-p', KEY, '-m', 'Merge pull request #1'));
+  const prMerged = json(kit('shopify.mjs', 'check', KEY));
+  git('update-ref', 'refs/remotes/origin/main', head());
+  const ffMerged = json(kit('shopify.mjs', 'check', KEY));
+  git('update-ref', 'refs/remotes/origin/main', mainWas);
+  ok('a merged branch is measured as its PR was (from st.base after a fast-forward), so merged-in work stays out',
+    prMerged.base === unmerged.base && unmerged.base !== state().base.slice(0, 7) && prMerged.introducedErrors === 0 && ffMerged.base === state().base.slice(0, 7),
+    JSON.stringify({ unmerged, prMerged, ffMerged }));
 
   // Handover: status names the owner and warns another git identity.
   const mine = kit('kit.mjs', 'status', KEY).out;

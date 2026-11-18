@@ -11,7 +11,7 @@ import { createHash } from 'node:crypto';
 import {
   ROOT, LOGS, KIT_DIR, KIT_VERSION, THEME_DIRS, MERCHANT_JSON, WIN, print, fail, parseArgs, normKey, now, run, git,
   currentBranch, parseCliJson, diagnosticJson, readConfig, readState, writeState, secret, inTaskFolder,
-  storefrontGet, renderedTheme, storefrontPath, isThemePath, mutationProblems, gqlScan, createdIds, namesKey, sealDigest, SEAL_FILE, draftNameFor, effectiveBase,
+  storefrontGet, renderedTheme, storefrontPath, isThemePath, isStorable, mutationProblems, gqlScan, createdIds, namesKey, sealDigest, SEAL_FILE, draftNameFor, effectiveBase,
   shopifyIgnore, themeDigest, authSessionProps, execErrorProps, lastVerified,
 } from './lib.mjs';
 
@@ -270,14 +270,16 @@ function branchFiles(st) {
   const differ = git(['diff', '--name-only', '--no-renames', '--relative', base, 'HEAD', '--', ...THEME_DIRS], { allowFail: true });
   const files = [];
   const gone = [];
+  // A build's sources in a subfolder (assets/src/theme.css): Shopify rejects them, and the build's output is what goes up.
+  const sources = [];
   for (const f of [...new Set(`${touched}\n${differ}`.split('\n').filter(Boolean))].sort()) {
-    if (existsSync(join(ROOT, f))) files.push(f); else gone.push(f);
+    if (!isStorable(f)) sources.push(f); else if (existsSync(join(ROOT, f))) files.push(f); else gone.push(f);
   }
   for (const out of st.buildOutputs || []) {
-    if (!isThemePath(out)) fail(`buildOutputs holds "${out}", which isn't a theme file path (assets/…, snippets/…). Fix it: kit.mjs set ${st.key} buildOutputs=<path,path>`);
+    if (!isThemePath(out) || !isStorable(out)) fail(`buildOutputs holds "${out}", which isn't a theme file path Shopify stores (assets/…, snippets/…, no subfolder). Fix it: kit.mjs set ${st.key} buildOutputs=<path,path>`);
     if (existsSync(join(ROOT, out)) && !files.includes(out)) files.push(out);
   }
-  return { files, gone, base };
+  return { files, gone, base, sources };
 }
 
 /** Batches stay well under cmd.exe's 8,191-character command line. */
@@ -483,16 +485,29 @@ function changedRanges(base) {
 
 /** The offenses, or { crashed } when theme check gave no report (a crash, an unsupported .theme-check.yml). */
 function themeCheck() {
-  const r = run('shopify', ['theme', 'check', '--path', ROOT, '--output', 'json', '--no-input'], { shell: true });
+  // Repos that keep locales/ out of git (edited in the admin) have none locally, and theme check crashes reading it. It runs
+  // with an empty one; its translation checks then have no locale files to compare with, so their findings are dropped.
+  const locales = join(ROOT, 'locales');
+  const noLocales = !existsSync(locales);
+  if (noLocales) mkdirSync(locales);
+  let r;
+  try { r = run('shopify', ['theme', 'check', '--path', ROOT, '--output', 'json', '--no-input'], { shell: true }); }
+  finally { if (noLocales) rmSync(locales, { recursive: true, force: true }); }
   const data = parseCliJson(r.stdout);
-  if (!Array.isArray(data)) return { crashed: (r.stderr || r.stdout || `exit ${r.code}`).trim().slice(0, 1500) };
-  const offenses = [];
-  for (const f of data) {
-    const path = relative(ROOT, f.path).replaceAll('\\', '/');
-    for (const o of f.offenses || []) {
-      offenses.push({ path, line: (o.start_row ?? 0) + 1, check: o.check, severity: o.severity, message: o.message });
-    }
+  // Older CLIs print [{ path, offenses: [{ start_row, 0-based }] }]; newer ones { valid, issues: [{ filePath, startRow, 1-based }] }.
+  const found = Array.isArray(data)
+    ? data.flatMap((f) => (f.offenses || []).map((o) => ({ ...o, file: f.path, line: (o.start_row ?? 0) + 1 })))
+    : Array.isArray(data?.issues) ? data.issues.map((o) => ({ ...o, file: o.filePath, line: o.startRow ?? 1 })) : null;
+  if (!found) {
+    const said = [r.stderr, r.stdout].join('\n').split('\n').filter((l) => l.trim() && !l.startsWith('<claude-code-hint')).join('\n');
+    return { crashed: (said || `exit ${r.code}`).trim().slice(0, 1500) };
   }
+  const offenses = [];
+  for (const o of found) {
+    if (noLocales && /translation/i.test(o.check)) continue;
+    offenses.push({ path: relative(ROOT, o.file).replaceAll('\\', '/'), line: o.line, check: o.check, severity: o.severity, message: o.message });
+  }
+  if (noLocales) offenses.localesMissing = true;
   return offenses;
 }
 
@@ -668,6 +683,7 @@ switch (verb) {
       introduced,
       introducedErrors: introduced.filter((o) => o.severity === 'error').length,
       introducedWarnings: introduced.filter((o) => o.severity !== 'error').length,
+      ...(offenses.localesMissing ? { note: 'No locales/ folder here (kept out of git?), so translation keys weren\'t checked. Check new | t keys on the draft.' } : {}),
     };
     st.check = { ...at, introducedErrors: result.introducedErrors, introducedWarnings: result.introducedWarnings };
     writeState(key, st);
@@ -794,15 +810,16 @@ switch (verb) {
     const target = waitUntilReady(cfg.store, st.draft.themeId);
     assertOwnDraft(key, st, target);
 
-    const { files: all, gone: deleted, base } = branchFiles(st);
-    if (!all.length) fail('Nothing to push: the branch has no committed theme changes beyond its base.');
+    const { files: all, gone: deleted, base, sources } = branchFiles(st);
+    if (!all.length) fail(`Nothing to push: the branch has no committed theme changes beyond its base${sources.length ? ` that Shopify stores (${sources.join(', ')} sit in a subfolder: record the build's output with kit.mjs set ${key} buildOutputs=<path>)` : ''}.`);
+    const skipped = sources.length ? { notUploadedSubfolderFiles: sources } : {};
     const ignored = all.filter(shopifyIgnore());
     if (ignored.length && !flags['skip-ignored']) fail(`The repo's .shopifyignore excludes ${ignored.join(', ')}, so the CLI would skip them without saying so. Ask the dev how these files reach the store (often: they are edited in the admin, not in git). If the draft can go without them: push ${key} --skip-ignored, and list them in report.md § You must still do.`);
     const files = all.filter((f) => !ignored.includes(f));
     if (!files.length) fail('Every file this branch changes is excluded by .shopifyignore: nothing reaches the draft through push.');
 
     const head = git(['rev-parse', 'HEAD']);
-    if (flags['dry-run']) { print({ dryRun: true, theme: target, base: base.slice(0, 7), files, deletedOnBranch: deleted, liveDriftCheck: 'skipped in dry run' }); break; }
+    if (flags['dry-run']) { print({ dryRun: true, theme: target, base: base.slice(0, 7), files, deletedOnBranch: deleted, ...skipped, liveDriftCheck: 'skipped in dry run' }); break; }
     const drift = driftCheck(key, st, files, base);
     if (drift.refused.length) fail(driftMessage(key, drift.refused, base), 3);
     let urls = {};
@@ -830,7 +847,7 @@ switch (verb) {
     writeState(key, st);
     print({
       pushed: files.length, base: base.slice(0, 7), verified: `${files.length}/${files.length} files match ${head.slice(0, 7)}`, previewUrl: st.draft.previewUrl, editorUrl: st.draft.editorUrl,
-      deletedOnBranchButStillOnDraft: deleted, ...drift.report, ...(ignored.length ? { notOnDraftShopifyignore: ignored } : {}),
+      deletedOnBranchButStillOnDraft: deleted, ...skipped, ...drift.report, ...(ignored.length ? { notOnDraftShopifyignore: ignored } : {}),
     });
     break;
   }
@@ -842,8 +859,8 @@ switch (verb) {
     if (!st.draft?.themeId) fail(`No draft yet. Run: shopify.mjs draft ${key}`);
     const target = listThemes(cfg.store).find((t) => t.id === st.draft.themeId);
     assertOwnDraft(key, st, target);
-    const { files, gone, base } = branchFiles(st);
-    if (!files.length) fail('The branch has no committed theme changes beyond its base.');
+    const { files, gone, base, sources } = branchFiles(st);
+    if (!files.length) fail('The branch has no committed theme changes beyond its base that Shopify stores.');
     const head = git(['rev-parse', 'HEAD']);
     const github = st.draft.route === 'github';
     if (github) {
@@ -862,7 +879,7 @@ switch (verb) {
     writeState(key, st);
     print({
       commit: head.slice(0, 7), base: base.slice(0, 7), files: files.length, matching: files.length - mismatches.length, mismatches,
-      deletedOnBranchButStillOnDraft: gone, ...drift.report,
+      deletedOnBranchButStillOnDraft: gone, ...(sources.length ? { notOnDraftSubfolderFiles: sources } : {}), ...drift.report,
       ...(drift.refused.length ? { liveChangedSinceBase: drift.refused.map((d) => d.file), fix: driftMessage(key, drift.refused, base) } : {}),
     });
     if (mismatches.length || drift.refused.length) process.exit(3);

@@ -76,6 +76,9 @@ switch (cmd) {
   case 'theme push': {
     const t = target();
     refuseLive(t, 'push to');
+    // Like Shopify: no subfolders other than templates/customers and templates/metaobject.
+    const nested = [flags.only || []].flat().filter((f) => f.split('/').length > 2 && !/^templates\/(customers|metaobject)\/[^/]+$/.test(f));
+    if (nested.length) { process.stderr.write(`Error: ${nested.join(', ')}: subdirectories aren't supported\n`); process.exit(1); }
     copyFiles(process.cwd(), themeDir(t.id), flags.only);
     out({ theme: { ...t, preview_url: `https://fake-store.myshopify.com/?preview_theme_id=${t.id}`, editor_url: `https://admin.shopify.com/store/fake-store/themes/${t.id}/editor` } });
     break;
@@ -89,12 +92,19 @@ switch (cmd) {
     break;
   }
   case 'theme check': {
-    // One offense per line that contains OFFENSE, so a test decides exactly where offenses are.
-    const report = walk(flags.path).filter((p) => p.endsWith('.liquid')).map((p) => ({
-      path: p,
-      offenses: readFileSync(p, 'utf8').split('\n').flatMap((l, i) => (l.includes('OFFENSE') ? [{ check: 'FakeCheck', severity: 'error', start_row: i, message: `OFFENSE in ${relative(flags.path, p)}` }] : [])),
-    }));
-    out(report);
+    // One offense per line that contains OFFENSE, so a test decides exactly where offenses are. The current CLI's shape
+    // ({ valid, issues }, 1-based rows); FAKE_LEGACY_CHECK prints the older one ([{ path, offenses }], 0-based rows).
+    // Like the real one, it can't run without a locales/ folder.
+    if (!existsSync(join(flags.path, 'locales'))) { process.stderr.write(`Error: ENOENT: no such file or directory, scandir '${join(flags.path, 'locales')}'\n`); process.exit(1); }
+    const files = walk(flags.path).filter((p) => p.endsWith('.liquid'));
+    const hits = (p) => readFileSync(p, 'utf8').split('\n').flatMap((l, i) => (l.includes('OFFENSE') ? [i] : []));
+    const message = (p) => `OFFENSE in ${relative(flags.path, p)}`;
+    if (process.env.FAKE_LEGACY_CHECK) out(files.map((p) => ({ path: p, offenses: hits(p).map((i) => ({ check: 'FakeCheck', severity: 'error', start_row: i, message: message(p) })) })));
+    else {
+      const issues = files.flatMap((p) => hits(p).map((i) => ({ filePath: p, check: 'FakeCheck', severity: 'error', startRow: i + 1, startColumn: 1, message: message(p) })));
+      issues.push({ filePath: files[0], check: 'TranslationKeyExists', severity: 'error', startRow: 1, startColumn: 1, message: 'missing translation' });
+      out({ valid: false, issues });
+    }
     break;
   }
   case 'store execute': {

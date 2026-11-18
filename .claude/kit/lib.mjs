@@ -28,6 +28,8 @@ export const WIN = process.platform === 'win32';
 export const THEME_DIRS = ['assets', 'blocks', 'config', 'layout', 'locales', 'sections', 'snippets', 'templates'];
 /** The CLI's --only takes the next argument even when it starts with -, so only theme paths reach it. */
 export const isThemePath = (p) => new RegExp(`^(${THEME_DIRS.join('|')})/.`).test(p) && !p.split('/').includes('..');
+/** Paths Shopify stores: one level deep, except templates/customers and templates/metaobject. assets/src/… (a build's source) isn't one. */
+export const isStorable = (p) => /^(assets|blocks|config|layout|locales|sections|snippets|templates|templates\/customers|templates\/metaobject)\/[^/]+$/.test(p);
 // Files Shopify rewrites when someone saves in the admin (and syncs into git on GitHub-connected themes).
 export const MERCHANT_JSON = /^(templates\/.+\.json|sections\/[^/]+\.json|config\/settings_data\.json)$/i;
 
@@ -144,9 +146,19 @@ export function currentBranch() {
  * The commit this task's changes are measured from: where the branch (HEAD by default) meets origin/<baseBranch> now, as a
  * PR diff is. st.base is only where the branch started. Once the base branch is merged in, measuring from st.base
  * counts the merged-in work as this task's, and keeps flagging live edits the merge already brought in.
+ * Once the branch itself is merged, they meet at its own tip, which leaves it no work. Then it is measured as its PR was:
+ * from where the base branch stood just before the merge commit that took it in. A fast-forward merge has none: st.base.
  */
 export function effectiveBase(st, cfg, head = 'HEAD') {
-  return git(['merge-base', head, `origin/${cfg?.baseBranch || 'main'}`], { allowFail: true }) || st.base;
+  const main = `origin/${cfg?.baseBranch || 'main'}`;
+  const tip = git(['rev-parse', head], { allowFail: true });
+  const met = git(['merge-base', head, main], { allowFail: true });
+  if (met && met !== tip) return met;
+  const lines = (args) => git(args, { allowFail: true }).split('\n').filter(Boolean);
+  const holdsHead = new Set(lines(['rev-list', '--ancestry-path', `${head}..${main}`]));
+  const merge = lines(['rev-list', '--first-parent', main, `^${head}`]).filter((c) => holdsHead.has(c)).pop();
+  const before = merge && git(['merge-base', head, `${merge}^1`], { allowFail: true });
+  return before && before !== tip ? before : st.base;
 }
 
 /**

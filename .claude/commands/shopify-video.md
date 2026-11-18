@@ -12,6 +12,7 @@ A short video (1-3 minutes) for the client, who isn't technical: what's new on t
 
 1. Run `node .claude/kit/video.mjs check`. Not `ready` → tell the dev what it reports (the fix is usually `! node .claude/kit/video.mjs setup`, once per machine) and stop.
 2. Run `node .claude/kit/video.mjs start <KEY>`. It refuses before Gate 2 and after the draft was deleted: tell the dev why, and stop. Pass on a `warning` in one line.
+   - Refused only for the stage, and the task's report or kit notes say QA and Gate 2 were held by hand (the kit couldn't push, the branch was merged first): ask the dev with AskUserQuestion whether QA accepted what the draft shows now. Yes → `start <KEY> --accepted "<the dev's words>"`. Never pass it on your own judgment.
 3. **Write the storyboard** (the path `start` printed) from the files it lists. Fill the table and the `Query:` line; the comment in the file lists the kinds and actions.
    - Scene 1, a slide: what's new, from brief.md § Asked and the plan's At a glance.
    - Storefront scenes for what shoppers see. Take the pages and selectors from report.md's PASS rows (the How column), so every selector has been measured. Desktop; add mobile when the plan has a mobile difference.

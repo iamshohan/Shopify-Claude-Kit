@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.9.1 — 2026-11-18
+
+Fixes from the first real `/shopify-video` run (VSD-327, vetevo).
+
+- **Theme check works with the current Shopify CLI again.** The CLI's JSON output changed shape, and every check since was recorded as "crashed", which `done build` lets through with a warning. Both shapes are read now, each on the right line.
+- **Theme check runs in repos that keep `locales/` out of git.** It runs with an empty folder, removed afterwards, and says translation keys weren't checked.
+- **Push leaves out files in subfolders Shopify can't store** (a Tailwind source in `assets/src/`) and lists them. Before, the whole push failed, and with it verify and every `qa-row`.
+- **A branch already merged into main is measured as its PR was.** `done build` said "no commits beyond its base", and check and push saw no work.
+- **`video.mjs start <KEY> --accepted "<dev's words>"`** films a task whose QA and Gate 2 were held outside the kit. The agent asks the dev first.
+
 ## 1.9.0 — 2026-11-18
 
 - **`/shopify-video <KEY>`** makes the client's walkthrough video for a task QA accepted: what's new, how to change it, where it lives. Optional; nothing else in the run changes.
