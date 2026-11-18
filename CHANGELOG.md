@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.9.0 — 2026-11-18
+
+- **`/shopify-video <KEY>`** makes the client's walkthrough video for a task QA accepted: what's new, how to change it, where it lives. Optional; nothing else in the run changes.
+  - The agent writes `storyboard.md` from the brief, the plan, the contract and the QA report, and hands it over like Gate 1 before recording.
+  - Storefront scenes record in a hidden browser on the draft theme (each checks it rendered the draft, never live). Theme-editor and admin scenes record from the dev's own Chrome: Claude in Chrome clicks while the screen is recorded, cropped to the tab by its corner marks, with the waiting between clicks cut out. Every change made in the editor is put back and Save stays grey; the kit never saves.
+  - English neural voice (Microsoft's, through `msedge-tts`) with captions; slides for the opening and "where things live".
+  - The agent checks one frame per scene, and the file stays `.unreviewed` until the dev has watched it.
+  - Tools once per machine in `~/.shopify-kit/video` (`node .claude/kit/video.mjs setup`); `/shopify-setup` checks them as optional. Screen recording is Windows-only for now.
+- **Handoff** mentions the video, and that it needs the draft.
+
 ## 1.8.0 — 2026-11-17
 
 From the second review round, and one new command.

@@ -85,4 +85,5 @@ Work through these checks in order. Report each one as ✓ or ✗ with the exact
    - The extension needs site access to the storefront domain and `admin.shopify.com`.
 
    Without Chrome, customizer checks are BLOCKED.
-9. **Summary.** List what works and what's missing. If everything is ✓, end with: "Ready. Start a task with /shopify-implement <KEY>, or investigate with /shopify-investigate <KEY or question>."
+9. **Client videos (optional).** Run `node .claude/kit/video.mjs check`. If it isn't ready, say once that `/shopify-video` needs a one-time install per machine (about 100 MB, outside the repo): `! node .claude/kit/video.mjs setup`. Missing video tools don't change "Ready".
+10. **Summary.** List what works and what's missing. If everything is ✓, end with: "Ready. Start a task with /shopify-implement <KEY>, or investigate with /shopify-investigate <KEY or question>."

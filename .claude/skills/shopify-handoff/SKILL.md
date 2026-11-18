@@ -37,7 +37,7 @@ The kit prepares everything and merges nothing. Creating the PR, merging, postin
      - The QA team reviews with `report.md` § Criteria.
    - **Open points:** known gaps, "see report.md § You must still do", "noticed, not touched" items, and leftover store data.
 4. **Cleanup.** Ask with AskUserQuestion:
-   - **The draft theme:** keep it until client and AC review end (recommended), delete it after merge, or delete it now. Deleting uses `shopify.mjs delete-draft <KEY>`, and the dev approves it.
+   - **The draft theme:** keep it until client and AC review end (recommended), delete it after merge, or delete it now. Deleting uses `shopify.mjs delete-draft <KEY>`, and the dev approves it. A client walkthrough video (`/shopify-video <KEY>`) is filmed on the draft: say so when the ticket or the dev mentions a video.
    - **QA test values** (in the summary's store changes): keep or remove? Each removal is a mutation the dev approves.
      - Order: `metafieldsDelete` first (only on owners this task created, such as its metaobjects), then a definition the kit created with `deleteAllAssociatedMetafields: true` (its values go with it), metaobject definitions last.
      - Never delete anything the kit didn't create. QA values set under a merchant's own definition (on their products, for example) are the dev's to remove in the admin; the kit refuses those deletes. List them in Open points.
@@ -48,4 +48,5 @@ The kit prepares everything and merges nothing. Creating the PR, merging, postin
    - The PR text, admin steps and Jira comment are in `.claude/logs/<KEY>/report.md`.
    - The next steps are theirs: create the PR, merge, follow the go-live order.
    - If you recorded kit notes: they're in `.claude/logs/<KEY>/kit-notes.md`, and `node .claude/kit/kit.mjs feedback` collects all tasks' notes into one file for the kit maintainer.
+   - **A walkthrough video for the client:** `/shopify-video <KEY>`, while the draft exists.
    - **Client or AC feedback later:** run `/shopify-implement <KEY>`, then `kit.mjs back <KEY> build --reason "<feedback>"`.

@@ -47,6 +47,7 @@ Without it, paste the ticket text instead.
 | `/shopify-implement` | List the tasks in this repo |
 | `/shopify-investigate ABC-123` | Answer a bug or how-does-it-work question, read-only, with evidence (a plain question works too) |
 | `/shopify-feasibility ABC-123` | Can it be built, how, and how big (S/M/L)? Before a ticket is picked up |
+| `/shopify-video ABC-123` | The client's walkthrough video (English voice and captions), after QA is accepted. Once per machine first: `node .claude/kit/video.mjs setup` |
 | `/shopify-update` | After a Shopify CLI or plugin update: checks the kit still matches |
 
 Run a command again with the same key to continue where it stopped. Team guide: [`.claude/README.md`](.claude/README.md).

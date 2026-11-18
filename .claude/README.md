@@ -1,10 +1,11 @@
-# Shopify Implementation Kit · v1.8.0
+# Shopify Implementation Kit · v1.9.0
 
 A Claude Code setup for Shopify theme repos.
 
 - **`/shopify-implement <KEY>`** takes a Jira ticket (a winning A/B test, a feature or a bug fix) to a QA'd draft theme. It reads the ticket and the code, asks you every open decision, gets a file-by-file plan approved, builds on a task branch, pushes to an unpublished copy of the live theme, and checks the draft with measured values.
 - **`/shopify-investigate <KEY or question>`** answers feasibility, debugging and how-does-it-work questions, read-only and with evidence.
 - **`/shopify-feasibility <KEY>`** is the same flow set up for a ticket nobody has picked up yet: it asks you about unclear requirements, then says whether it can be built, the limitations, the approaches with their trade-offs, and a size (S/M/L) with what drives it.
+- **`/shopify-video <KEY>`** makes the client's walkthrough video once QA is accepted: what's new, how to change it in the theme editor, and where it lives. English voice with captions; you approve the storyboard first and watch the video before it goes out.
 
 It never publishes a theme, writes to the live theme, or pushes or merges into the base branch. Merging stays with you.
 
@@ -25,6 +26,7 @@ Get these before `/shopify-setup`. It checks each one and gives the fix, but som
 | Optional: the Admin API login, which installs Shopify's CLI app on the store | [Admin API login](#admin-api-login-optional-once-per-store) below; someone allowed to install apps |
 | Optional, for tickets with a Figma design: Figma connected in Claude Code | the Figma tools show up in Claude Code; without them you paste the values or skip the design check |
 | For A/B ports: the test's code | e.g. a shadow-drip-exps checkout |
+| Optional, for client videos: the recorder, ffmpeg and the voice, once per machine (about 100 MB in `~/.shopify-kit/video`) | `node .claude/kit/video.mjs setup` in any theme repo; theme-editor scenes need Windows for now |
 
 ## Install
 
@@ -69,6 +71,7 @@ shopify store auth --store <store>.myshopify.com --scopes read_products,write_pr
 /shopify-investigate ABC-123            investigate a ticket
 /shopify-feasibility ABC-123            can it be built, how, and how big? (before picking it up)
 /shopify-investigate why do German menus link to English pages?    a question without a ticket (key INV-…)
+/shopify-video ABC-123                  the client's walkthrough video, after QA is accepted
 ```
 
 ### Implementation stages
@@ -105,6 +108,7 @@ Investigations can't change the theme or the store. If the answer is a fix, run 
 | `contract.md` | what the merchant sees in the customizer |
 | `design.md` | Figma values to match: features with a design, or a design check you ask for at QA |
 | `investigation.md` | investigations: the question, answer, evidence and next step |
+| `storyboard.md` | `/shopify-video`: the scenes and what the voice says; the finished video and its parts are in `video/` |
 | `state.json` | machine state for resuming; managed by `kit.mjs` |
 
 The logs are history, not a knowledge base: every task reads the code fresh.
@@ -120,6 +124,7 @@ The logs are history, not a knowledge base: every task reads the code fresh.
   - Handoff writes the report, marked "TEST RUN", and pushes nothing.
   - Afterwards, move `.claude/logs/<KEY>/` aside if you'll work the ticket for real on the same machine.
 - **Dropping a task:** `kit.mjs abandon <KEY> --reason "…"` lists the draft and store data left to clean up, and what the record shows went wrong with the kit.
+- **Client video:** `/shopify-video <KEY>` after QA is accepted, before the draft is deleted. It writes a storyboard for you to edit, records storefront scenes on its own, and records the theme editor in your Chrome: the recording tab needs its own window that you leave alone for a minute or two (your other screen is fine). A password-protected storefront is recorded in Chrome too. You watch the result before sending it.
 - **Reporting:** `kit.mjs summary <KEY>`: time per stage, loops, verdicts and store changes.
 - **Kit problems:** the agent notes them in `kit-notes.md` as they happen; `kit.mjs retro <KEY>` lists what the record shows went wrong. `node .claude/kit/kit.mjs feedback` collects every task's notes into `.claude/logs/kit-feedback.md`; send that to the kit maintainer.
 

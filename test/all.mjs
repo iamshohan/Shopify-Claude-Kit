@@ -13,6 +13,7 @@ const SUITES = [
   ['theme guard', REPO, '.claude/hooks/guard.mjs', '--selftest'],
   ['theme kit', REPO, '.claude/kit/kit.mjs', '--selftest'],
   ['theme probe built', REPO, '.claude/kit/kit.mjs', 'build-probe', '--check'],
+  ['theme video', REPO, '.claude/kit/video.mjs', '--selftest'],
   ['theme e2e', REPO, 'test/e2e.mjs'],
   ['app guard', APP, '.claude/hooks/guard.mjs', '--selftest'],
   ['app kit', APP, '.claude/kit/app.mjs', '--selftest'],
