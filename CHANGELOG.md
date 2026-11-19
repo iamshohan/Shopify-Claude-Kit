@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.11.0 — 2026-11-19
+
+- **Voice and picture stay in step.** A scene's narration was one clip over all its footage, so a sentence could play over the wrong part (VSD-327: "the eye icon" while the editor showed Add section). Now Say is split with " / " into beats, one per thing shown. Each beat's words start with its own footage. Shorter footage holds its last frame until the words end; a shorter voice is followed by a pause.
+  - Chrome scenes: `chrome-start` prints each beat's seconds, and `chrome-stop --keep` takes the stretches per beat, split by ";".
+  - Storefront scenes: Show is split with " / " the same way, and each part is held until its words end.
+  - Captions follow their beat. A Say without " / " is one beat, as before.
+- **Chrome scenes after the first:** the command says to run `__kc.marks(true)` on a page the last scene ended on; the marks stayed off.
+
 ## 1.10.1 — 2026-11-19
 
 From the second VSD-327 video run.

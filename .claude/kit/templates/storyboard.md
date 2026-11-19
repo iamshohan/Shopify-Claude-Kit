@@ -28,10 +28,12 @@ Kind:
 - storefront  Where = a storefront path and a viewport, e.g. "products/x @desktop" or "cart @mobile". Recorded on the
               draft theme in a hidden browser; cookie banners and app popups are hidden. Show = actions split with ";":
               hide <selector> (before the scene starts) · highlight <selector> · click <selector> ·
-              hover <selector> · scroll <selector> · wait <seconds>
+              hover <selector> · scroll <selector> · wait <seconds>. One part per beat of Say, split with " / ".
 - chrome      Recorded in the dev's Chrome: the theme editor or an admin page. Where = the place, e.g.
               "Theme editor › Product page › Free gift". Show = what the agent clicks and changes, in words.
-Say = what the voice says during the scene, in the merchant's words. One to three sentences.
+Say = what the voice says during the scene, in the merchant's words. One to three sentences. Split it with " / " into
+      beats, one per thing the picture shows, in the order it shows them ("The tile sits in the grid. / A click on the
+      code copies it."): each beat's words play with that beat's footage, never ahead of it or behind.
 Query = optional, added to every storefront URL (e.g. the A/B tool's opt-out parameter from plan.md § QA setup).
 -->
 

@@ -11,8 +11,9 @@
 //   record <KEY> [--scene N]                     narration for every scene, then the storefront scenes and slides
 //   overlay                                      prints the path of the cursor script for the Chrome tab
 //   chrome-start <KEY> <N>                       find the tab on screen by its corner marks, start recording the screen
-//   chrome-stop <KEY> <N> --keep <a-b,c-d@f>     stop, and keep the stretches between the scene's Date.now() marks;
-//                                                "@x,y,w,h" (from __kc.focus) zooms a stretch to part of the tab
+//   chrome-stop <KEY> <N> --keep <a-b,c-d@f;e-f> stop, and keep the stretches between the scene's Date.now() marks;
+//                                                "@x,y,w,h" (from __kc.focus) zooms a stretch to part of the tab; ";"
+//                                                splits the stretches by beat (the Say's " / " parts)
 //   assemble <KEY>                               join the scenes into video/<KEY>-walkthrough.unreviewed.mp4, and
 //                                                video/frames.png (one frame per scene) for the agent's check
 //   reviewed <KEY> --answer "<dev's words>"      the dev watched it: drops .unreviewed from the name
@@ -52,6 +53,7 @@ const DEFAULT_VOICE = 'en-US-AvaNeural';
 // 1920x1080 frame: the picture fits the top 900 px, captions get the band below.
 const W = 1920, PIC = 900, H = 1080, BG = '0x1f2124';
 const LEAD = 0.3, TAIL = 0.3; // seconds of picture before the voice starts and after it ends (the mp3s add ~0.3 s each)
+const GAP = 0.2; // between two beats of a scene, on top of the mp3s' own silence
 const RATE = '-10%'; // the voice's default runs near 200 words a minute; clients follow better nearer 170
 const FPS = 25; // both recorders capture at 25: another output rate repeats frames and motion judders
 const DESKTOP = { width: 1440, height: 675 }; // 16:7.5, the picture area's shape
@@ -86,7 +88,13 @@ export function parseStoryboard(text) {
     if (!s.say) problems.push(`scene ${s.n}: Say is empty`);
     if (s.prio && !/^P[123]$/.test(s.prio)) problems.push(`scene ${s.n}: Prio "${s.prio}" isn't P1, P2 or P3`);
     if (i && s.n <= scenes[i - 1].n) problems.push(`scene ${s.n}: numbers must go up`);
-    if (s.kind === 'storefront') { try { parseShow(s.show); storefrontWhere(s.where); } catch (e) { problems.push(`scene ${s.n}: ${e.message}`); } }
+    if (s.kind === 'storefront') {
+      try {
+        const groups = showBeats(s.show), beats = beatsOf(s.say).length;
+        storefrontWhere(s.where);
+        if (groups.length !== beats) problems.push(`scene ${s.n}: Show has ${groups.length} part(s) and Say ${beats} beat(s); split both with " / ", one part per beat`);
+      } catch (e) { problems.push(`scene ${s.n}: ${e.message}`); }
+    }
   });
   if (problems.length) throw new Error(problems.join('\n'));
   return { voice: header('Voice') || DEFAULT_VOICE, query: header('Query'), scenes };
@@ -101,6 +109,33 @@ export function parseShow(show) {
     if (!OPS.includes(op)) throw new Error(`"${op}" isn't an action (${OPS.join(', ')})`);
     if (op === 'wait' ? !(Number(arg) > 0) : !arg) throw new Error(`"${s}" needs ${op === 'wait' ? 'a number of seconds' : 'a selector'}`);
     return { op, arg: op === 'wait' ? Number(arg) : arg };
+  });
+}
+
+/**
+ * A Say's beats: " / " splits it into the parts that go with one piece of footage each, so the voice talks about what
+ * the picture shows. No " / " is one beat.
+ */
+export const beatsOf = (text) => String(text).split(/\s+\/\s+/).map((b) => b.trim()).filter(Boolean);
+
+/** A storefront Show's actions per beat: "highlight .a; wait 2 / click .b" → [[…], […]]. */
+export const showBeats = (show) => beatsOf(show).map(parseShow);
+
+/** Seconds each beat needs: its voice, LEAD before the first, GAP after each, TAIL after the last. */
+export function beatNeeds(voiceSeconds) {
+  return voiceSeconds.map((v, i) => (i ? 0 : LEAD) + v + (i === voiceSeconds.length - 1 ? TAIL : GAP));
+}
+
+/**
+ * The scene's timeline: each beat lasts as long as its voice or its footage, whichever is longer. Shorter footage holds
+ * its last frame; a shorter voice is followed by silence. → [{ start, length, voiceAt }] in seconds.
+ */
+export function beatTimeline(voiceSeconds, footageSeconds) {
+  let t = 0;
+  return beatNeeds(voiceSeconds).map((need, i) => {
+    const seg = { start: t, length: Math.max(need, footageSeconds[i] || 0), voiceAt: t + (i ? 0 : LEAD) };
+    t += seg.length;
+    return seg;
   });
 }
 
@@ -219,12 +254,19 @@ async function narration(dir, voice, say) {
   return { file, seconds: seconds(file) };
 }
 
-/** Narration for every scene, four at a time: { [scene number]: { file, seconds } }. */
+/** A scene's narration, one clip per beat: { beats: [{ text, file, seconds }], seconds } (seconds: what the beats need). */
+async function narrateScene(dir, voice, say) {
+  const beats = [];
+  for (const text of beatsOf(say)) beats.push({ text, ...(await narration(dir, voice, text)) });
+  return { beats, seconds: beatNeeds(beats.map((b) => b.seconds)).reduce((a, b) => a + b, 0) };
+}
+
+/** Narration for every scene, four at a time: { [scene number]: narrateScene() }. */
 async function narrateAll(dir, voice, scenes) {
   const out = {};
   const queue = [...scenes];
   await Promise.all(Array.from({ length: Math.min(4, queue.length) }, async () => {
-    while (queue.length) { const s = queue.shift(); out[s.n] = await narration(dir, voice, s.say); }
+    while (queue.length) { const s = queue.shift(); out[s.n] = await narrateScene(dir, voice, s.say); }
   }));
   return out;
 }
@@ -253,6 +295,16 @@ export function parseKeep(text) {
   if (!parts.length || parts.some(([a, b]) => !(a > 0 && b > a))) throw new Error('--keep takes start-end pairs of the Date.now() marks, e.g. --keep 1700000000000-1700000009000');
   if (parts.some(([a], i) => i && a < parts[i - 1][1])) throw new Error('--keep stretches must be in order and not overlap');
   return parts;
+}
+
+/** "--keep a-b,c-d@f;e-f": stretches per beat, the beats split by ";". → [[[from, to, focus?], …], …] */
+export function parseKeepBeats(text) {
+  const groups = String(text || '').split(';').map((g) => g.trim());
+  if (groups.some((g) => !g)) throw new Error('--keep has an empty beat: every beat between ";" needs at least one stretch');
+  const beats = groups.map(parseKeep);
+  const flat = beats.flat();
+  if (flat.some(([a], i) => i && a < flat[i - 1][1])) throw new Error('--keep stretches must be in order and not overlap');
+  return beats;
 }
 
 /**
@@ -334,7 +386,7 @@ function slideHtml(scene) {
   </style></head><body><h1>${escapeHtml(scene.where)}</h1><ul>${points.map((p) => `<li>${escapeHtml(p)}</li>`).join('')}</ul></body></html>`;
 }
 
-async function recordStorefront(browser, t, scene, board, voiceSeconds) {
+async function recordStorefront(browser, t, scene, board, beatSeconds) {
   const { path, mobile } = storefrontWhere(scene.where);
   const url = sceneUrl(t.cfg.store, t.st.draft.themeId, path, board.query);
   const vp = mobile ? MOBILE : DESKTOP;
@@ -356,11 +408,10 @@ async function recordStorefront(browser, t, scene, board, voiceSeconds) {
     const theme = await page.evaluate(() => window.Shopify?.theme && { id: window.Shopify.theme.id, role: window.Shopify.theme.role });
     if (!theme || String(theme.id) !== String(t.st.draft.themeId) || theme.role === 'main') throw new Error(`the page rendered ${theme ? `theme ${theme.id} (${theme.role})` : 'no Shopify theme'}, not the draft ${t.st.draft.themeId}`);
     await page.waitForFunction(() => window.__kc, null, { timeout: 5000 }).catch(() => { throw new Error('the cursor overlay didn\'t load on this page'); });
-    const ops = parseShow(scene.show);
-    for (const o of ops.filter((x) => x.op === 'hide')) await page.addStyleTag({ content: `${o.arg}{display:none!important}` });
+    const groups = showBeats(scene.show);
+    for (const o of groups.flat().filter((x) => x.op === 'hide')) await page.addStyleTag({ content: `${o.arg}{display:none!important}` });
     await page.evaluate(() => window.__kc.marks(false));
     await page.waitForTimeout(1200);
-    const tStart = Date.now();
     const target = async (sel) => {
       const el = page.locator(sel).first();
       if (!(await el.count())) throw new Error(`no element matches "${sel}"`);
@@ -370,23 +421,30 @@ async function recordStorefront(browser, t, scene, board, voiceSeconds) {
       if (!b) throw new Error(`"${sel}" isn't visible`);
       return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
     };
-    for (const { op, arg } of ops) {
-      if (op === 'hide') continue;
+    const act = async ({ op, arg }) => {
+      if (op === 'hide') return;
       await page.evaluate(() => window.__kc.highlight(null));
-      if (op === 'wait') { await page.waitForTimeout(arg * 1000); continue; }
+      if (op === 'wait') return page.waitForTimeout(arg * 1000);
       const at = await target(arg);
       // Short holds: the voice sets the scene's length anyway, and the dev found the first real video slow.
-      if (op === 'scroll') { await page.waitForTimeout(400); continue; }
-      if (op === 'highlight') { await page.evaluate((s) => window.__kc.highlight(s), arg); await page.waitForTimeout(1000); continue; }
+      if (op === 'scroll') return page.waitForTimeout(400);
+      if (op === 'highlight') { await page.evaluate((sel) => window.__kc.highlight(sel), arg); return page.waitForTimeout(1000); }
       await page.evaluate(([x, y]) => window.__kc.move(x, y), [at.x, at.y]);
-      if (op === 'hover') { await page.mouse.move(at.x, at.y); await page.waitForTimeout(900); continue; }
+      if (op === 'hover') { await page.mouse.move(at.x, at.y); return page.waitForTimeout(900); }
       await page.evaluate(() => window.__kc.ripple());
       if (mobile) await page.touchscreen.tap(at.x, at.y); else await page.mouse.click(at.x, at.y);
       await page.waitForTimeout(1100);
+    };
+    // Each beat's actions, then a hold until its voice is done, so the next beat's actions start with its words.
+    const needs = beatNeeds(beatSeconds);
+    const spans = [];
+    for (const [i, ops] of groups.entries()) {
+      const tStart = Date.now();
+      for (const o of ops) await act(o);
+      const hold = tStart + needs[i] * 1000 - Date.now();
+      if (hold > 0) await page.waitForTimeout(hold);
+      spans.push([tStart, Date.now()]);
     }
-    const hold = tStart + (LEAD + voiceSeconds + TAIL) * 1000 - Date.now();
-    if (hold > 0) await page.waitForTimeout(hold);
-    const tEnd = Date.now();
     // Closing straight after the last frame cut it short in tests.
     await page.waitForTimeout(400);
     await ctx.close();
@@ -396,7 +454,7 @@ async function recordStorefront(browser, t, scene, board, voiceSeconds) {
     const late = (Date.now() - t0) / 1000 - length;
     const file = join(t.scenes, `${nn(scene.n)}.webm`);
     renameSync(raw, file);
-    return { kind: 'storefront', file, parts: [{ from: Math.max(0, (tStart - t0) / 1000 - late), length: (tEnd - tStart) / 1000 }] };
+    return { kind: 'storefront', file, parts: spans.map(([a, b], beat) => ({ from: Math.max(0, (a - t0) / 1000 - late), length: (b - a) / 1000, beat })) };
   } finally {
     await ctx.close().catch(() => {});
     rmSync(tmp, { recursive: true, force: true });
@@ -475,13 +533,13 @@ async function main() {
   // Real lengths before the hand-over: the narration is made here (and cached for record), so the dev judges the pace.
   if (cmd === 'durations') {
     const voices = await narrateAll(t.voice, board.voice, board.scenes);
-    const secs = Object.fromEntries(board.scenes.map((s) => [s.n, LEAD + voices[s.n].seconds + TAIL]));
+    const secs = Object.fromEntries(board.scenes.map((s) => [s.n, voices[s.n].seconds]));
     const text = readFileSync(t.storyboard, 'utf8');
     const next = withSeconds(text, secs);
     if (next !== text) writeFileSync(t.storyboard, next);
     const sum = (keep) => Math.round(board.scenes.filter(keep).reduce((a, s) => a + secs[s.n], 0));
     return print({
-      scenes: board.scenes.map((s) => ({ scene: s.n, prio: s.prio || null, kind: s.kind, seconds: Math.round(secs[s.n]) })),
+      scenes: board.scenes.map((s) => ({ scene: s.n, prio: s.prio || null, kind: s.kind, beats: voices[s.n].beats.length, seconds: Math.round(secs[s.n]) })),
       seconds: { all: sum(() => true), P1: sum((s) => s.prio === 'P1'), P2: sum((s) => s.prio === 'P2'), P3: sum((s) => s.prio === 'P3') },
       sec: next.includes('| Sec |') ? 'written to the Sec column' : 'no Sec column in this storyboard',
       note: 'The voice sets each length; a recorded scene runs at least this long.',
@@ -491,13 +549,13 @@ async function main() {
   if (cmd === 'record') {
     const only = args.flags.scene ? [sceneOf(args.flags.scene)] : board.scenes;
     const out = [];
-    const voices = Object.fromEntries(Object.entries(await narrateAll(t.voice, board.voice, only)).map(([n, v]) => [n, v.seconds]));
+    const voices = await narrateAll(t.voice, board.voice, only);
     const visual = only.filter((s) => s.kind !== 'chrome');
     let browser;
     if (visual.length) { const { chromium } = await dep('playwright-core'); browser = await chromium.launch({ channel: 'chrome', headless: true }); }
     try {
       for (const s of only) {
-        const row = { scene: s.n, kind: s.kind, voice: Number(voices[s.n].toFixed(1)) };
+        const row = { scene: s.n, kind: s.kind, voice: Number(voices[s.n].seconds.toFixed(1)) };
         if (s.kind === 'chrome') { row.status = saved(s.n) ? 'recorded earlier' : `record it in Chrome: chrome-start ${key} ${s.n}`; out.push(row); continue; }
         try {
           if (s.kind === 'slide') {
@@ -507,7 +565,7 @@ async function main() {
             await page.screenshot({ path: file });
             await page.close();
             save(s.n, { kind: 'slide', file });
-          } else save(s.n, await recordStorefront(browser, t, s, board, voices[s.n]));
+          } else save(s.n, await recordStorefront(browser, t, s, board, voices[s.n].beats.map((b) => b.seconds)));
           row.status = 'recorded';
         } catch (e) { row.status = 'FAILED'; row.problem = e.message.split('\n')[0]; }
         out.push(row);
@@ -522,7 +580,7 @@ async function main() {
     if (s.kind !== 'chrome') fail(`Scene ${s.n} is a ${s.kind} scene; record records it.`);
     if (!WIN) fail('Screen recording is Windows-only for now: change this scene to a slide.');
     if (!ffmpegBin()) fail('ffmpeg is missing: ! node .claude/kit/video.mjs setup');
-    const voice = await narration(t.voice, board.voice, s.say);
+    const voice = await narrateScene(t.voice, board.voice, s.say);
     const grab = spawnSync(ffmpegBin(), ['-hide_banner', '-f', 'gdigrab', '-draw_mouse', '0', '-i', 'desktop', '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'rgb24', 'pipe:1'], { maxBuffer: 256 * 1024 * 1024 });
     // "Capturing whole desktop as 3840x1373x32 at (-1920,-293)": the grab's size, and where its corner is on screen.
     const desk = String(grab.stderr).match(/desktop as (\d+)x(\d+)\S* at \((-?\d+),(-?\d+)\)/);
@@ -550,7 +608,12 @@ async function main() {
     const seenAt = Date.now();
     if (!/frame=\s*\d+/.test(text)) { try { process.kill(child.pid); } catch {} fail(`The screen recording didn't start:\n${text.trim().split(/\r?\n/).slice(-3).join('\n')}`); }
     writeFileSync(join(t.scenes, `${nn(s.n)}.capture.json`), JSON.stringify({ pid: child.pid, startedAt: captureStart(text, seenAt), area, file }, null, 2));
-    return print({ recording: true, scene: s.n, voice: Number(voice.seconds.toFixed(1)), minimumSceneSeconds: Number((LEAD + voice.seconds + TAIL).toFixed(1)) });
+    const needs = beatNeeds(voice.beats.map((b) => b.seconds));
+    return print({
+      recording: true, scene: s.n, minimumSceneSeconds: Number(voice.seconds.toFixed(1)),
+      beats: voice.beats.map((b, i) => ({ beat: i + 1, seconds: Number(needs[i].toFixed(1)), says: b.text })),
+      keep: voice.beats.length > 1 ? `one group of stretches per beat, in order, split by ";": --keep "<beat 1>;<beat 2>…"` : undefined,
+    });
   }
 
   if (cmd === 'chrome-stop') {
@@ -566,12 +629,14 @@ async function main() {
       writeFileSync(capPath, JSON.stringify({ ...cap, stopped: true }, null, 2));
     }
     let keep;
-    try { keep = parseKeep(args.flags.keep); } catch (e) { fail(e.message); }
+    try { keep = parseKeepBeats(args.flags.keep); } catch (e) { fail(e.message); }
+    const beats = beatsOf(s.say).length;
+    if (keep.length !== beats) fail(`--keep has ${keep.length} beat(s) and the scene's Say ${beats}: give one group of stretches per beat, split by ";". The recording is kept: run chrome-stop again.`);
     const length = seconds(cap.file);
     // The first 0.2 s of each stretch can still hold the corner marks being switched off.
-    const parts = keep.map(([a, b, focus]) => ({
-      from: (a - cap.startedAt) / 1000 + 0.2, length: (b - a) / 1000 - 0.2, ...(focus ? { crop: focusCrop(focus, cap.area.w, cap.area.h) } : {}),
-    }));
+    const parts = keep.flatMap((group, beat) => group.map(([a, b, focus]) => ({
+      from: (a - cap.startedAt) / 1000 + 0.2, length: (b - a) / 1000 - 0.2, beat, ...(focus ? { crop: focusCrop(focus, cap.area.w, cap.area.h) } : {}),
+    })));
     const bad = fitParts(parts, length);
     if (bad) fail(`A stretch (${bad.from.toFixed(1)} s in, ${bad.length.toFixed(1)} s long) doesn't fit the ${length.toFixed(1)} s recording, which spans __kc.now() ${Math.round(cap.startedAt)} to ${Math.round(cap.startedAt + length * 1000)}. Fix --keep and run chrome-stop again (the recording is kept), or record the scene again.`);
     rmSync(capPath);
@@ -593,25 +658,49 @@ async function main() {
         fail(`Scene ${s.n} (chrome) isn't recorded. Record it, or change its Kind to slide and run record --scene ${s.n}.`);
       }
       const stretches = shot.parts || [];
-      const footage = stretches.reduce((a, p) => a + p.length, 0);
-      const total = Math.max(footage, LEAD + voice.seconds + TAIL);
+      const beats = voice.beats;
+      // Recordings from before beats carry none on their stretches: they were one beat.
+      const beatOf = (p) => p.beat ?? 0;
+      const footage = beats.map((_, i) => stretches.filter((p) => beatOf(p) === i).reduce((sum, p) => sum + p.length, 0));
+      if (shot.kind !== 'slide' && (stretches.some((p) => beatOf(p) >= beats.length) || footage.some((v) => !v))) {
+        fail(`Scene ${s.n}: its Say has ${beats.length} beat(s), its recording ${Math.max(0, ...stretches.map((p) => beatOf(p) + 1))}. Record it again: ${s.kind === 'chrome' ? `chrome-start ${key} ${s.n}` : `record ${key} --scene ${s.n}`}.`);
+      }
+      const line = beatTimeline(beats.map((x) => x.seconds), footage);
+      const total = line.reduce((sum, g) => sum + g.length, 0);
       // A part is re-encoded only when what goes into it changed, so fixing one scene doesn't redo the rest.
-      const out = join(t.build, `${nn(s.n)}-${hash(JSON.stringify({ shot: { ...shot, at: null }, voice: voice.file, say: s.say, v: 2 }))}.mp4`);
+      const out = join(t.build, `${nn(s.n)}-${hash(JSON.stringify({ shot: { ...shot, at: null }, voice: beats.map((x) => x.file), say: s.say, v: 3 }))}.mp4`);
       if (!existsSync(out)) {
         for (const f of readdirSync(t.build)) if (f.startsWith(`${nn(s.n)}-`) && f.endsWith('.mp4')) rmSync(join(t.build, f));
-        const caps = captionChunks(s.say, voice.seconds).map((c, i) => {
-          writeFileSync(join(t.build, `${nn(s.n)}-${i}.txt`), c.text);
-          return `drawtext=textfile='${nn(s.n)}-${i}.txt':expansion=none:${font}:fontsize=40:fontcolor=white:line_spacing=12:x=(w-text_w)/2:y=${PIC}+(${H - PIC}-text_h)/2:enable='between(t,${(LEAD + c.from).toFixed(2)},${(LEAD + c.to).toFixed(2)})'`;
-        });
+        let k = 0;
+        const caps = beats.flatMap((beat, i) => captionChunks(beat.text, beat.seconds).map((c) => {
+          const name = `${nn(s.n)}-${k++}.txt`;
+          writeFileSync(join(t.build, name), c.text);
+          return `drawtext=textfile='${name}':expansion=none:${font}:fontsize=40:fontcolor=white:line_spacing=12:x=(w-text_w)/2:y=${PIC}+(${H - PIC}-text_h)/2:enable='between(t,${(line[i].voiceAt + c.from).toFixed(2)},${(line[i].voiceAt + c.to).toFixed(2)})'`;
+        }));
         const look = `scale=${W}:${PIC}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(${PIC}-ih)/2:color=${BG},${caps.join(',')},fps=${FPS},format=yuv420p[v]`;
-        const video = shot.kind === 'slide'
-          ? `[0:v]${look}`
-          // A zoomed stretch is cropped and scaled back to the recording's size, so every stretch joins at one size.
-          : `${stretches.map((p, i) => `[0:v]trim=start=${p.from.toFixed(3)}:end=${(p.from + p.length).toFixed(3)},setpts=PTS-STARTPTS${p.crop ? `,crop=${p.crop.w}:${p.crop.h}:${p.crop.x}:${p.crop.y},scale=${shot.area.w}:${shot.area.h}:flags=lanczos` : ''}[c${i}]`).join(';')};`
-            + `${stretches.map((_, i) => `[c${i}]`).join('')}concat=n=${stretches.length}:v=1:a=0,tpad=stop_mode=clone:stop_duration=${(total - footage + 0.2).toFixed(2)},${look}`;
-        // The voice files come out near -21 LUFS; +5 dB puts the video near -16, where web video sits.
-        ff([...(shot.kind === 'slide' ? ['-loop', '1', '-t', total.toFixed(2)] : []), '-i', shot.file, '-i', voice.file, '-filter_complex',
-          `${video};[1:a]volume=5dB,adelay=${LEAD * 1000}|${LEAD * 1000},apad[a]`,
+        let video = `[0:v]${look}`;
+        if (shot.kind !== 'slide') {
+          const chains = [];
+          let c = 0;
+          line.forEach((g, i) => {
+            // A zoomed stretch is cropped and scaled back to the recording's size, so every stretch joins at one size.
+            const ids = stretches.filter((p) => beatOf(p) === i).map((p) => {
+              chains.push(`[0:v]trim=start=${p.from.toFixed(3)}:end=${(p.from + p.length).toFixed(3)},setpts=PTS-STARTPTS${p.crop ? `,crop=${p.crop.w}:${p.crop.h}:${p.crop.x}:${p.crop.y},scale=${shot.area.w}:${shot.area.h}:flags=lanczos` : ''}[c${c}]`);
+              return `[c${c++}]`;
+            });
+            // Footage shorter than its beat holds its last frame until the voice is done.
+            chains.push(`${ids.join('')}concat=n=${ids.length}:v=1:a=0,tpad=stop_mode=clone:stop_duration=${(g.length - footage[i] + 0.2).toFixed(2)},trim=duration=${g.length.toFixed(3)},setpts=PTS-STARTPTS[b${i}]`);
+          });
+          video = `${chains.join(';')};${line.map((_, i) => `[b${i}]`).join('')}concat=n=${line.length}:v=1:a=0,${look}`;
+        }
+        // Each beat's voice starts with its footage, and silence fills the rest of the beat. The voice files come out
+        // near -21 LUFS; +5 dB puts the video near -16, where web video sits.
+        const audio = beats.map((_, i) => {
+          const ms = Math.round((line[i].voiceAt - line[i].start) * 1000);
+          return `[${i + 1}:a]volume=5dB,adelay=${ms}|${ms},apad=whole_dur=${line[i].length.toFixed(3)},atrim=duration=${line[i].length.toFixed(3)},asetpts=PTS-STARTPTS[a${i}]`;
+        }).join(';') + `;${beats.map((_, i) => `[a${i}]`).join('')}concat=n=${beats.length}:v=0:a=1[a]`;
+        ff([...(shot.kind === 'slide' ? ['-loop', '1', '-t', total.toFixed(2)] : []), '-i', shot.file, ...beats.flatMap((x) => ['-i', x.file]), '-filter_complex',
+          `${video};${audio}`,
           '-map', '[v]', '-map', '[a]', '-t', total.toFixed(2), '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-c:a', 'aac', '-b:a', '128k', '-ar', '48000', '-ac', '2', out], { cwd: t.build });
       }
       parts.push(out);
@@ -667,6 +756,11 @@ function selftest() {
     ['show: wait needs seconds', (() => { try { parseShow('wait soon'); return false; } catch { return true; } })()],
     ['fit: a stretch 0.3 s past the end is clamped', (() => { const p = [{ from: 2, length: 3 }, { from: 6, length: 4.3 }]; return !fitParts(p, 10) && p[1].length === 4 && p[0].length === 3; })()],
     ['fit: 2 s past the end or a negative start is refused', Boolean(fitParts([{ from: 6, length: 6 }], 10)) && Boolean(fitParts([{ from: -1, length: 2 }], 10))],
+    ['beats: " / " splits a Say, none is one beat', beatsOf('One. / Two, on/off. / Three.').length === 3 && beatsOf('Just one.').length === 1],
+    ['beats: shorter footage is held, a shorter voice gets silence', (() => { const l = beatTimeline([2, 3], [5, 1]); return l[0].length === 5 && l[0].voiceAt === LEAD && l[1].start === 5 && Math.abs(l[1].length - (3 + TAIL)) < 1e-9 && l[1].voiceAt === 5; })()],
+    ['beats: a storefront Show needs one part per beat', /2 beat/.test(bad(board.replace('Tap it.', 'Tap it. / Then this.')) || '') && !bad(board.replace('Tap it.', 'Tap it. / Then this.').replace('click .b\\|c', 'click .b\\|c / wait 1'))],
+    ['keep: ";" groups stretches by beat, in order', (() => { const k = parseKeepBeats('1000-2000,3000-4000@0.1,0.1,0.5,0.5;5000-6000'); return k.length === 2 && k[0].length === 2 && k[1][0][0] === 5000; })()],
+    ['keep: an empty beat or beats out of order are refused', (() => { try { parseKeepBeats('1000-2000;'); return false; } catch {} try { parseKeepBeats('5000-6000;1000-2000'); return false; } catch { return true; } })()],
     ['where: mobile path', storefrontWhere('cart @mobile').path === '/cart' && storefrontWhere('cart @mobile').mobile],
     ['where: home is the root', storefrontWhere('home @desktop').path === '/'],
     ['where: a URL is refused', (() => { try { storefrontWhere('https://evil.example/x'); return false; } catch { return true; } })()],
