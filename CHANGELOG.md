@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.12.0 — 2026-11-19
+
+From the CHE-865 video run.
+
+- **The picture fills the frame.** Videos had a 180 px dark caption band under a 1920x900 picture, and editor scenes got black bars too. Now the picture is the full 1920x1080, and the captions sit over its bottom in a dark box. Add `Captions: off` to the storyboard to leave them out.
+- **Editor scenes record in 16:9.** The new Chrome window takes the screen's full height and the width that makes the recording match the video (`__kc.fit()`). `chrome-start` warns when it doesn't. Slides and desktop storefront scenes are 16:9 too (storefront at 1440x810).
+- **`video.mjs check` no longer reports Chrome as ready.** Its "ready" covers storefront scenes and slides, and the field is now `storefrontBrowser`. The command checks for the Claude in Chrome tools itself, before it writes anything, and says how to connect them.
+- **The preview shows the section being talked about.** Before a scene about a section, the agent scrolls the preview to it. Picking it in the sidebar doesn't always do that.
+
 ## 1.11.3 — 2026-11-19
 
 - **A blocked permission mode names the modes that work.** In bypass, plan or `dontAsk` mode, the guard's message now says to press Shift+Tab until the mode is auto (recommended), default or accept edits. Before, it named only default. `/shopify-setup`, `/app-setup` and the README say the same.

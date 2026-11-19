@@ -50,13 +50,15 @@ const HIDE_APPS = `(() => {
 })();`;
 const KINDS = ['slide', 'storefront', 'chrome'];
 const DEFAULT_VOICE = 'en-US-AvaNeural';
-// 1920x1080 frame: the picture fits the top 900 px, captions get the band below.
-const W = 1920, PIC = 900, H = 1080, BG = '0x1f2124';
+// 1920x1080: the picture fills the frame, and captions sit over its bottom in a dark box. A band below the picture
+// read as black space to the dev (CHE-865).
+const W = 1920, H = 1080, PIC = H, BG = '0x1f2124';
+const CAPTION_BOTTOM = 64; // px from the frame's bottom edge to the caption box's text
 const LEAD = 0.3, TAIL = 0.3; // seconds of picture before the voice starts and after it ends (the mp3s add ~0.3 s each)
 const GAP = 0.2; // between two beats of a scene, on top of the mp3s' own silence
 const RATE = '-10%'; // the voice's default runs near 200 words a minute; clients follow better nearer 170
 const FPS = 25; // both recorders capture at 25: another output rate repeats frames and motion judders
-const DESKTOP = { width: 1440, height: 675 }; // 16:7.5, the picture area's shape
+const DESKTOP = { width: 1440, height: 810 }; // 16:9, the picture's shape
 const MOBILE = { width: 390, height: 844 };
 
 // ── Storyboard ──
@@ -97,7 +99,7 @@ export function parseStoryboard(text) {
     }
   });
   if (problems.length) throw new Error(problems.join('\n'));
-  return { voice: header('Voice') || DEFAULT_VOICE, query: header('Query'), scenes };
+  return { voice: header('Voice') || DEFAULT_VOICE, query: header('Query'), captions: !/^off$/i.test(header('Captions')), scenes };
 }
 
 const OPS = ['hide', 'highlight', 'click', 'hover', 'scroll', 'wait'];
@@ -377,7 +379,7 @@ const escapeHtml = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '
 function slideHtml(scene) {
   const points = scene.show.split(' / ').map((s) => s.trim()).filter(Boolean).slice(0, 5);
   return `<!doctype html><html><head><meta charset="utf-8"><style>
-    body{margin:0;width:${W}px;height:${PIC}px;display:flex;flex-direction:column;justify-content:center;padding:0 160px;box-sizing:border-box;
+    body{margin:0;width:${W}px;height:${PIC}px;display:flex;flex-direction:column;justify-content:center;padding:0 160px 150px;box-sizing:border-box;
       font-family:'Segoe UI',system-ui,-apple-system,Helvetica,Arial,sans-serif;background:#f6f6f7;color:#1f2124}
     h1{font-size:72px;font-weight:650;margin:0 0 48px;letter-spacing:-.5px}
     ul{margin:0;padding:0;list-style:none}
@@ -487,9 +489,11 @@ async function main() {
       try { const tmp = join(DEPS, 'check'); mkdirSync(tmp, { recursive: true }); await narration(tmp, DEFAULT_VOICE, 'Check.'); rmSync(tmp, { recursive: true, force: true }); out.voiceAnswers = true; } catch (e) { out.voiceAnswers = false; out.voiceProblem = e.message; }
     }
     if (out.recorder) {
-      try { const { chromium } = await dep('playwright-core'); const b = await chromium.launch({ channel: 'chrome', headless: true }); await b.close(); out.chrome = true; } catch (e) { out.chrome = false; out.chromeProblem = e.message.split('\n')[0]; }
+      try { const { chromium } = await dep('playwright-core'); const b = await chromium.launch({ channel: 'chrome', headless: true }); await b.close(); out.storefrontBrowser = true; } catch (e) { out.storefrontBrowser = false; out.storefrontBrowserProblem = e.message.split('\n')[0]; }
     }
-    out.ready = Boolean(out.recorder && out.ffmpeg && out.voiceAnswers && out.chrome);
+    out.ready = Boolean(out.recorder && out.ffmpeg && out.voiceAnswers && out.storefrontBrowser);
+    // A script can't see this session's tools: "ready" covers storefront scenes and slides only (CHE-865).
+    out.editorScenes = 'need the Claude in Chrome tools in this session; the agent checks for them itself';
     if (!out.recorder || !out.ffmpeg || !out.voice) out.fix = '! node .claude/kit/video.mjs setup';
     if (!WIN) out.note = 'Chrome scenes (theme editor, admin) need Windows screen recording: on this machine they become slides.';
     print(out);
@@ -611,6 +615,8 @@ async function main() {
     const needs = beatNeeds(voice.beats.map((b) => b.seconds));
     return print({
       recording: true, scene: s.n, minimumSceneSeconds: Number(voice.seconds.toFixed(1)),
+      // Off 16:9, the picture gets dark bars. Not refused: the scene still records, and a zoom fills the frame anyway.
+      warning: Math.abs(area.w / area.h - W / H) > 0.06 ? `The recorded area is ${area.w}x${area.h}, not 16:9, so unzoomed stretches get dark bars. Before the next scene, resize the window to what __kc.fit() returns.` : undefined,
       beats: voice.beats.map((b, i) => ({ beat: i + 1, seconds: Number(needs[i].toFixed(1)), says: b.text })),
       keep: voice.beats.length > 1 ? `one group of stretches per beat, in order, split by ";": --keep "<beat 1>;<beat 2>…"` : undefined,
     });
@@ -668,16 +674,16 @@ async function main() {
       const line = beatTimeline(beats.map((x) => x.seconds), footage);
       const total = line.reduce((sum, g) => sum + g.length, 0);
       // A part is re-encoded only when what goes into it changed, so fixing one scene doesn't redo the rest.
-      const out = join(t.build, `${nn(s.n)}-${hash(JSON.stringify({ shot: { ...shot, at: null }, voice: beats.map((x) => x.file), say: s.say, v: 3 }))}.mp4`);
+      const out = join(t.build, `${nn(s.n)}-${hash(JSON.stringify({ shot: { ...shot, at: null }, voice: beats.map((x) => x.file), say: s.say, captions: board.captions, v: 4 }))}.mp4`);
       if (!existsSync(out)) {
         for (const f of readdirSync(t.build)) if (f.startsWith(`${nn(s.n)}-`) && f.endsWith('.mp4')) rmSync(join(t.build, f));
         let k = 0;
         const caps = beats.flatMap((beat, i) => captionChunks(beat.text, beat.seconds).map((c) => {
           const name = `${nn(s.n)}-${k++}.txt`;
           writeFileSync(join(t.build, name), c.text);
-          return `drawtext=textfile='${name}':expansion=none:${font}:fontsize=40:fontcolor=white:line_spacing=12:x=(w-text_w)/2:y=${PIC}+(${H - PIC}-text_h)/2:enable='between(t,${(line[i].voiceAt + c.from).toFixed(2)},${(line[i].voiceAt + c.to).toFixed(2)})'`;
+          return `drawtext=textfile='${name}':expansion=none:${font}:fontsize=40:fontcolor=white:line_spacing=12:box=1:boxcolor=black@0.62:boxborderw=18:x=(w-text_w)/2:y=${H - CAPTION_BOTTOM}-text_h:enable='between(t,${(line[i].voiceAt + c.from).toFixed(2)},${(line[i].voiceAt + c.to).toFixed(2)})'`;
         }));
-        const look = `scale=${W}:${PIC}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(${PIC}-ih)/2:color=${BG},${caps.join(',')},fps=${FPS},format=yuv420p[v]`;
+        const look = [`scale=${W}:${H}:force_original_aspect_ratio=decrease`, `pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=${BG}`, ...(board.captions ? caps : []), `fps=${FPS}`, 'format=yuv420p[v]'].join(',');
         let video = `[0:v]${look}`;
         if (shot.kind !== 'slide') {
           const chains = [];
@@ -761,6 +767,7 @@ function selftest() {
     ['beats: a storefront Show needs one part per beat', /2 beat/.test(bad(board.replace('Tap it.', 'Tap it. / Then this.')) || '') && !bad(board.replace('Tap it.', 'Tap it. / Then this.').replace('click .b\\|c', 'click .b\\|c / wait 1'))],
     ['keep: ";" groups stretches by beat, in order', (() => { const k = parseKeepBeats('1000-2000,3000-4000@0.1,0.1,0.5,0.5;5000-6000'); return k.length === 2 && k[0].length === 2 && k[1][0][0] === 5000; })()],
     ['keep: an empty beat or beats out of order are refused', (() => { try { parseKeepBeats('1000-2000;'); return false; } catch {} try { parseKeepBeats('5000-6000;1000-2000'); return false; } catch { return true; } })()],
+    ['storyboard: captions are on unless Captions: off', b.captions === true && parseStoryboard(board.replace('Query:', 'Captions: Off\nQuery:')).captions === false],
     ['where: mobile path', storefrontWhere('cart @mobile').path === '/cart' && storefrontWhere('cart @mobile').mobile],
     ['where: home is the root', storefrontWhere('home @desktop').path === '/'],
     ['where: a URL is refused', (() => { try { storefrontWhere('https://evil.example/x'); return false; } catch { return true; } })()],
@@ -776,7 +783,7 @@ function selftest() {
     ['keep: a reversed pair refused', (() => { try { parseKeep('30-10'); return false; } catch { return true; } })()],
     ['keep: a stretch takes a zoom, the next one starts after it', JSON.stringify(parseKeep('10-20@0.5,0.1,0.3,0.4, 30-45')) === '[[10,20,[0.5,0.1,0.3,0.4]],[30,45]]'],
     ['keep: a zoom needs four fractions', (() => { try { parseKeep('10-20@0.5,1.2,0.3,0.4'); return false; } catch { return true; } })()],
-    ['zoom: a narrow panel widens to the picture\'s shape, inside the recording', (() => { const c = focusCrop([0.75, 0.1, 0.2, 0.3], 1864, 798); return c.w === 932 && c.h === 436 && c.x + c.w <= 1864 && c.y >= 0 && Math.abs(c.w / c.h - W / PIC) < 0.02; })()],
+    ['zoom: a narrow panel widens to the picture\'s shape, inside the recording', (() => { const c = focusCrop([0.75, 0.1, 0.2, 0.3], 1864, 798); return c.w === 932 && c.h === 524 && c.x + c.w <= 1864 && c.y >= 0 && Math.abs(c.w / c.h - W / PIC) < 0.02; })()],
     ['zoom: never past 2x', focusCrop([0.4, 0.4, 0.05, 0.05], 1000, 500).w >= 500],
     ['storyboard: Prio and Sec columns by name; optional rows aren\'t scenes', (() => {
       const v2 = 'Voice: x\n\n| # | Prio | Kind | Where | Show | Say | Sec |\n| --- | --- | --- | --- | --- | --- | --- |\n| 1 | P1 | slide | New | A | Hi. | |\n| 2 | p2 | chrome | Editor | open | Do it. | 9 |\n\n## Optional scenes\n\n| # | Prio | Sec | Shows |\n| --- | --- | --- | --- |\n| O1 | P3 | 10 | more |\n';

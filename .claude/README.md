@@ -1,4 +1,4 @@
-# Shopify Implementation Kit · v1.11.3
+# Shopify Implementation Kit · v1.12.0
 
 A Claude Code setup for Shopify theme repos.
 
@@ -130,8 +130,9 @@ The logs are history, not a knowledge base: every task reads the code fresh.
   - It writes a storyboard and has it reviewed for missing changes and jargon. The agent applies the review itself, then hands it over in a few lines: the path, the length, the optional scenes you can add.
   - Before recording, it names only what the client would see: QA test content still on the draft (replace it in the theme editor, or say to film it as it is).
   - Storefront scenes record on their own, in a hidden browser; mobile scenes fill the picture's height. A password-protected storefront is recorded in Chrome.
-  - Theme-editor scenes record in a new Chrome window the size of your screen. Bring it to the front; while it shows a red **Recording** badge at the top, leave it alone (your other screen is fine). The window closes when recording is done.
+  - Theme-editor scenes record in a new Chrome window as tall as your screen and shaped to the video. They need Claude in Chrome connected to the session (`/chrome`). Bring the window to the front; while it shows a red **Recording** badge at the top, leave it alone (your other screen is fine). The window closes when recording is done.
   - The voice stays in step with the picture: each sentence plays with the footage that shows it.
+  - The picture fills the whole frame, with captions over its bottom. `Captions: off` in the storyboard leaves them out.
   - You watch the result before sending it.
 - **Reporting:** `kit.mjs summary <KEY>`: time per stage, loops, verdicts and store changes.
 - **Kit problems:** the agent notes them in `kit-notes.md` as they happen; `kit.mjs retro <KEY>` lists what the record shows went wrong. `node .claude/kit/kit.mjs feedback` collects every task's notes into `.claude/logs/kit-feedback.md`; send that to the kit maintainer.

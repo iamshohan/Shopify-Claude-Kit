@@ -35,6 +35,7 @@ Say = what the voice says during the scene, in the merchant's words. One to thre
       beats, one per thing the picture shows, in the order it shows them ("The tile sits in the grid. / A click on the
       code copies it."): each beat's words play with that beat's footage, never ahead of it or behind.
 Query = optional, added to every storefront URL (e.g. the A/B tool's opt-out parameter from plan.md § QA setup).
+Captions = on by default, over the bottom of the picture. Add a "Captions: off" line under Query to leave them out.
 -->
 
 ## Recorded

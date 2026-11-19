@@ -42,6 +42,15 @@
      * call it, so it also shows the recording badge there (storefront scenes record the whole page and never call it).
      */
     frame(shotWidth) { scale = innerWidth / shotWidth; badge.style.setProperty('display', 'block', 'important'); return scale; },
+    /**
+     * The window size at the screen's full height whose recorded box (between the marks) is 16:9, the video's shape:
+     * pass it to resize_window. A full-screen window recorded wider than that, and the video got dark bars (CHE-865).
+     */
+    fit() {
+      const height = screen.availHeight;
+      const box = height - (outerHeight - innerHeight) - 56;
+      return { width: Math.min(screen.availWidth, Math.round((box * 16) / 9 + 56 + (outerWidth - innerWidth))), height };
+    },
     move(tx, ty, ms = 650) {
       const [sx, sy, ex, ey, t0] = [x, y, tx * scale, ty * scale, performance.now()];
       return new Promise((done) => {
