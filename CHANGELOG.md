@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.11.2 — 2026-11-19
+
+- **The recording badge says just "● Recording".**
+
 ## 1.11.1 — 2026-11-19
 
 - **A clear sign that the video is being recorded.** The new Chrome window for the editor scenes now opens at the screen's size, so the dev only brings it to the front. While filming, it shows a red "Recording" badge at the top, above the area the recording captures, so it never shows in the video. The window closes when recording is done.

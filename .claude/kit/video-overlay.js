@@ -29,7 +29,7 @@
   const marks = ['left:28px;top:28px', 'right:28px;top:28px', 'left:28px;bottom:28px', 'right:28px;bottom:28px'].map((p) => el(`${p};width:14px;height:14px;background:#ff00ff`));
   // For the dev, not the viewer: it sits in the strip above the top marks, which the screen recording leaves out.
   const badge = el('display:none;top:4px;left:50%;transform:translateX(-50%);height:20px;line-height:20px;padding:0 10px;border-radius:10px;background:#d72c0d;color:#fff;font:600 12px/20px system-ui,sans-serif;white-space:nowrap',
-    '● Recording the client video: leave this window alone');
+    '● Recording');
   badge.style.setProperty('display', 'none', 'important');
   let x = innerWidth / 2;
   let y = innerHeight / 2;
