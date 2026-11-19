@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.11.1 — 2026-11-19
+
+- **A clear sign that the video is being recorded.** The new Chrome window for the editor scenes now opens at the screen's size, so the dev only brings it to the front. While filming, it shows a red "Recording" badge at the top, above the area the recording captures, so it never shows in the video. The window closes when recording is done.
+
 ## 1.11.0 — 2026-11-19
 
 - **Voice and picture stay in step.** A scene's narration was one clip over all its footage, so a sentence could play over the wrong part (VSD-327: "the eye icon" while the editor showed Add section). Now Say is split with " / " into beats, one per thing shown. Each beat's words start with its own footage. Shorter footage holds its last frame until the words end; a shorter voice is followed by a pause.

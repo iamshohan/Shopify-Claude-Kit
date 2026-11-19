@@ -27,14 +27,21 @@
   // Pure magenta squares near the viewport's corners: video.mjs looks for them in a screen grab and records the box
   // between them. 28 px in, because Claude in Chrome tints about 26 px of the tab's edge.
   const marks = ['left:28px;top:28px', 'right:28px;top:28px', 'left:28px;bottom:28px', 'right:28px;bottom:28px'].map((p) => el(`${p};width:14px;height:14px;background:#ff00ff`));
+  // For the dev, not the viewer: it sits in the strip above the top marks, which the screen recording leaves out.
+  const badge = el('display:none;top:4px;left:50%;transform:translateX(-50%);height:20px;line-height:20px;padding:0 10px;border-radius:10px;background:#d72c0d;color:#fff;font:600 12px/20px system-ui,sans-serif;white-space:nowrap',
+    '● Recording the client video: leave this window alone');
+  badge.style.setProperty('display', 'none', 'important');
   let x = innerWidth / 2;
   let y = innerHeight / 2;
   let scale = 1;
   const place = () => { cursor.style.transform = `translate(${x - 4}px,${y - 2}px)`; };
   place();
   window.__kc = {
-    /** Screenshot coordinates → CSS pixels: pass the width of the screenshot's coordinate frame once. */
-    frame(shotWidth) { scale = innerWidth / shotWidth; return scale; },
+    /**
+     * Screenshot coordinates → CSS pixels: pass the width of the screenshot's coordinate frame once. Only Chrome scenes
+     * call it, so it also shows the recording badge there (storefront scenes record the whole page and never call it).
+     */
+    frame(shotWidth) { scale = innerWidth / shotWidth; badge.style.setProperty('display', 'block', 'important'); return scale; },
     move(tx, ty, ms = 650) {
       const [sx, sy, ex, ey, t0] = [x, y, tx * scale, ty * scale, performance.now()];
       return new Promise((done) => {

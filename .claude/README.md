@@ -1,4 +1,4 @@
-# Shopify Implementation Kit · v1.11.0
+# Shopify Implementation Kit · v1.11.1
 
 A Claude Code setup for Shopify theme repos.
 
@@ -130,7 +130,7 @@ The logs are history, not a knowledge base: every task reads the code fresh.
   - It writes a storyboard and has it reviewed for missing changes and jargon. The agent applies the review itself, then hands it over in a few lines: the path, the length, the optional scenes you can add.
   - Before recording, it names only what the client would see: QA test content still on the draft (replace it in the theme editor, or say to film it as it is).
   - Storefront scenes record on their own, in a hidden browser; mobile scenes fill the picture's height. A password-protected storefront is recorded in Chrome.
-  - Theme-editor scenes record in a new Chrome window: move it to your main screen, maximise it, and leave it alone until the agent says recording is done (your other screen is fine). It closes the window afterwards.
+  - Theme-editor scenes record in a new Chrome window the size of your screen. Bring it to the front; while it shows a red **Recording** badge at the top, leave it alone (your other screen is fine). The window closes when recording is done.
   - The voice stays in step with the picture: each sentence plays with the footage that shows it.
   - You watch the result before sending it.
 - **Reporting:** `kit.mjs summary <KEY>`: time per stage, loops, verdicts and store changes.
