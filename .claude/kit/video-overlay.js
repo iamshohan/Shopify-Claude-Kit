@@ -1,7 +1,8 @@
 // Walkthrough video overlay: a drawn cursor, a click ripple, a highlight box and the corner marks video.mjs uses to
-// find the tab on screen. Real clicks from Claude in Chrome or Playwright don't move a visible pointer, so viewers
-// would otherwise not see what was clicked. Runs in the top frame only: the theme editor is a cross-origin iframe,
-// and the overlay sits above it. Safe to run twice.
+// find the tab on screen. Playwright's clicks don't move a visible pointer, so storefront viewers would otherwise not
+// see what was clicked. In Chrome scenes the cursor stays hidden: Claude in Chrome draws its own, in a closed shadow
+// root no page can style, and two pointers showed (CHE-865). Runs in the top frame only: the theme editor is a
+// cross-origin iframe, and the overlay sits above it. Safe to run twice.
 (function kitOverlay() {
   if (window.top !== window || window.__kc) return 'ready';
   // As a Playwright init script it runs before the page has an <html> element to attach to: wait for it.
@@ -24,9 +25,33 @@
     '<svg width="30" height="30" viewBox="0 0 24 24"><path d="M4 2l16 11-7 1.5L9.5 21z" fill="#111" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/></svg>');
   const box = el('display:none;border:3px solid #2c6ecb;border-radius:8px;box-shadow:0 0 0 9999px rgba(0,0,0,.28);transition:all .35s');
   box.style.setProperty('display', 'none', 'important');
-  // Pure magenta squares near the viewport's corners: video.mjs looks for them in a screen grab and records the box
-  // between them. 28 px in, because Claude in Chrome tints about 26 px of the tab's edge.
-  const marks = ['left:28px;top:28px', 'right:28px;top:28px', 'left:28px;bottom:28px', 'right:28px;bottom:28px'].map((p) => el(`${p};width:14px;height:14px;background:#ff00ff`));
+  // The theme editor is one cross-origin iframe filling the admin page. Laid out at 1760x990 and scaled into a 16:9 box,
+  // it keeps its wide layout (settings on the right: it docks them under the sections below about 1640 px) at any window
+  // size and on any screen scaling, and the video needs no window resize. Measured on a real editor: clicks, hovers and
+  // wheel scrolls land where the screenshot shows them, and 100vh inside is the 990.
+  const EDITOR = 'iframe[src*="/themes/"][src*="/editor"]';
+  const STAGE = { width: 1760, height: 990 };
+  const stageCss = document.createElement('style');
+  document.documentElement.appendChild(stageCss);
+  // The recorded box: 28 px in from the tab's edge, because Claude in Chrome tints about 26 px of it.
+  const area = () => {
+    const iw = innerWidth - 56, ih = innerHeight - 56;
+    if (!document.querySelector(EDITOR)) return { left: 28, top: 28, width: iw, height: ih, scale: 0 };
+    const s = Math.min(iw / STAGE.width, ih / STAGE.height);
+    const width = Math.floor(STAGE.width * s), height = Math.floor(STAGE.height * s);
+    return { left: Math.round((innerWidth - width) / 2), top: Math.round((innerHeight - height) / 2), width, height, scale: s };
+  };
+  // Pure magenta squares in the box's corners: video.mjs looks for them in a screen grab and records the box between
+  // their outer edges.
+  const marks = [0, 1, 2, 3].map(() => el('left:0;top:0;width:14px;height:14px;background:#ff00ff'));
+  const layout = () => {
+    const b = area();
+    stageCss.textContent = b.scale ? `${EDITOR}{position:fixed!important;left:${b.left}px!important;top:${b.top}px!important;width:${STAGE.width}px!important;height:${STAGE.height}px!important;max-width:none!important;max-height:none!important;margin:0!important;transform:scale(${b.scale})!important;transform-origin:0 0!important}` : '';
+    marks.forEach((m, i) => { m.style.left = `${b.left + (i % 2 ? b.width - 14 : 0)}px`; m.style.top = `${b.top + (i > 1 ? b.height - 14 : 0)}px`; });
+    return b;
+  };
+  layout();
+  addEventListener('resize', layout);
   // For the dev, not the viewer: it sits in the strip above the top marks, which the screen recording leaves out.
   const badge = el('display:none;top:4px;left:50%;transform:translateX(-50%);height:20px;line-height:20px;padding:0 10px;border-radius:10px;background:#d72c0d;color:#fff;font:600 12px/20px system-ui,sans-serif;white-space:nowrap',
     '● Recording');
@@ -34,22 +59,22 @@
   let x = innerWidth / 2;
   let y = innerHeight / 2;
   let scale = 1;
+  let chrome = false;
   const place = () => { cursor.style.transform = `translate(${x - 4}px,${y - 2}px)`; };
   place();
   window.__kc = {
     /**
      * Screenshot coordinates → CSS pixels: pass the width of the screenshot's coordinate frame once. Only Chrome scenes
-     * call it, so it also shows the recording badge there (storefront scenes record the whole page and never call it).
+     * call it, so it also shows the recording badge, hides the drawn cursor and lays the editor out (it may load after
+     * the overlay ran). Storefront scenes record the whole page and never call it.
      */
-    frame(shotWidth) { scale = innerWidth / shotWidth; badge.style.setProperty('display', 'block', 'important'); return scale; },
-    /**
-     * The window size at the screen's full height whose recorded box (between the marks) is 16:9, the video's shape:
-     * pass it to resize_window. A full-screen window recorded wider than that, and the video got dark bars (CHE-865).
-     */
-    fit() {
-      const height = screen.availHeight;
-      const box = height - (outerHeight - innerHeight) - 56;
-      return { width: Math.min(screen.availWidth, Math.round((box * 16) / 9 + 56 + (outerWidth - innerWidth))), height };
+    frame(shotWidth) {
+      scale = innerWidth / shotWidth;
+      chrome = true;
+      badge.style.setProperty('display', 'block', 'important');
+      cursor.style.setProperty('display', 'none', 'important');
+      layout();
+      return scale;
     },
     move(tx, ty, ms = 650) {
       const [sx, sy, ex, ey, t0] = [x, y, tx * scale, ty * scale, performance.now()];
@@ -64,6 +89,7 @@
       });
     },
     ripple() {
+      if (chrome) return; // Claude in Chrome rings its own pointer on a click.
       const r = el(`left:${x - 22}px;top:${y - 22}px;width:44px;height:44px;border-radius:50%;border:3px solid #2c6ecb;transition:transform .5s,opacity .5s;transform:scale(.3)`);
       requestAnimationFrame(() => { r.style.transform = 'scale(1.25)'; r.style.opacity = '0'; });
       setTimeout(() => r.remove(), 700);
@@ -79,11 +105,15 @@
     },
     /** A rect in screenshot coordinates → "@x,y,w,h", its place in the box between the marks: append it to that stretch in --keep. */
     focus({ left, top, width, height }) {
-      const bw = innerWidth - 56, bh = innerHeight - 56;
-      const f = [(left * scale - 28) / bw, (top * scale - 28) / bh, (width * scale) / bw, (height * scale) / bh].map((v) => Math.min(1, Math.max(0, v)).toFixed(3));
+      const b = area();
+      const f = [(left * scale - b.left) / b.width, (top * scale - b.top) / b.height, (width * scale) / b.width, (height * scale) / b.height].map((v) => Math.min(1, Math.max(0, v)).toFixed(3));
       return `@${f.join(',')}`;
     },
-    marks(on) { for (const m of marks) m.style.setProperty('display', on ? 'block' : 'none', 'important'); return Date.now(); },
+    marks(on) {
+      if (on) layout();
+      for (const m of marks) m.style.setProperty('display', on ? 'block' : 'none', 'important');
+      return Date.now();
+    },
     now: () => Date.now(),
   };
   return 'ready';

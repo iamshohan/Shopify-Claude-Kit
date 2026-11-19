@@ -1,4 +1,4 @@
-# Shopify Implementation Kit · v1.12.0
+# Shopify Implementation Kit · v1.12.1
 
 A Claude Code setup for Shopify theme repos.
 
@@ -130,7 +130,7 @@ The logs are history, not a knowledge base: every task reads the code fresh.
   - It writes a storyboard and has it reviewed for missing changes and jargon. The agent applies the review itself, then hands it over in a few lines: the path, the length, the optional scenes you can add.
   - Before recording, it names only what the client would see: QA test content still on the draft (replace it in the theme editor, or say to film it as it is).
   - Storefront scenes record on their own, in a hidden browser; mobile scenes fill the picture's height. A password-protected storefront is recorded in Chrome.
-  - Theme-editor scenes record in a new Chrome window as tall as your screen and shaped to the video. They need Claude in Chrome connected to the session (`/chrome`). Bring the window to the front; while it shows a red **Recording** badge at the top, leave it alone (your other screen is fine). The window closes when recording is done.
+  - Theme-editor scenes record in a Chrome tab the agent opens. They need Claude in Chrome connected to the session (`/chrome`). Give that tab a window of its own (drag it out of yours if it lands there) and maximise it. While it shows a red **Recording** badge at the top, leave it alone (your other screen is fine). The editor shows smaller, in a 16:9 box in the middle of the tab: that's what's recorded, in the editor's wide layout. The tab closes when recording is done.
   - The voice stays in step with the picture: each sentence plays with the footage that shows it.
   - The picture fills the whole frame, with captions over its bottom. `Captions: off` in the storyboard leaves them out.
   - You watch the result before sending it.

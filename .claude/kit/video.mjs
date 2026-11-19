@@ -202,7 +202,7 @@ export function findMarks(buf, width, height) {
   if (![[x0, y0], [x1, y0], [x0, y1], [x1, y1]].every(([x, y]) => near(x, y))) return { problem: 'only some corner marks are visible: something covers part of the Chrome tab' };
   const w = x1 - x0 + 1, h = y1 - y0 + 1;
   if (w < 400 || h < 300) return { problem: `the marked area is only ${w}x${h}: is the Chrome window that small?` };
-  // The overlay puts the marks 28 px in from the corners, past Claude in Chrome's tinted edge, so the box is clean.
+  // The overlay keeps the marks at least 28 px in from the tab's edge, past Claude in Chrome's tint, so the box is clean.
   return { x: x0, y: y0, w: w - (w % 2), h: h - (h % 2) };
 }
 
@@ -615,8 +615,8 @@ async function main() {
     const needs = beatNeeds(voice.beats.map((b) => b.seconds));
     return print({
       recording: true, scene: s.n, minimumSceneSeconds: Number(voice.seconds.toFixed(1)),
-      // Off 16:9, the picture gets dark bars. Not refused: the scene still records, and a zoom fills the frame anyway.
-      warning: Math.abs(area.w / area.h - W / H) > 0.06 ? `The recorded area is ${area.w}x${area.h}, not 16:9, so unzoomed stretches get dark bars. Before the next scene, resize the window to what __kc.fit() returns.` : undefined,
+      // The overlay fits the theme editor into a 16:9 box; an admin page keeps the tab's shape, and gets bars where unzoomed.
+      warning: Math.abs(area.w / area.h - W / H) > 0.06 ? `The recorded area is ${area.w}x${area.h}, not 16:9 (not the theme editor), so unzoomed stretches get dark bars at the sides or top and bottom. Zoom (__kc.focus) where you can.` : undefined,
       beats: voice.beats.map((b, i) => ({ beat: i + 1, seconds: Number(needs[i].toFixed(1)), says: b.text })),
       keep: voice.beats.length > 1 ? `one group of stretches per beat, in order, split by ";": --keep "<beat 1>;<beat 2>…"` : undefined,
     });

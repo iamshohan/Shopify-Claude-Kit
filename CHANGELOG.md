@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.12.1 — 2026-11-19
+
+From the CHE-865 retakes on 1.12.0.
+
+- **Editor scenes show the editor's usual wide layout, edge to edge.** The 16:9 window from 1.12.0 was 1462 px wide on a 1080p screen, below the width where the editor puts the settings on the right (between 1600 and 1680 px), and the recorded box cut 28 px off every edge, through the top bar and the first letters in the sidebar. Now the overlay lays the editor out at 1760x990 and scales it into a 16:9 box in the middle of the tab, inside Claude in Chrome's tinted edge. Any window size works, so `__kc.fit()` and the window resize are gone.
+- **One pointer.** Claude in Chrome draws its own pointer, where no page can hide it, so the kit's drawn arrow made two. In Chrome scenes the kit now draws none: the agent clicks and hovers for real, and the extension's pointer glides there and rings on clicks. Storefront scenes keep the kit's pointer.
+- **The dev gives the recording tab a window of its own.** `createIfEmpty` can put the tab in the dev's own window, behind their tabs. The agent now asks the dev to drag it out and maximise it.
+
 ## 1.12.0 — 2026-11-19
 
 From the CHE-865 video run.
