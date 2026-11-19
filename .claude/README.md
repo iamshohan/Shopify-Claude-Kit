@@ -35,6 +35,8 @@ git clone https://github.com/iamshohan/Shopify-Claude-Kit.git
 node Shopify-Claude-Kit/install.mjs <path-to-theme-repo>
 ```
 
+For every Shopify repo under a folder at once, `node Shopify-Claude-Kit/install.mjs --all <folder>` lists the theme and app repos it finds, and `--yes` installs into those without a kit. Each one still needs `/shopify-setup` (or `/app-setup` for an app).
+
 Use the installer, not a hand copy. It writes `.claude/.gitignore`, which keeps the kit and your credentials out of the theme repo's git. `.claude/settings.json` is the kit's and is replaced on every update. Put your own permissions, hooks and env in `.claude/settings.local.json`: Claude Code merges the two, and the kit's deny and ask rules still win. If the repo already has its own `settings.json`, the installer moves what it adds beyond the kit's into `settings.local.json` and says so.
 
 Then open Claude Code in the repo, trust the folder, and run **`/shopify-setup`**. It proves the guard is live, checks every tool and login the kit needs (and gives the exact fix for each one missing, including the optional Admin API login), writes `.claude/shopify-kit.json` with you, and tells you when to create `.claude/.env.local`:
@@ -124,7 +126,13 @@ The logs are history, not a knowledge base: every task reads the code fresh.
   - Handoff writes the report, marked "TEST RUN", and pushes nothing.
   - Afterwards, move `.claude/logs/<KEY>/` aside if you'll work the ticket for real on the same machine.
 - **Dropping a task:** `kit.mjs abandon <KEY> --reason "…"` lists the draft and store data left to clean up, and what the record shows went wrong with the kit.
-- **Client video:** `/shopify-video <KEY>` after QA is accepted, before the draft is deleted. It writes a storyboard for you to edit and has it reviewed for missing changes and jargon. It lists any QA test content it found on the draft, which you replace before recording. It records storefront scenes on its own, and records the theme editor in your Chrome: the recording tab needs its own window that you leave alone for a few minutes (your other screen is fine). A password-protected storefront is recorded in Chrome too. You watch the result before sending it.
+- **Client video:** `/shopify-video <KEY>` after QA is accepted, before the draft is deleted.
+  - It writes a storyboard and has it reviewed for missing changes and jargon. The agent applies the review itself, then hands it over in a few lines: the path, the length, the optional scenes you can add.
+  - Before recording, it names only what the client would see: QA test content still on the draft (replace it in the theme editor, or say to film it as it is).
+  - Storefront scenes record on their own, in a hidden browser; mobile scenes fill the picture's height. A password-protected storefront is recorded in Chrome.
+  - Theme-editor scenes record in a new Chrome window: move it to your main screen, maximise it, and leave it alone until the agent says recording is done (your other screen is fine). It closes the window afterwards.
+  - The voice stays in step with the picture: each sentence plays with the footage that shows it.
+  - You watch the result before sending it.
 - **Reporting:** `kit.mjs summary <KEY>`: time per stage, loops, verdicts and store changes.
 - **Kit problems:** the agent notes them in `kit-notes.md` as they happen; `kit.mjs retro <KEY>` lists what the record shows went wrong. `node .claude/kit/kit.mjs feedback` collects every task's notes into `.claude/logs/kit-feedback.md`; send that to the kit maintainer.
 
