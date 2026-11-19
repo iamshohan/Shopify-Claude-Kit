@@ -3,6 +3,7 @@
 ## 1.11.3 — 2026-11-19
 
 - **A blocked permission mode names the modes that work.** In bypass, plan or `dontAsk` mode, the guard's message now says to press Shift+Tab until the mode is auto (recommended), default or accept edits. Before, it named only default. `/shopify-setup`, `/app-setup` and the README say the same.
+- **`/shopify-setup` fixes Claude Code's side itself, after one question.** When the Shopify plugin is missing or `kit-browser` needs adding or re-adding, it asks once and runs the commands. Then the dev restarts Claude Code once. Before, the dev typed each command.
 
 ## 1.11.2 — 2026-11-19
 
