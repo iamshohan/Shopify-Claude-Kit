@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.11.3 — 2026-11-19
+
+- **A blocked permission mode names the modes that work.** In bypass, plan or `dontAsk` mode, the guard's message now says to press Shift+Tab until the mode is auto (recommended), default or accept edits. Before, it named only default. `/shopify-setup`, `/app-setup` and the README say the same.
+
 ## 1.11.2 — 2026-11-19
 
 - **The recording badge says just "● Recording".**

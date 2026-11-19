@@ -710,7 +710,7 @@ export function enforceMode(result, input) {
   return {
     decision: 'deny',
     byMode: true,
-    reason: `Permission mode "${mode}" doesn't show the kit's confirmation prompts, so this was blocked instead of approved silently. Stop and ask the dev to switch to default mode (Shift+Tab cycles modes), then run it again.${would}`,
+    reason: `Permission mode "${mode}" doesn't show the kit's confirmation prompts, so this was blocked instead of approved silently. Stop and ask the dev to press Shift+Tab until the mode is auto (recommended), default or accept edits, then run it again.${would}`,
   };
 }
 

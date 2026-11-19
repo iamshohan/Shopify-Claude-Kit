@@ -10,7 +10,7 @@ Work through these checks in order. Report each one as ✓ or ✗ with the exact
 1. **The guard works.**
    - Run `node .claude/hooks/guard.mjs --selftest`. It must print "all N passed".
    - Then prove the hook is live in this Claude Code: run `shopify version` with the Bash tool. **It must be blocked** with a message about `.claude/kit/shopify.mjs`.
-   - Finally run `node .claude/hooks/guard.mjs --mode-probe`. It must print "ok". If it's blocked, this session's permission mode hides the kit's confirmation prompts: the dev switches to default mode (Shift+Tab) and you run it again.
+   - Finally run `node .claude/hooks/guard.mjs --mode-probe`. It must print "ok". If it's blocked, this session's permission mode hides the kit's confirmation prompts: the dev presses Shift+Tab until the mode is auto (recommended), default or accept edits, and you run it again.
 
    If it runs instead, stop. The hook isn't active: Claude Code may be too old for the hook format in `.claude/settings.json` (it needs 2.1.295 or newer for `onFailure`; check with `claude --version`), or the folder isn't trusted yet. The kit isn't safe to use until this is ✓.
 2. **Tools.** Run `node --version` (needs 20 or newer) and `git --version`.

@@ -5,6 +5,7 @@
 The Shopify App Kit: Claude Code for Shopify apps (admin apps and extension-only apps), scenarios first. It lives in `app/` of the Shopify-Claude-Kit repo; devs install it with `node install.mjs <app-repo> --app` from that repo's root.
 
 - **The repo moved** (2026-11-17) from `DripDevelopment/Shopify-Claude-Kit` to `github.com/iamshohan/Shopify-Claude-Kit`. A clone of the old repo gets no more updates: run `git remote set-url origin https://github.com/iamshohan/Shopify-Claude-Kit.git` in it.
+- **A blocked permission mode names the modes that work** (with theme kit 1.11.3): Shift+Tab to auto (recommended), default or accept edits.
 - **Updates** (with theme kit 1.2.0): `node update.mjs` from the kit repo updates every app and theme repo on the machine, and a SessionStart hook (`kit/update-check.mjs`) mentions a newer kit once every 15 days. The installer lists the repo for `update.mjs` and records its clone in the manifest.
 - **`app dev` names its app and store** (with theme kit 1.5.0). A bare `shopify app dev` uses the CLI's cached config and store, possibly the production app or another project's store. `shopify.mjs info` now gives the exact command (`appDev`, with `--config` and `--store`), warns when the CLI caches another dev store, and verify tells the dev to run that command.
 - **Gate 1 hands the proposal over** instead of asking: the dev reviews and replies in their own words.
