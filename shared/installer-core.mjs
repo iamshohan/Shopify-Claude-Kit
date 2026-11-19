@@ -1,7 +1,7 @@
 // Install-time rules both installers share (install.mjs for the theme kit, app/install.mjs for the app kit). Installers run
 // from the kit repo itself, so both import this file directly; it is never copied into a theme or app repo.
-import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, resolve, sep } from 'node:path';
 
 const git = (cwd, args) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
@@ -85,4 +85,84 @@ export function staleFiles(dest, previous, files, perRepo) {
   const root = resolve(dest) + sep;
   return (Array.isArray(previous) ? previous : []).filter((f) => typeof f === 'string' && !files.includes(f) && !perRepo.has(f)
     && !isAbsolute(f) && !f.replaceAll('\\', '/').split('/').includes('..') && SHIPPED.test(f.replaceAll('\\', '/')) && resolve(dest, f).startsWith(root));
+}
+
+// ── Install into every Shopify repo under a folder (install.mjs --all) ──
+
+const APP_TOML = /^shopify\.app(\.[\w-]+)?\.toml$/;
+const NOT_REPOS = new Set(['node_modules', 'logs', 'dist', 'build', 'vendor']);
+
+/** The installed kit's { kind, version }, or null. */
+function installedKit(repo) {
+  try {
+    const m = JSON.parse(readFileSync(join(repo, '.claude', '.kit-manifest.json'), 'utf8'));
+    return { kind: m.kit === 'app' ? 'app' : 'theme', version: m.version };
+  } catch { return null; }
+}
+
+/**
+ * Shopify theme and app repos under a folder: [{ repo, kind: 'theme' | 'app' | 'both', git, kit }]. A theme has
+ * config/settings_schema.json and layout/; an app a shopify.app*.toml. The walk stops at each one found, so an app's
+ * theme extension isn't listed on its own.
+ */
+export function findShopifyRepos(top, { depth = 4, exclude = [] } = {}) {
+  const skip = new Set(exclude.map((p) => resolve(p)));
+  const found = [];
+  const walk = (dir, d) => {
+    if (skip.has(resolve(dir))) return;
+    let names;
+    try { names = readdirSync(dir); } catch { return; }
+    const app = names.some((n) => APP_TOML.test(n));
+    const theme = existsSync(join(dir, 'config', 'settings_schema.json')) && existsSync(join(dir, 'layout'));
+    if (app || theme) {
+      found.push({ repo: resolve(dir), kind: app && theme ? 'both' : app ? 'app' : 'theme', git: names.includes('.git'), kit: installedKit(dir) });
+      return;
+    }
+    if (!d) return;
+    for (const n of names) {
+      if (n.startsWith('.') || NOT_REPOS.has(n)) continue;
+      try { if (statSync(join(dir, n)).isDirectory()) walk(join(dir, n), d - 1); } catch {}
+    }
+  };
+  walk(resolve(top), depth);
+  return found;
+}
+
+/**
+ * install.mjs --all <folder> [--yes]: lists what it finds, and with --yes installs into the repos without a kit, one
+ * installer run each. Repos that already have one are only added to update.mjs's list. Returns the exit code.
+ */
+export function installAll(cloneRoot, top, { yes = false } = {}) {
+  if (!top || !existsSync(top)) {
+    console.error('Usage: node install.mjs --all <folder that holds your theme and app repos> [--yes]');
+    return 1;
+  }
+  const repos = findShopifyRepos(top, { exclude: [cloneRoot] });
+  if (!repos.length) { console.log(`No Shopify theme or app repos under ${resolve(top)} (4 folders deep).`); return 0; }
+  const registry = readRegistry(cloneRoot);
+  const fresh = [];
+  console.log(`Shopify repos under ${resolve(top)}:`);
+  for (const r of repos) {
+    const why = r.kit ? `has the ${r.kit.kind} kit ${r.kit.version}: node update.mjs keeps it current`
+      : r.kind === 'both' ? 'looks like a theme and an app: install by hand, with or without --app'
+        : !r.git ? 'not the root of a git repo, which the kit needs'
+          : null;
+    if (r.kit) registry[r.repo] = r.kit.kind;
+    if (!why) fresh.push(r);
+    console.log(`  ${!why ? 'new ' : r.kit ? 'has ' : 'skip'}  ${r.kind.padEnd(5)}  ${r.repo}${why ? `  (${why})` : ''}`);
+  }
+  try { writeRegistry(cloneRoot, registry); } catch { /* read-only clone: update.mjs --scan finds them later */ }
+  if (!fresh.length) { console.log('Nothing to install.'); return 0; }
+  const plural = fresh.length === 1 ? '' : 's';
+  if (!yes) { console.log(`\nTo install the kit into the ${fresh.length} new repo${plural}: node install.mjs --all ${top} --yes`); return 0; }
+  console.log(`\nInstalling into ${fresh.length} repo${plural}:`);
+  let failed = 0;
+  for (const r of fresh) {
+    const run = spawnSync(process.execPath, [join(cloneRoot, 'install.mjs'), r.repo, ...(r.kind === 'app' ? ['--app'] : [])], { cwd: cloneRoot, encoding: 'utf8' });
+    if (run.status === 0) console.log(`  ok ${r.kind.padEnd(5)}  ${r.repo}`);
+    else { failed++; console.log(`  !! ${r.kind.padEnd(5)}  ${r.repo}: ${(run.stderr || run.stdout).trim().split(/\r?\n/)[0]}`); }
+  }
+  if (failed < fresh.length) console.log('\nNext, in each new repo: open Claude Code there and run /shopify-setup (theme) or /app-setup (app). The kit needs its store before it can work.');
+  if (failed) console.log(`${failed} not installed; run node install.mjs <repo> there to see why.`);
+  return failed ? 1 : 0;
 }

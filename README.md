@@ -10,6 +10,13 @@ node Shopify-Claude-Kit/install.mjs <path-to-theme-repo>          # theme kit
 node Shopify-Claude-Kit/install.mjs <path-to-app-repo> --app      # app kit
 ```
 
+**To install into every Shopify repo under a folder at once:**
+```
+node Shopify-Claude-Kit/install.mjs --all <folder>          # lists the theme and app repos it finds
+node Shopify-Claude-Kit/install.mjs --all <folder> --yes    # installs into those without a kit
+```
+It looks four folders deep. A theme repo has `config/settings_schema.json` and `layout/`; an app repo has a `shopify.app.toml`. It skips folders that aren't the root of a git repo, and leaves repos that already have a kit to `update.mjs`. Each new repo still needs its setup once: `/shopify-setup` or `/app-setup` in Claude Code there.
+
 **To update every repo on your machine at once:**
 ```
 node Shopify-Claude-Kit/update.mjs

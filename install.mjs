@@ -2,6 +2,7 @@
 // Installs or updates the Shopify Implementation Kit in a theme repo.
 //   node install.mjs <path-to-theme-repo> [--dry-run] [--force]
 //   node install.mjs <path-to-app-repo> --app [--dry-run] [--force]   hands over to the app kit's installer (app/)
+//   node install.mjs --all <folder> [--yes]   lists the theme and app repos under it; --yes installs into those without a kit
 // Copies the kit's .claude/ files and leaves the repo's own files alone: shopify-kit.json,
 // .env.local, settings.local.json, cli-check.json and logs/. Files a newer kit no longer ships
 // are removed (tracked in .claude/.kit-manifest.json).
@@ -11,12 +12,13 @@ import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { kitFiles, kitCommit, compareVersions, staleFiles, olderBuild, register } from './shared/installer-core.mjs';
+import { kitFiles, kitCommit, compareVersions, staleFiles, olderBuild, register, installAll } from './shared/installer-core.mjs';
 
 // The app kit is a separate product in app/ with its own installer. Without --app, everything below runs as before.
 {
   const argv = process.argv.slice(2);
   const target = argv.find((a) => !a.startsWith('--'));
+  if (argv.includes('--all')) process.exit(installAll(dirname(fileURLToPath(import.meta.url)), target, { yes: argv.includes('--yes') }));
   if (argv.includes('--app')) {
     if (argv.includes('--theme')) {
       console.error('Pass --theme or --app, not both.');

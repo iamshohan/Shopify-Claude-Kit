@@ -151,6 +151,24 @@ try {
   writeFileSync(process.env.SHOPIFY_KIT_REGISTRY, '{}');
   const scan = spawnSync(process.execPath, [join(KIT, 'update.mjs'), '--scan', tmp, '--list'], { encoding: 'utf8' });
   ok('update.mjs --scan finds repos installed before the list existed', scan.status === 0 && registry()[resolve(repo)] === 'theme' && scan.stdout.includes(resolve(repo)), scan.stdout + scan.stderr);
+  // install --all: a theme and an app repo get the kit; a theme folder outside git is only listed.
+  const all = join(tmp, 'all');
+  const themeA = join(all, 'shop-a'), appB = join(all, 'clients', 'app-b'), loose = join(all, 'loose-theme');
+  for (const d of [themeA, loose]) { mkdirSync(join(d, 'config'), { recursive: true }); mkdirSync(join(d, 'layout')); writeFileSync(join(d, 'config', 'settings_schema.json'), '[]'); }
+  mkdirSync(appB, { recursive: true });
+  writeFileSync(join(appB, 'shopify.app.toml'), 'name = "b"\n');
+  for (const d of [themeA, appB]) execFileSync('git', ['init', '-q'], { cwd: d });
+  const allRun = (...a) => spawnSync(process.execPath, [join(KIT, 'install.mjs'), '--all', all, ...a], { encoding: 'utf8' });
+  const preview = allRun();
+  const kitIn = (d) => existsSync(join(d, '.claude', 'VERSION'));
+  ok('install --all lists the new theme and app repos, skips one outside git, and installs nothing without --yes',
+    preview.status === 0 && new RegExp(`new\\s+theme\\s+${resolve(themeA).replace(/\\/g, '\\\\')}`).test(preview.stdout) && new RegExp(`new\\s+app\\s+${resolve(appB).replace(/\\/g, '\\\\')}`).test(preview.stdout)
+      && /skip\s+theme.*not the root of a git repo/.test(preview.stdout) && !kitIn(themeA) && !kitIn(appB), preview.stdout + preview.stderr);
+  const applied = allRun('--yes');
+  const allAgain = allRun();
+  ok('install --all --yes installs each kit and lists them for update.mjs; a second run has nothing to do',
+    applied.status === 0 && kitIn(themeA) && kitIn(appB) && !kitIn(loose) && registry()[resolve(themeA)] === 'theme' && registry()[resolve(appB)] === 'app'
+      && /\/shopify-setup/.test(applied.stdout) && /Nothing to install/.test(allAgain.stdout) && /has\s+app/.test(allAgain.stdout), applied.stdout + applied.stderr + allAgain.stdout);
   // The notice reads the clone's own VERSION offline (SHOPIFY_KIT_NO_FETCH), and remembers its last check.
   const stateFile = join(tmp, 'update-check.json');
   const notice = () => spawnSync(process.execPath, [join(repo, '.claude', 'kit', 'update-check.mjs'), '--hook'], {

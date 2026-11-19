@@ -6,6 +6,7 @@
   - Chrome scenes: `chrome-start` prints each beat's seconds, and `chrome-stop --keep` takes the stretches per beat, split by ";".
   - Storefront scenes: Show is split with " / " the same way, and each part is held until its words end.
   - Captions follow their beat. A Say without " / " is one beat, as before.
+- **Install into every Shopify repo at once:** `node install.mjs --all <folder>` lists the theme and app repos under a folder; with `--yes` it installs the right kit into each one that has none. Each still needs `/shopify-setup` or `/app-setup`.
 - **Chrome scenes after the first:** the command says to run `__kc.marks(true)` on a page the last scene ended on; the marks stayed off.
 
 ## 1.10.1 — 2026-11-19
