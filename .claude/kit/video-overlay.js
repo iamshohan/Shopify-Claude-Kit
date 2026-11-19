@@ -42,8 +42,20 @@
     return { left: Math.round((innerWidth - width) / 2), top: Math.round((innerHeight - height) / 2), width, height, scale: s };
   };
   // Pure magenta squares in the box's corners: video.mjs looks for them in a screen grab and records the box between
-  // their outer edges.
+  // their outer edges. Hidden until frame() (Chrome scenes): a storefront click that opened a new page re-ran the overlay
+  // and showed them for the rest of the scene.
   const marks = [0, 1, 2, 3].map(() => el('left:0;top:0;width:14px;height:14px;background:#ff00ff'));
+  for (const m of marks) m.style.setProperty('display', 'none', 'important');
+  // The screen is recorded, not the tab: while another tab or window is in front, that gets filmed, and the agent's
+  // screenshots (from the tab) still look right. Chrome reports a background, minimised or fully covered tab as hidden.
+  let away = false;
+  document.addEventListener('visibilitychange', () => { if (document.hidden) away = true; });
+  const stamp = () => {
+    const t = Date.now();
+    if (!away && !document.hidden) return t;
+    away = false;
+    return `OFF SCREEN ${t}: the tab was hidden at some point since the last mark (another tab or window in front), so a stretch ending here filmed that. Ask the dev to bring the Claude window to the front, then redo the stretch.`;
+  };
   const layout = () => {
     const b = area();
     stageCss.textContent = b.scale ? `${EDITOR}{position:fixed!important;left:${b.left}px!important;top:${b.top}px!important;width:${STAGE.width}px!important;height:${STAGE.height}px!important;max-width:none!important;max-height:none!important;margin:0!important;transform:scale(${b.scale})!important;transform-origin:0 0!important}` : '';
@@ -74,6 +86,7 @@
       badge.style.setProperty('display', 'block', 'important');
       cursor.style.setProperty('display', 'none', 'important');
       layout();
+      for (const m of marks) m.style.setProperty('display', 'block', 'important');
       return scale;
     },
     move(tx, ty, ms = 650) {
@@ -109,12 +122,21 @@
       const f = [(left * scale - b.left) / b.width, (top * scale - b.top) / b.height, (width * scale) / b.width, (height * scale) / b.height].map((v) => Math.min(1, Math.max(0, v)).toFixed(3));
       return `@${f.join(',')}`;
     },
+    /**
+     * Fills the page magenta for 300 ms; resolves with the time it was painted. Storefront scenes find it in the
+     * recording to line footage up with the clock: the recording's length was off by 1.4 s.
+     */
+    flash() {
+      const f = el('left:0;top:0;right:0;bottom:0;background:#ff00ff');
+      return new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(() => { done(Date.now()); setTimeout(() => f.remove(), 300); })));
+    },
     marks(on) {
       if (on) layout();
       for (const m of marks) m.style.setProperty('display', on ? 'block' : 'none', 'important');
-      return Date.now();
+      return stamp();
     },
-    now: () => Date.now(),
+    /** A stretch's mark for --keep, or an "OFF SCREEN" warning when the tab wasn't on screen since the last one. */
+    now: stamp,
   };
   return 'ready';
 })();

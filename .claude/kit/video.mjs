@@ -15,10 +15,10 @@
 //                                                "@x,y,w,h" (from __kc.focus) zooms a stretch to part of the tab; ";"
 //                                                splits the stretches by beat (the Say's " / " parts)
 //   assemble <KEY>                               join the scenes into video/<KEY>-walkthrough.unreviewed.mp4, and
-//                                                video/frames.png (one frame per scene) for the agent's check
+//                                                video/frames-N.png (a frame per beat, six a sheet) for the agent's check
 //   reviewed <KEY> --answer "<dev's words>"      the dev watched it: drops .unreviewed from the name
 import { spawn, spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync, appendFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
@@ -54,12 +54,14 @@ const DEFAULT_VOICE = 'en-US-AvaNeural';
 // read as black space to the dev (CHE-865).
 const W = 1920, H = 1080, PIC = H, BG = '0x1f2124';
 const CAPTION_BOTTOM = 64; // px from the frame's bottom edge to the caption box's text
+const CAPTION_SAFE = 0.8; // two caption lines and their box cover about the bottom 18%: what's talked about stays above
 const LEAD = 0.3, TAIL = 0.3; // seconds of picture before the voice starts and after it ends (the mp3s add ~0.3 s each)
 const GAP = 0.2; // between two beats of a scene, on top of the mp3s' own silence
 const RATE = '-10%'; // the voice's default runs near 200 words a minute; clients follow better nearer 170
 const FPS = 25; // both recorders capture at 25: another output rate repeats frames and motion judders
 const DESKTOP = { width: 1440, height: 810 }; // 16:9, the picture's shape
 const MOBILE = { width: 390, height: 844 };
+const TILE = { w: 960, h: 540 }; // check frames: half the picture, so a sheet of six stays near full size when read
 
 // ── Storyboard ──
 
@@ -143,7 +145,7 @@ export function beatTimeline(voiceSeconds, footageSeconds) {
 
 /** "products/x @mobile" → { path: '/products/x', mobile: true }. Only a path: the host always comes from the kit. */
 export function storefrontWhere(where) {
-  const m = String(where).trim().match(/^(\S*)\s*(?:@(desktop|mobile))?$/i);
+  const m = String(where).trim().match(/^(\S*?)\s*(?:@(desktop|mobile))?$/i);
   if (!m) throw new Error(`Where "${where}" should be a storefront path and @desktop or @mobile, e.g. "products/x @mobile"`);
   const raw = m[1] === 'home' ? '' : m[1];
   if (/^[a-z][a-z0-9+.-]*:|^\/\/|\\/i.test(raw)) throw new Error(`Where "${where}" must be a path on the store, not a URL`);
@@ -161,7 +163,8 @@ export function sceneUrl(store, themeId, path, query = '') {
 
 /** Caption chunks of at most two lines, each shown for its share of the narration. */
 export function captionChunks(say, seconds, perLine = 70) {
-  const sentences = say.match(/[^.!?]+[.!?]*(\s+|$)/g)?.map((s) => s.trim()).filter(Boolean) || [say];
+  // Split at a sentence end followed by a space: matching sentences skipped what didn't match ("$49." of "$49.99").
+  const sentences = say.split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter(Boolean);
   const chunks = [];
   for (const s of sentences) {
     const words = s.split(/\s+/);
@@ -225,31 +228,40 @@ function ff(args, { cwd } = {}) {
 }
 
 /**
- * Seconds of media in a file. Recordings are decoded to the end: a browser recording has no duration header, and a
- * screen recording stopped early keeps the length it was capped at.
+ * Seconds of media in a file. Recordings are read to the end, copied rather than decoded (0.1 s instead of 1.5 s for
+ * 25 s of webm): a browser recording has no duration header, and a screen recording stopped early keeps its cap.
  */
 function seconds(file) {
   const head = /\.(mkv|webm)$/i.test(file) ? '' : spawnSync(ffmpegBin(), ['-hide_banner', '-i', file], { encoding: 'utf8' }).stderr || '';
   const d = head.match(/Duration: (\d+):(\d+):([\d.]+)/);
   if (d) return d[1] * 3600 + d[2] * 60 + Number(d[3]);
-  const all = [...(spawnSync(ffmpegBin(), ['-hide_banner', '-i', file, '-f', 'null', '-'], { encoding: 'utf8' }).stderr || '').matchAll(/time=(\d+):(\d+):([\d.]+)/g)].at(-1);
+  const all = [...(spawnSync(ffmpegBin(), ['-hide_banner', '-i', file, '-c', 'copy', '-f', 'null', '-'], { encoding: 'utf8' }).stderr || '').matchAll(/time=(\d+):(\d+):([\d.]+)/g)].at(-1);
   return all ? all[1] * 3600 + all[2] * 60 + Number(all[3]) : 0;
+}
+
+/** Ends a screen recording, only while its pid is still ffmpeg: Windows soon gives a finished one's pid to another process. */
+function stopCapture(pid) {
+  const list = spawnSync('tasklist', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'], { encoding: 'utf8' }).stdout || '';
+  if (/ffmpeg/i.test(list)) try { process.kill(pid); } catch { /* it ended meanwhile */ }
 }
 
 const hash = (s) => createHash('sha1').update(s).digest('hex').slice(0, 12);
 const nn = (n) => String(n).padStart(2, '0');
 
+/** The voice library puts the text into SSML as it is: an "&" or "<" in a Say failed every narration. */
+export const ssmlText = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
+
 async function narration(dir, voice, say) {
   const file = join(dir, `${hash(`${voice}\0${RATE}\0${say}`)}.mp3`);
   if (!existsSync(file)) {
     const { MsEdgeTTS, OUTPUT_FORMAT } = await dep('msedge-tts');
-    // Each call writes "audio.mp3" into its folder, so parallel calls need folders of their own.
-    const tmp = join(dir, `tmp-${hash(say)}-${process.pid}`);
+    // Each call writes "audio.mp3" into its folder, so parallel calls need folders of their own, even for the same text.
+    const tmp = join(dir, `tmp-${randomUUID()}`);
     mkdirSync(tmp, { recursive: true });
     const tts = new MsEdgeTTS();
     try {
       await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_96KBITRATE_MONO_MP3);
-      const { audioFilePath } = await tts.toFile(tmp, say, { rate: RATE });
+      const { audioFilePath } = await tts.toFile(tmp, ssmlText(say), { rate: RATE });
       renameSync(audioFilePath, file);
     } finally { tts.close(); rmSync(tmp, { recursive: true, force: true }); }
   }
@@ -311,7 +323,8 @@ export function parseKeepBeats(text) {
 
 /**
  * The crop for a zoomed stretch, in the recording's pixels: the focus box widened to the picture's shape, so the zoom
- * fills it, and to at least half the recording, so text isn't blown up past 2x. Even numbers, inside the recording.
+ * fills it, and to at least half the recording, so text isn't blown up past 2x. The box sits above the bottom fifth,
+ * where the captions go: centred, they covered the field being talked about (CHE-865). Even numbers, inside the recording.
  */
 export function focusCrop([fx, fy, fw, fh], width, height) {
   const aspect = W / PIC;
@@ -321,8 +334,28 @@ export function focusCrop([fx, fy, fw, fh], width, height) {
   w = Math.min(w, width);
   const cx = (fx + fw / 2) * width, cy = (fy + fh / 2) * height;
   const even = (v) => Math.max(2, Math.floor(v / 2) * 2);
-  const x = Math.min(Math.max(0, cx - w / 2), width - w), y = Math.min(Math.max(0, cy - h / 2), height - h);
+  const above = Math.min((fy + fh) * height - h * CAPTION_SAFE, fy * height);
+  const x = Math.min(Math.max(0, cx - w / 2), width - w), y = Math.min(Math.max(0, cy - h / 2, above), height - h);
   return { x: even(x), y: even(y), w: even(w), h: even(h) };
+}
+
+/**
+ * The filtergraph that cuts a recording ([0:v]) into its kept stretches, beat by beat, ending unlabelled (the caller
+ * appends the look). Every stretch is fitted to the picture on its own, so a zoom keeps its shape on a recording that
+ * isn't 16:9, and its pixel shape is set: concat refuses stretches whose pixel shapes differ.
+ */
+export function footageGraph(stretches, line, footage) {
+  const chains = [];
+  let c = 0;
+  line.forEach((g, i) => {
+    const ids = stretches.filter((p) => p.beat === i).map((p) => {
+      chains.push(`[0:v]trim=start=${p.from.toFixed(3)}:end=${(p.from + p.length).toFixed(3)},setpts=PTS-STARTPTS${p.crop ? `,crop=${p.crop.w}:${p.crop.h}:${p.crop.x}:${p.crop.y}` : ''},scale=${W}:${H}:force_original_aspect_ratio=decrease:flags=lanczos,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=${BG},setsar=1[c${c}]`);
+      return `[c${c++}]`;
+    });
+    // Footage shorter than its beat holds its last frame until the voice is done.
+    chains.push(`${ids.join('')}concat=n=${ids.length}:v=1:a=0,tpad=stop_mode=clone:stop_duration=${(g.length - footage[i] + 0.2).toFixed(2)},trim=duration=${g.length.toFixed(3)},setpts=PTS-STARTPTS[b${i}]`);
+  });
+  return `${chains.join(';')};${line.map((_, i) => `[b${i}]`).join('')}concat=n=${line.length}:v=1:a=0`;
 }
 
 /** The storyboard with each scene's Sec cell set (seconds by scene number); rows without a Sec column stay as they are. */
@@ -400,8 +433,18 @@ async function recordStorefront(browser, t, scene, board, beatSeconds) {
     // frame. At the viewport's size, assemble scales it to the picture's full height.
     recordVideo: { dir: tmp, size: vp },
   });
+  const groups = showBeats(scene.show);
   await ctx.addInitScript({ path: OVERLAY });
   await ctx.addInitScript(HIDE_APPS);
+  // As an init script, so a click that opens another page keeps them (addStyleTag lasted one page).
+  const hides = groups.flat().filter((x) => x.op === 'hide').map((o) => `${o.arg}{display:none!important}`).join('');
+  if (hides) {
+    await ctx.addInitScript(`(() => {
+      if (window.top !== window) return;
+      const add = () => { const s = document.createElement('style'); s.textContent = ${JSON.stringify(hides)}; document.documentElement.appendChild(s); };
+      if (document.documentElement) add(); else new MutationObserver((_, o) => { if (document.documentElement) { o.disconnect(); add(); } }).observe(document, { childList: true });
+    })();`);
+  }
   const page = await ctx.newPage();
   const t0 = Date.now();
   try {
@@ -410,23 +453,46 @@ async function recordStorefront(browser, t, scene, board, beatSeconds) {
     const theme = await page.evaluate(() => window.Shopify?.theme && { id: window.Shopify.theme.id, role: window.Shopify.theme.role });
     if (!theme || String(theme.id) !== String(t.st.draft.themeId) || theme.role === 'main') throw new Error(`the page rendered ${theme ? `theme ${theme.id} (${theme.role})` : 'no Shopify theme'}, not the draft ${t.st.draft.themeId}`);
     await page.waitForFunction(() => window.__kc, null, { timeout: 5000 }).catch(() => { throw new Error('the cursor overlay didn\'t load on this page'); });
-    const groups = showBeats(scene.show);
-    for (const o of groups.flat().filter((x) => x.op === 'hide')) await page.addStyleTag({ content: `${o.arg}{display:none!important}` });
-    await page.evaluate(() => window.__kc.marks(false));
-    await page.waitForTimeout(1200);
+    await page.waitForTimeout(600);
+    const tFlash = await page.evaluate(() => window.__kc.flash());
+    await page.waitForTimeout(900);
+    // A beat's footage starts with its first visible action, not when the code starts on it: on a busy page, finding the
+    // element took 1.4 s, and the voice talked over a still picture while the action came late (CHE-865, measured).
+    let beatStart = null;
+    const go = () => { beatStart ??= Date.now(); };
     const target = async (sel) => {
-      const el = page.locator(sel).first();
-      if (!(await el.count())) throw new Error(`no element matches "${sel}"`);
-      await el.evaluate((e) => e.scrollIntoView({ behavior: 'smooth', block: 'center' }));
-      await page.waitForTimeout(700);
-      const b = await el.boundingBox();
+      // The first visible match: a hidden twin (a mobile-only copy, a closed drawer) failed two CHE-865 scenes.
+      const el = page.locator(sel).filter({ visible: true }).first();
+      if (!(await el.count())) throw new Error(`no visible element matches "${sel}"`);
+      go();
+      // 40% down rather than centred, so a tall element's lower part stays above the captions.
+      await el.evaluate((e) => {
+        const r = e.getBoundingClientRect();
+        window.scrollTo({ top: scrollY + r.top + r.height / 2 - innerHeight * 0.4, behavior: 'smooth' });
+      });
+      // Clicking where a smooth scroll or a late image left the element a moment ago missed it: wait for it to settle.
+      let b = null;
+      for (let i = 0; i < 25; i++) {
+        await page.waitForTimeout(100);
+        const next = await el.boundingBox();
+        if (b && next && Math.abs(next.y - b.y) < 1 && Math.abs(next.x - b.x) < 1) break;
+        b = next;
+      }
       if (!b) throw new Error(`"${sel}" isn't visible`);
+      // Inside a scrolling box (a drawer, a slider) the window scroll doesn't reach it.
+      const vp = page.viewportSize();
+      if (b.y < 0 || b.y + b.height / 2 > vp.height) {
+        await el.evaluate((e) => e.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+        await page.waitForTimeout(700);
+        b = await el.boundingBox();
+        if (!b) throw new Error(`"${sel}" isn't visible`);
+      }
       return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
     };
     const act = async ({ op, arg }) => {
       if (op === 'hide') return;
       await page.evaluate(() => window.__kc.highlight(null));
-      if (op === 'wait') return page.waitForTimeout(arg * 1000);
+      if (op === 'wait') { go(); return page.waitForTimeout(arg * 1000); }
       const at = await target(arg);
       // Short holds: the voice sets the scene's length anyway, and the dev found the first real video slow.
       if (op === 'scroll') return page.waitForTimeout(400);
@@ -441,26 +507,46 @@ async function recordStorefront(browser, t, scene, board, beatSeconds) {
     const needs = beatNeeds(beatSeconds);
     const spans = [];
     for (const [i, ops] of groups.entries()) {
-      const tStart = Date.now();
+      beatStart = null;
       for (const o of ops) await act(o);
+      const tStart = beatStart ?? Date.now();
       const hold = tStart + needs[i] * 1000 - Date.now();
       if (hold > 0) await page.waitForTimeout(hold);
       spans.push([tStart, Date.now()]);
     }
     // Closing straight after the last frame cut it short in tests.
     await page.waitForTimeout(400);
+    const tEnd = Date.now();
     await ctx.close();
     const raw = await page.video().path();
-    const length = seconds(raw);
-    // The recording starts a little after the page opened; its length says how much.
-    const late = (Date.now() - t0) / 1000 - length;
+    // Where the flash is in the recording ties its time to the clock. Without it, the length has to do: the recording
+    // starts a little after the page opened, but it also comes out shorter than the time it spanned.
+    const flashAt = findFlash(raw);
+    const offset = flashAt === null ? (tEnd - t0) / 1000 - seconds(raw) : (tFlash - t0) / 1000 - flashAt;
     const file = join(t.scenes, `${nn(scene.n)}.webm`);
     renameSync(raw, file);
-    return { kind: 'storefront', file, parts: spans.map(([a, b], beat) => ({ from: Math.max(0, (a - t0) / 1000 - late), length: (b - a) / 1000, beat })) };
+    return { kind: 'storefront', file, synced: flashAt !== null, parts: spans.map(([a, b], beat) => ({ from: Math.max(0, (a - t0) / 1000 - offset), length: (b - a) / 1000, beat })) };
   } finally {
     await ctx.close().catch(() => {});
     rmSync(tmp, { recursive: true, force: true });
   }
+}
+
+/** Seconds into a recording where the overlay's magenta flash first shows (its first 40 s, at 25 fps), or null. */
+function findFlash(file) {
+  const r = spawnSync(ffmpegBin(), ['-hide_banner', '-t', '40', '-i', file, '-vf', `fps=${FPS},scale=16:9`, '-f', 'rawvideo', '-pix_fmt', 'rgb24', 'pipe:1'], { maxBuffer: 64 * 1024 * 1024 });
+  return flashFrame(r.stdout || Buffer.alloc(0), 16 * 9);
+}
+
+/** The time of the first frame that is mostly magenta, in raw rgb24 frames of `pixels` pixels at FPS, or null. */
+export function flashFrame(buf, pixels) {
+  const size = pixels * 3;
+  for (let f = 0; (f + 1) * size <= buf.length; f++) {
+    let hits = 0;
+    for (let i = f * size; i < (f + 1) * size; i += 3) if (buf[i] >= 200 && buf[i + 1] <= 60 && buf[i + 2] >= 200) hits++;
+    if (hits > pixels * 0.6) return f / FPS;
+  }
+  return null;
 }
 
 // ── Commands ──
@@ -512,7 +598,8 @@ async function main() {
     t.st.history.push({ at: now(), event: 'video-accepted', stage: t.st.stage });
     writeState(key, t.st);
   }
-  const why = filmable(t.st);
+  // Only filming needs the draft: after cleanup, captions can still be fixed and the video still marked as reviewed.
+  const why = ['start', 'record', 'chrome-start'].includes(cmd) && filmable(t.st);
   if (why) fail(`${key} can't be filmed: ${why}`);
   mkdirSync(t.vdir, { recursive: true });
 
@@ -593,13 +680,22 @@ async function main() {
     if (area.problem) fail(`Can't find the Chrome tab: ${area.problem}`);
     // Smaller than this, the editor's settings can't be read even zoomed (a 1280x495 window in a real run).
     if (area.w < 1100 || area.h < 560) fail(`The Chrome tab is only ${area.w}x${area.h} on screen. Ask the dev to maximise its window on their main screen, then run chrome-start again.`);
-    const file = join(t.scenes, `${nn(s.n)}.mkv`);
+    // A take still running (chrome-start run again): stop it, or two recorders write one file.
+    const capPath = join(t.scenes, `${nn(s.n)}.capture.json`);
+    const earlier = existsSync(capPath) && JSON.parse(readFileSync(capPath, 'utf8'));
+    if (earlier && !earlier.stopped) { stopCapture(earlier.pid); await new Promise((r) => setTimeout(r, 800)); }
+    // What the recording sees, for the agent to look at: its own screenshots come from the tab, not the screen.
+    const look = join(t.scenes, `${nn(s.n)}.start.png`);
+    spawnSync(ffmpegBin(), ['-hide_banner', '-y', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-s', `${desk[1]}x${desk[2]}`, '-i', 'pipe:0', '-vf', `crop=${area.w}:${area.h}:${area.x}:${area.y}`, '-frames:v', '1', '-update', '1', look], { input: grab.stdout, maxBuffer: 64 * 1024 * 1024 });
+    // A take of its own: the scene's kept recording stays until chrome-stop accepts this one.
+    const file = join(t.scenes, `${nn(s.n)}.take.mkv`);
     const log = join(t.scenes, `${nn(s.n)}.capture.log`);
     // Matroska survives being stopped mid-write; the cap ends a recording nobody stopped. Only the tab's rectangle is
     // captured: grabbing the whole desktop and cropping dropped to 12 fps on two screens. chrome-stop kills ffmpeg, which
     // loses what it hasn't written: by default a cluster of ~5 s (a 16 s scene came out 10 s long). Half-second clusters,
     // flushed, and no encoder frame delay lose at most the last half second, after the scene's closing mark.
-    const cap = Math.ceil(voice.seconds + 120);
+    // Each batch is a model turn while the screen records: a 3-beat scene can take 3 minutes. The cap only costs disk.
+    const cap = Math.ceil(voice.seconds + 600);
     const child = spawn(ffmpegBin(), ['-hide_banner', '-y', '-f', 'gdigrab', '-draw_mouse', '0', '-framerate', '25',
       '-offset_x', String(area.x + Number(desk[3])), '-offset_y', String(area.y + Number(desk[4])), '-video_size', `${area.w}x${area.h}`, '-i', 'desktop', '-t', String(cap),
       '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'zerolatency', '-crf', '18', '-pix_fmt', 'yuv420p',
@@ -611,10 +707,13 @@ async function main() {
     while (Date.now() < until && !/frame=\s*\d+/.test(text)) { await new Promise((r) => setTimeout(r, 50)); text = existsSync(log) ? readFileSync(log, 'utf8') : ''; }
     const seenAt = Date.now();
     if (!/frame=\s*\d+/.test(text)) { try { process.kill(child.pid); } catch {} fail(`The screen recording didn't start:\n${text.trim().split(/\r?\n/).slice(-3).join('\n')}`); }
-    writeFileSync(join(t.scenes, `${nn(s.n)}.capture.json`), JSON.stringify({ pid: child.pid, startedAt: captureStart(text, seenAt), area, file }, null, 2));
+    const startedAt = captureStart(text, seenAt);
+    writeFileSync(capPath, JSON.stringify({ pid: child.pid, startedAt, area, file }, null, 2));
     const needs = beatNeeds(voice.beats.map((b) => b.seconds));
     return print({
-      recording: true, scene: s.n, minimumSceneSeconds: Number(voice.seconds.toFixed(1)),
+      recording: true, scene: s.n, minimumSceneSeconds: Number(voice.seconds.toFixed(1)), recordsUntil: startedAt + cap * 1000,
+      ...(earlier && !earlier.stopped ? { stoppedEarlierTake: true } : {}),
+      screen: existsSync(look) ? `${look}: what the recording sees. On the first chrome scene, read it: the editor whole (top bar, sidebar labels), its settings on the right, nothing else in the box.` : undefined,
       // The overlay fits the theme editor into a 16:9 box; an admin page keeps the tab's shape, and gets bars where unzoomed.
       warning: Math.abs(area.w / area.h - W / H) > 0.06 ? `The recorded area is ${area.w}x${area.h}, not 16:9 (not the theme editor), so unzoomed stretches get dark bars at the sides or top and bottom. Zoom (__kc.focus) where you can.` : undefined,
       beats: voice.beats.map((b, i) => ({ beat: i + 1, seconds: Number(needs[i].toFixed(1)), says: b.text })),
@@ -630,7 +729,7 @@ async function main() {
     // Stopped once already (a --keep was refused): the pid may belong to another process by now, and the file is kept,
     // so a corrected --keep doesn't cost a re-recording.
     if (!cap.stopped) {
-      try { process.kill(cap.pid); } catch { /* it ended at its cap */ }
+      stopCapture(cap.pid);
       await new Promise((r) => setTimeout(r, 800));
       writeFileSync(capPath, JSON.stringify({ ...cap, stopped: true }, null, 2));
     }
@@ -639,15 +738,24 @@ async function main() {
     const beats = beatsOf(s.say).length;
     if (keep.length !== beats) fail(`--keep has ${keep.length} beat(s) and the scene's Say ${beats}: give one group of stretches per beat, split by ";". The recording is kept: run chrome-stop again.`);
     const length = seconds(cap.file);
-    // The first 0.2 s of each stretch can still hold the corner marks being switched off.
+    // The scene's first 0.2 s can still hold the corner marks being switched off; later batches start without them.
     const parts = keep.flatMap((group, beat) => group.map(([a, b, focus]) => ({
-      from: (a - cap.startedAt) / 1000 + 0.2, length: (b - a) / 1000 - 0.2, beat, ...(focus ? { crop: focusCrop(focus, cap.area.w, cap.area.h) } : {}),
+      from: (a - cap.startedAt) / 1000, length: (b - a) / 1000, beat, ...(focus ? { crop: focusCrop(focus, cap.area.w, cap.area.h) } : {}),
     })));
+    parts[0].from += 0.2;
+    parts[0].length -= 0.2;
     const bad = fitParts(parts, length);
     if (bad) fail(`A stretch (${bad.from.toFixed(1)} s in, ${bad.length.toFixed(1)} s long) doesn't fit the ${length.toFixed(1)} s recording, which spans __kc.now() ${Math.round(cap.startedAt)} to ${Math.round(cap.startedAt + length * 1000)}. Fix --keep and run chrome-stop again (the recording is kept), or record the scene again.`);
     rmSync(capPath);
-    save(s.n, { kind: 'chrome', file: cap.file, parts, area: cap.area });
-    return print({ scene: s.n, kept: `${parts.reduce((a, p) => a + p.length, 0).toFixed(1)} s of ${length.toFixed(1)} s`, zoomed: parts.filter((p) => p.crop).length });
+    const file = join(t.scenes, `${nn(s.n)}.mkv`);
+    renameSync(cap.file, file);
+    save(s.n, { kind: 'chrome', file, parts, area: cap.area });
+    // Under 1.5 s reads as a flash (0.6 s before its zoom in CHE-865).
+    const short = parts.filter((p) => p.length < 1.5).map((p) => `beat ${p.beat + 1}: ${p.length.toFixed(1)} s`);
+    return print({
+      scene: s.n, kept: `${parts.reduce((a, p) => a + p.length, 0).toFixed(1)} s of ${length.toFixed(1)} s`, zoomed: parts.filter((p) => p.crop).length,
+      ...(short.length ? { warning: `Stretches under 1.5 s flash by: ${short.join(', ')}. Join each to a neighbour, or record the scene again.` } : {}),
+    });
   }
 
   if (cmd === 'assemble') {
@@ -673,8 +781,9 @@ async function main() {
       }
       const line = beatTimeline(beats.map((x) => x.seconds), footage);
       const total = line.reduce((sum, g) => sum + g.length, 0);
-      // A part is re-encoded only when what goes into it changed, so fixing one scene doesn't redo the rest.
-      const out = join(t.build, `${nn(s.n)}-${hash(JSON.stringify({ shot: { ...shot, at: null }, voice: beats.map((x) => x.file), say: s.say, captions: board.captions, v: 4 }))}.mp4`);
+      // A part is re-encoded only when what goes into it changed, so fixing one scene doesn't redo the rest. The shot's
+      // save time is in it: a slide re-rendered to the same file kept its old picture without it.
+      const out = join(t.build, `${nn(s.n)}-${hash(JSON.stringify({ shot, voice: beats.map((x) => x.file), say: s.say, captions: board.captions, v: 5 }))}.mp4`);
       if (!existsSync(out)) {
         for (const f of readdirSync(t.build)) if (f.startsWith(`${nn(s.n)}-`) && f.endsWith('.mp4')) rmSync(join(t.build, f));
         let k = 0;
@@ -685,20 +794,7 @@ async function main() {
         }));
         const look = [`scale=${W}:${H}:force_original_aspect_ratio=decrease`, `pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=${BG}`, ...(board.captions ? caps : []), `fps=${FPS}`, 'format=yuv420p[v]'].join(',');
         let video = `[0:v]${look}`;
-        if (shot.kind !== 'slide') {
-          const chains = [];
-          let c = 0;
-          line.forEach((g, i) => {
-            // A zoomed stretch is cropped and scaled back to the recording's size, so every stretch joins at one size.
-            const ids = stretches.filter((p) => beatOf(p) === i).map((p) => {
-              chains.push(`[0:v]trim=start=${p.from.toFixed(3)}:end=${(p.from + p.length).toFixed(3)},setpts=PTS-STARTPTS${p.crop ? `,crop=${p.crop.w}:${p.crop.h}:${p.crop.x}:${p.crop.y},scale=${shot.area.w}:${shot.area.h}:flags=lanczos` : ''}[c${c}]`);
-              return `[c${c++}]`;
-            });
-            // Footage shorter than its beat holds its last frame until the voice is done.
-            chains.push(`${ids.join('')}concat=n=${ids.length}:v=1:a=0,tpad=stop_mode=clone:stop_duration=${(g.length - footage[i] + 0.2).toFixed(2)},trim=duration=${g.length.toFixed(3)},setpts=PTS-STARTPTS[b${i}]`);
-          });
-          video = `${chains.join(';')};${line.map((_, i) => `[b${i}]`).join('')}concat=n=${line.length}:v=1:a=0,${look}`;
-        }
+        if (shot.kind !== 'slide') video = `${footageGraph(stretches.map((p) => ({ ...p, beat: beatOf(p) })), line, footage)},${look}`;
         // Each beat's voice starts with its footage, and silence fills the rest of the beat. The voice files come out
         // near -21 LUFS; +5 dB puts the video near -16, where web video sits.
         const audio = beats.map((_, i) => {
@@ -711,20 +807,32 @@ async function main() {
       }
       parts.push(out);
       report.push({ scene: s.n, kind: s.kind, seconds: Number(total.toFixed(1)) });
-      const png = join(t.build, `frame-${nn(s.n)}.png`);
-      ff(['-ss', (total / 2).toFixed(2), '-i', out, '-frames:v', '1', '-vf', 'scale=640:-2', '-update', '1', png]);
-      tiles.push(png);
+      // A frame from the middle of each beat, labelled "scene.beat": one per scene missed a preview showing the wrong
+      // section (CHE-865). One ffmpeg pass per scene.
+      for (const f of readdirSync(t.build)) if (f.startsWith(`frame-${nn(s.n)}-`)) rmSync(join(t.build, f));
+      const picks = line.map((g) => Math.round((g.start + g.length / 2) * FPS));
+      ff(['-i', out, '-vf', `select='${picks.map((n) => `eq(n\\,${n})`).join('+')}',scale=${TILE.w}:${TILE.h}`, '-fps_mode', 'passthrough', join(t.build, `frame-${nn(s.n)}-%d.png`)]);
+      line.forEach((_, i) => { const png = join(t.build, `frame-${nn(s.n)}-${i + 1}.png`); if (existsSync(png)) tiles.push({ png, label: `${s.n}.${i + 1}` }); });
     }
     const list = join(t.build, 'list.txt');
     writeFileSync(list, parts.map((p) => `file '${p.replace(/\\/g, '/')}'`).join('\n'));
     for (const f of readdirSync(t.vdir)) if (/-walkthrough(\.unreviewed)?\.mp4$/.test(f)) rmSync(join(t.vdir, f));
     const final = join(t.vdir, `${key}-walkthrough.unreviewed.mp4`);
     ff(['-f', 'concat', '-safe', '0', '-i', list, '-c', 'copy', '-movflags', '+faststart', final]);
-    // One frame from the middle of each scene, two per row, for the agent's check.
-    const frames = join(t.vdir, 'frames.png');
-    if (tiles.length === 1) ff(['-i', tiles[0], '-frames:v', '1', '-update', '1', frames]);
-    else ff([...tiles.flatMap((p) => ['-i', p]), '-filter_complex', `${tiles.map((_, i) => `[${i}:v]`).join('')}xstack=inputs=${tiles.length}:layout=${tiles.map((_, i) => `${(i % 2) * 640}_${Math.floor(i / 2) * 360}`).join('|')}:fill=black`, '-frames:v', '1', '-update', '1', frames]);
-    return print({ video: final, seconds: Number(seconds(final).toFixed(1)), scenes: report, frames, framesOrder: `two per row: scenes ${board.scenes.map((s) => s.n).join(', ')}` });
+    // Sheets of six, two per row, each tile labelled: a single sheet of every scene reached the agent shrunk to 355 px
+    // tiles, too small to see a cut-off label or a second pointer.
+    for (const f of readdirSync(t.vdir)) if (/^frames(-\d+)?\.png$/.test(f)) rmSync(join(t.vdir, f));
+    const frames = [];
+    for (let i = 0; i < tiles.length; i += 6) {
+      const sheet = tiles.slice(i, i + 6);
+      const file = join(t.vdir, `frames-${frames.length + 1}.png`);
+      const label = (k, x) => `[${k}:v]drawtext=text='${x.label}':expansion=none:${font}:fontsize=36:fontcolor=white:box=1:boxcolor=black@0.7:boxborderw=10:x=14:y=14[l${k}]`;
+      const graph = sheet.length === 1 ? `${label(0, sheet[0])};[l0]null`
+        : `${sheet.map((x, k) => label(k, x)).join(';')};${sheet.map((_, k) => `[l${k}]`).join('')}xstack=inputs=${sheet.length}:layout=${sheet.map((_, k) => `${(k % 2) * TILE.w}_${Math.floor(k / 2) * TILE.h}`).join('|')}:fill=black`;
+      ff([...sheet.flatMap((x) => ['-i', x.png]), '-filter_complex', graph, '-frames:v', '1', '-update', '1', file]);
+      frames.push(file);
+    }
+    return print({ video: final, seconds: Number(seconds(final).toFixed(1)), scenes: report, frames, framesOrder: 'one frame from the middle of each beat, labelled scene.beat, six per sheet' });
   }
 
   if (cmd === 'reviewed') {
@@ -794,6 +902,20 @@ function selftest() {
     ['storyboard: an unknown Prio refused', /isn't P1, P2 or P3/.test(bad(board.replace('| # | Kind |', '| # | Prio | Kind |').replace('| --- | --- |', '| --- | --- | --- |').replace('| 1 | slide', '| 1 | P9 | slide').replace('| 2 | storefront', '| 2 | P1 | storefront').replace('| 3 | chrome', '| 3 | P1 | chrome')))],
     ['marks: a covered corner is refused', /only some/.test(covered.problem || '')],
     ['marks: none on screen', /no corner marks/.test(scr([]).problem || '')],
+    ['captions: a price or a domain keeps all its text', (() => { const t = captionChunks('Orders over $49.99 ship free. See example.com now! Done.', 6).map((c) => c.text).join(' '); return t === 'Orders over $49.99 ship free. See example.com now! Done.'; })()],
+    ['sync: the flash is found by its frame, and only a mostly magenta frame counts', (() => {
+      const frame = (magenta) => { const b = Buffer.alloc(16 * 9 * 3, 30); for (let i = 0; i < magenta * 3; i += 3) { b[i] = 255; b[i + 1] = 0; b[i + 2] = 255; } return b; };
+      return flashFrame(Buffer.concat([frame(0), frame(40), frame(144), frame(144)]), 144) === 2 / FPS && flashFrame(frame(40), 144) === null;
+    })()],
+    ['voice: "&" and "<" are escaped for SSML', ssmlText('Shipping & returns <50 dollars') === 'Shipping &amp; returns &lt;50 dollars'],
+    ['where: no space before @mobile', storefrontWhere('products/x@mobile').path === '/products/x' && storefrontWhere('products/x@mobile').mobile],
+    ['zoom: what\'s talked about stays above the captions', (() => { const f = [0.4, 0.3, 0.1, 0.4], c = focusCrop(f, 1920, 1080); return (f[1] + f[3]) * 1080 - c.y <= 0.8 * c.h + 2 && f[1] * 1080 >= c.y; })()],
+    ['footage: every stretch fitted to the picture with square pixels', (() => { const g = footageGraph([{ from: 0, length: 2, beat: 0 }, { from: 3, length: 2, beat: 0, crop: { x: 0, y: 0, w: 904, h: 508 } }], [{ start: 0, length: 4.5 }], [4]); return (g.match(/setsar=1/g) || []).length === 2 && (g.match(/pad=1920:1080/g) || []).length === 2; })()],
+    // The pixel-shape clash only shows on input with a set shape (gdigrab leaves it unset), so run it where ffmpeg is.
+    ['footage: a zoomed and a plain stretch join in ffmpeg', !ffmpegBin() || (() => {
+      const g = footageGraph([{ from: 0, length: 1, beat: 0 }, { from: 1.5, length: 1, beat: 0, crop: { x: 2, y: 216, w: 904, h: 508 } }, { from: 3, length: 1, beat: 1, crop: { x: 0, y: 0, w: 700, h: 394 } }], [{ start: 0, length: 2.2 }, { start: 2.2, length: 1.2 }], [2, 1]);
+      try { ff(['-f', 'lavfi', '-i', 'testsrc=s=1406x790:d=5:r=25', '-filter_complex', `${g}[v]`, '-map', '[v]', '-f', 'null', '-']); return true; } catch { return false; }
+    })()],
   ];
   const failed = checks.filter(([, ok]) => !ok);
   for (const [name, ok] of checks) console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}`);

@@ -1,5 +1,43 @@
 # Changelog
 
+## 1.13.0 — 2026-11-19
+
+From a review of the whole video feature against the CHE-865 and VSD-327 runs. All checked against the code, the real recordings, or a re-recording of CHE-865 scenes.
+
+**Fixes**
+- **A Say with "&" or "<" no longer stops narration.** The voice library put the text into its request unescaped, and `durations`, `record` and `assemble` all failed.
+- **Captions keep prices and domains whole.** "Orders over $49.99 ship free." was captioned "Orders over" / "99 ship free.", while the voice said it all.
+- **Storefront footage starts with its action.** Two errors, measured on the CHE-865 finder:
+  - The recording's start was taken from its length, which comes out short. Now the overlay flashes the page once before the first beat, and the recorder finds that frame.
+  - On a busy page, finding an element took 1.4 s before anything moved. A beat's footage now starts with its first visible action.
+  - Each beat's action now starts within about 0.4 s of its words.
+- **Storefront scenes:**
+  - After a click that opens another page, the corner marks no longer show and `hide` rules still apply.
+  - Selectors match the first visible element.
+  - A click waits until the element stops moving.
+  - "products/x@mobile" works without a space.
+- **A re-rendered slide replaces the old one.** Its cache key didn't change, so the old picture stayed.
+- **Chrome recordings:**
+  - Running `chrome-start` twice stops the first take, so two recorders never write one file.
+  - The scene's kept recording stays until `chrome-stop` accepts the new take.
+  - A recording runs up to 10 minutes past its voice, up from 2.
+  - Stopping it never kills another process that reused its pid.
+- **After the draft is deleted,** `assemble` and `reviewed` still run. Only filming needs the draft.
+- **Two beats with the same words** no longer collide in narration. A recording's length is read without decoding it, 15x faster.
+- **Every stretch is fitted to 1920x1080 with square pixels before joining.** A zoom keeps its shape on an admin page that isn't 16:9, and a recording that sets its pixel shape can't fail the join.
+
+**The dev and the client**
+- **The agent checks a frame from every beat,** on labelled sheets of six that it can read at near full size. Before, one 640 px frame per scene missed the preview showing the wrong section, the cut edges and the second pointer.
+- **`chrome-start` saves what the screen recording sees** (`scenes/NN.start.png`). The agent reads it on the first chrome scene, because its own screenshots come from the tab.
+- **A tab that isn't in front is caught.** `__kc.now()` returns "OFF SCREEN …" when the tab was hidden since the last mark, and the agent asks the dev and redoes that stretch.
+- **Captions stay clear of what the voice names.** A zoom keeps its target above the bottom fifth, and a storefront element is scrolled to 40% from the top.
+- **The client learns the way in.** The first editor scene says the video was filmed on a preview copy and how to open the editor on their live theme (Online Store › Themes › Customize). The closing slide starts with that path. The reviewer checks both.
+- **No more flashes:** the first stretch stays unzoomed for at least 2 s, and `chrome-stop` warns about stretches under 1.5 s. Only the scene's first stretch loses 0.2 s to the corner marks.
+- **A login or 2FA page in the editor tab:** the agent asks the dev to log in, instead of turning a core scene into a slide.
+- **One answer from the dev when recording starts:** the agent opens the Chrome tab and asks for the window right away, and records the storefront scenes meanwhile.
+- **"Change something" says to write what and where,** so the dev isn't asked twice.
+- **The command file's contradictions are fixed:** the set-back step number, navigating only when the page changes, `frame()` before the first screenshot, and the storefront-in-Chrome step.
+
 ## 1.12.1 — 2026-11-19
 
 From the CHE-865 retakes on 1.12.0.
