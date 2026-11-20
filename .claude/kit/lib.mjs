@@ -109,7 +109,7 @@ export function namesKey(name, key) {
 /**
  * Runs a program. Real executables are spawned directly. The Shopify CLI is a .cmd shim
  * on Windows, which Node can only start through a shell, so those arguments are quoted
- * here and characters cmd.exe would interpret are refused.
+ * here and characters cmd.exe would interpret are refused (as a failed run, so callers report it like any CLI error).
  */
 export function run(cmd, args = [], { cwd = ROOT, env = {}, input, timeout = 600000, shell = false } = {}) {
   // The CLI reads SHOPIFY_FLAG_* as flags (SHOPIFY_FLAG_LIVE, _THEME, _STORE…): one left in the shell would retarget a call the wrapper built.
@@ -117,7 +117,8 @@ export function run(cmd, args = [], { cwd = ROOT, env = {}, input, timeout = 600
   const opts = { cwd, env: { ...inherited, ...env }, input, encoding: 'utf8', timeout, maxBuffer: 64 * 1024 * 1024 };
   let res;
   if (shell && WIN) {
-    for (const a of args) if (/["%^&|<>!\r\n]/.test(a)) throw new Error(`Refusing to pass ${JSON.stringify(a)} through cmd.exe.`);
+    const bad = args.find((a) => /["%^&|<>!\r\n]/.test(a));
+    if (bad !== undefined) return { code: 1, stdout: '', stderr: `Refusing to pass ${JSON.stringify(bad)} through cmd.exe, which reads " % ^ & | < > ! as its own syntax. Rename the file or folder without those characters, or ask the dev to run the command with the ! prefix.`, timedOut: false };
     const line = [cmd, ...args].map((a) => (a === '' || /[\s*?]/.test(a) ? `"${a}"` : a)).join(' ');
     // Otherwise cmd.exe runs a shopify.cmd from the repo root before the one on PATH.
     res = spawnSync(line, { ...opts, env: { ...opts.env, NoDefaultCurrentDirectoryInExePath: '1' }, shell: true });

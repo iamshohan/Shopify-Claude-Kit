@@ -86,16 +86,7 @@ Aim for 300 lines or fewer. A small fix gets a short plan: write "none" under a 
     - Write each mutation now, to `.claude/logs/<KEY>/mutations/NN-<name>.graphql`, with variables in `NN-<name>.vars.json`.
     - Validate each one once with the `shopify-plugin:shopify` skill (topic `admin`, `--version <adminApiVersion from .claude/shopify-kit.json>`). The draft stage runs these same files.
     - Metaobject definitions that should render on the storefront need `access.storefront: PUBLIC_READ`. Don't set `access.admin` on merchant-owned definitions.
-  - **Scopes the Admin login needs**, by owner type:
-
-    | Owner type | Scope |
-    | --- | --- |
-    | PRODUCT, PRODUCTVARIANT, COLLECTION | `write_products` |
-    | metaobject definitions and entries | `write_metaobject_definitions`, `write_metaobjects` |
-    | PAGE, ARTICLE, BLOG | `write_content` |
-    | CUSTOMER | `write_customers` |
-
-    The kit's default login covers the first two rows. For the others, give the dev the `! shopify store auth --store <store> --scopes …` command with the extra scope added. The CLI merges it with the scopes already granted.
+  - **Scopes:** the kit's default login covers product, variant, collection and metaobject definitions. Page, article, blog and customer definitions need one more scope: say so in the plan. If the draft stage's mutate fails on it, its error prints the login command with that scope added.
   - **QA test data.** Which products. Ask the dev to name them; never pick live products yourself.
   - **Merchant steps after merge:** placement, entries, Translate & Adapt.
 - **Conventions to follow,** from § Found. For example: "CSS via `stylesheet_tag` in the snippet, like `snippets/product-badges.liquid`".

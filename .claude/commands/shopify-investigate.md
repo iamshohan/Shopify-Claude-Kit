@@ -12,13 +12,14 @@ You are running a read-only investigation with the Shopify Implementation Kit. A
 
 1. **Nothing given** → run `node .claude/kit/kit.mjs list`, ask the dev which investigation to continue or what to investigate, and stop until they answer.
 2. **`.claude/shopify-kit.json` missing** → tell the dev to run `/shopify-setup` first, and stop.
-3. **Once per session,** run `node .claude/kit/shopify.mjs cli-check`. If it reports problems (exit 2), tell the dev to run `/shopify-update`, and stop.
+3. **Once per session,** run `node .claude/kit/shopify.mjs cli-check`. If it reports problems (exit 2), read each one's "Affects:". Stop and tell the dev to run `/shopify-update` only when one affects what investigations use: `query`, `pull-live`, `fetch`, `auth-check` or docs lookups. Otherwise mention them in one line and go on.
 4. **The key:**
    - A ticket key in the arguments (like `ABC-123`) → use it.
    - Only a question → use `INV-<month><day><hour><minute>`, for example `INV-10201530`.
 5. **Run `node .claude/kit/kit.mjs status <KEY>`.**
    - **"not started":** run `node .claude/kit/kit.mjs start <KEY> --investigate`. Then, if the dev gave a question, write it under § Question in `.claude/logs/<KEY>/investigation.md` in their words.
    - **It's an implementation task:** investigations of a running implementation happen inside `/shopify-implement`. Tell the dev that, and offer a separate `INV-…` key.
+   - **"finished":** show the dev its answer (§ Answer, one or two lines) and ask whether to reopen it (`kit.mjs back <KEY> gather --reason "<what to look at>"`) or start a new `INV-…` key.
 6. **Status names the stage and the skill.** Load that skill (`shopify-investigation`) with the Skill tool, and do only that stage.
 7. **When the stage is finished,** run `node .claude/kit/kit.mjs done <KEY> <stage>`. The last stage is a gate and needs `--answer "<the dev's words>"`. If the script refuses, fix what it lists and run it again.
 8. **Continue from what `done` printed:** it is the new status. Tell the dev in one line each time the stage changes.

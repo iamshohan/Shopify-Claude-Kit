@@ -68,7 +68,7 @@ Never write "QA passed" while any row is FAIL, NOT TESTED or BLOCKED.
    - **Bug fixes:** measure the "Repro:" row on live too. It must fail there and pass on the draft; record both in Measured ("live: …; draft: …"). A repro that doesn't fail on live proves nothing about the fix, and `done qa` refuses a PASS without both.
    - Check that the experiment isn't running on the draft (its body class or init attribute, from the A/B inventory). If it is, stop and ask the dev: its code rewrites the new markup.
    - **Design audit rows (exact mode):** run `node .claude/kit/kit.mjs design-audit <KEY> <viewport>` and do what it prints: resize, open the page in the default state, run the generated file with `browser_run_code_unsafe`. It checks every value in `design-checks.json` with fixed tolerances and gives the verdict. PASS only when its verdict is PASS. Otherwise record FAIL with the failures and missing selectors in Measured (the full output goes in report.md § Details if it's long). A missing selector usually means the build named the class differently from the plan: that's a FAIL to fix, not a spec to edit.
-   - **Design rows (reference mode):** layout only, at the Figma frame's width: what's present, the order, what shows and hides, and sizes that fill or flex (`__qa.see`, `__qa.gap`, `__qa.box`).
+   - **Design rows (reference mode):** layout only, at the Figma frame's width: what's present, the order, what shows and hides, and sizes that fill or flex (`__qa.see`, `__qa.gap`).
    - **A design check on request:** if the dev doubts the draft matches a Figma design that wasn't part of the plan, run the `design-extractor` agent on the frames they name, write `design.md` and `design-checks.json` as analyze does, fill the selectors from the build, and add audit rows to report.md § Criteria marked "(design)".
 2. **Settings behaviour.** Cover the defaults, each empty state, and up to two combinations. Use virtual previews, not the editor.
    1. Copy `.claude/kit/templates/preview-overrides.example.json` to `.claude/logs/<KEY>/previews/NN-<case>.json` and change only the file, section key, block ids and values.
@@ -79,22 +79,21 @@ Never write "QA passed" while any row is FAIL, NOT TESTED or BLOCKED.
       - Section groups work the same way: header and footer settings live in `sections/header-group.json` (or `footer-group.json`), so override that file, not a template.
    2. Run `node .claude/kit/shopify.mjs preview <KEY> <file>`, open the URL it returns, pass the gates above, and measure.
    3. After two failed previews for one case, mark those rows NOT TESTED, quote the CLI error, and move on.
-3. **Customizer.** The theme editor is one cross-origin iframe: `read_page`, `find`, `get_page_text` and `javascript_tool` can't see inside it. Split the check in three.
+3. **Customizer.** Skip this step when `contract.mjs` reports no changed section, block or theme settings files (a CSS-only or Liquid-only fix): nothing in the editor changed. Otherwise: the theme editor is one cross-origin iframe, so `read_page`, `find`, `get_page_text` and `javascript_tool` can't see inside it. Split the check in three.
    1. **Contract (script).** Run `node .claude/kit/contract.mjs <KEY>`. It writes `.claude/logs/<KEY>/contract.md` from the changed schemas, locales and templates: names, presets, where each section can be added, and every setting's label, type, default, options/range, info and `visible_if`.
       - Compare it row by row with `plan.md` § Schema details. Each mismatch is a FAIL.
       - Each entry in its "Problems" list is a FAIL: missing `t:` keys, a default that isn't an option, an off-range default, unknown preset blocks.
    2. **Loads in the editor (one screenshot per task).** Navigate to `<editorUrl>?previewPath=<a target page>`, wait about 30 seconds (the editor took 8–40 s to load in tests), and take one screenshot. It must show the draft's name with the **Draft** badge, a greyed-out **Save** button, and the feature in the preview. A login or 2FA page means BLOCKED; stop. Cite the screenshot in the How column of the customizer row. Never click in the editor.
-   3. **By hand (dev checklist).** Add these as BLOCKED rows with "dev checks by hand":
-      - each setting's label and value in the editor panel, and each section's entry (or its absence) in "Add section": contract.md lists them, with a "Seen in editor" column for the dev
-      - the dynamic-source picker shows the metafield
-      - a value change re-renders live in the preview
-      - image, colour and url pickers open
-      - blocks can be added, removed and reordered
+   3. **By hand (dev checklist).** Add a BLOCKED row with "dev checks by hand" only for the items this change touches; leave out the rest:
+      - each setting's label and value in the editor panel, and each section's entry (or its absence) in "Add section": contract.md lists them, with a "Seen in editor" column for the dev (always, when the contract lists anything)
+      - the dynamic-source picker shows the metafield (a new metafield setting or source)
+      - a value change re-renders live in the preview (settings the plan says update without a reload)
+      - image, colour and url pickers open (new settings of those types)
+      - blocks can be added, removed and reordered (new or changed blocks)
       - placing a section or block by drag in the theme or checkout editor (synthetic drag events there aren't reliable)
-      - app blocks still work
-      - the mobile preview toggle
-      - Translate & Adapt texts
-      - anything judged by eye
+      - app blocks still work (the changed section accepts `@app` blocks)
+      - Translate & Adapt texts (new merchant-facing text in a translated store)
+      - anything else judged by eye
 4. **Regression.** Run `node .claude/kit/compare.mjs <KEY>`. It compares live with the draft on the untouched paths: the section lists and the feature prefix decide its verdict. `htmlDiffers` lists sections whose HTML differs, often per-request content (stock, recommendations): look at the ones the branch touches.
    - DIFFERS: rule out live edits made after the draft was copied (`draftCreatedAt`) before calling it a regression.
    - BLOCKED (password page, bot protection, wrong theme): report it as BLOCKED.

@@ -5,7 +5,7 @@
 //   node test/e2e.mjs [--keep]      --keep leaves the temp folder for inspection
 // Exits 1 if any check fails.
 import { spawnSync, execFileSync } from 'node:child_process';
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { delimiter, dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -142,15 +142,18 @@ try {
   // ── Updating every repo on the machine, and the update notice ──
   const registry = () => JSON.parse(readFileSync(process.env.SHOPIFY_KIT_REGISTRY, 'utf8'));
   ok('the installer lists the repo, and the manifest names the clone it came from',
-    registry()[resolve(repo)] === 'theme' && JSON.parse(readFileSync(manifestPath, 'utf8')).source === resolve(KIT), JSON.stringify(registry()));
+    registry()[realpathSync.native(repo)] === 'theme' && JSON.parse(readFileSync(manifestPath, 'utf8')).source === resolve(KIT), JSON.stringify(registry()));
   const deletedRepo = join(tmp, 'deleted-theme');
-  writeFileSync(process.env.SHOPIFY_KIT_REGISTRY, JSON.stringify({ ...registry(), [deletedRepo]: 'theme' }));
+  // Windows spells one folder several ways (drive letter case, 8.3 names): each is the same repo, updated once.
+  const spellings = process.platform === 'win32' ? [repo.charAt(0).toLowerCase() + repo.slice(1), repo.toUpperCase()] : [];
+  writeFileSync(process.env.SHOPIFY_KIT_REGISTRY, JSON.stringify({ ...registry(), [deletedRepo]: 'theme', ...Object.fromEntries(spellings.map((s) => [s, 'theme'])) }));
   const updateAll = spawnSync(process.execPath, [join(KIT, 'update.mjs'), '--no-pull'], { encoding: 'utf8' });
-  ok('update.mjs updates every listed repo and drops one whose kit is gone',
-    updateAll.status === 0 && updateAll.stdout.includes(`ok ${resolve(repo)}`) && /dropped/.test(updateAll.stdout) && !(deletedRepo in registry()), updateAll.stdout + updateAll.stderr);
+  ok('update.mjs updates every listed repo once and drops one whose kit is gone',
+    updateAll.status === 0 && updateAll.stdout.split(`ok ${realpathSync.native(repo)}`).length === 2 && /in 3 repos/.test(updateAll.stdout)
+      && /dropped/.test(updateAll.stdout) && !(deletedRepo in registry()), updateAll.stdout + updateAll.stderr);
   writeFileSync(process.env.SHOPIFY_KIT_REGISTRY, '{}');
   const scan = spawnSync(process.execPath, [join(KIT, 'update.mjs'), '--scan', tmp, '--list'], { encoding: 'utf8' });
-  ok('update.mjs --scan finds repos installed before the list existed', scan.status === 0 && registry()[resolve(repo)] === 'theme' && scan.stdout.includes(resolve(repo)), scan.stdout + scan.stderr);
+  ok('update.mjs --scan finds repos installed before the list existed', scan.status === 0 && registry()[realpathSync.native(repo)] === 'theme' && scan.stdout.includes(realpathSync.native(repo)), scan.stdout + scan.stderr);
   // install --all: a theme and an app repo get the kit; a theme folder outside git is only listed.
   const all = join(tmp, 'all');
   const themeA = join(all, 'shop-a'), appB = join(all, 'clients', 'app-b'), loose = join(all, 'loose-theme');
@@ -167,7 +170,7 @@ try {
   const applied = allRun('--yes');
   const allAgain = allRun();
   ok('install --all --yes installs each kit and lists them for update.mjs; a second run has nothing to do',
-    applied.status === 0 && kitIn(themeA) && kitIn(appB) && !kitIn(loose) && registry()[resolve(themeA)] === 'theme' && registry()[resolve(appB)] === 'app'
+    applied.status === 0 && kitIn(themeA) && kitIn(appB) && !kitIn(loose) && registry()[realpathSync.native(themeA)] === 'theme' && registry()[realpathSync.native(appB)] === 'app'
       && /\/shopify-setup/.test(applied.stdout) && /Nothing to install/.test(allAgain.stdout) && /has\s+app/.test(allAgain.stdout), applied.stdout + applied.stderr + allAgain.stdout);
   // The notice reads the clone's own VERSION offline (SHOPIFY_KIT_NO_FETCH), and remembers its last check.
   const stateFile = join(tmp, 'update-check.json');
@@ -186,6 +189,10 @@ try {
     upToDate.status === 0 && upToDate.stdout === '' && /is available \(this repo has 0\.0\.1\)/.test(shown.systemMessage || '')
       && /update\.mjs/.test(shown.systemMessage) && shown.hookSpecificOutput?.hookEventName === 'SessionStart' && quiet.stdout === '',
     `${upToDate.stdout}\n${behindNotice.stdout}${behindNotice.stderr}\n${quiet.stdout}`);
+  writeFileSync(manifestPath, JSON.stringify({ ...JSON.parse(installedManifest), source: join(tmp, 'moved-kit') }));
+  const goneClone = notice();
+  writeFileSync(manifestPath, installedManifest);
+  ok('a kit clone that moved away says so instead of going quiet', /is gone, so kit update notices are off/.test(goneClone.stdout) && /update\.mjs --scan/.test(goneClone.stdout), goneClone.stdout + goneClone.stderr);
   // Back to a clean install, then the config /shopify-setup would write.
   rmSync(localPath);
   rmSync(join(repo, '.claude', 'CLAUDE.md.pre-kit'));
@@ -305,6 +312,15 @@ try {
   writeFileSync(schemaPath, schemaBefore);
   ok('contract lists changed theme settings groups and checks their settings',
     /Theme settings → Bundle/.test(settingsContract.out) && /default \\"x\\" of \\"mode\\" isn't one of its options/.test(settingsContract.out) && !/theme_info/.test(settingsContract.out), settingsContract.all);
+  // A section without presets renders where {% section %} places it (older themes); one placed nowhere is a problem.
+  const layoutBefore = readFileSync(join(repo, 'layout', 'theme.liquid'), 'utf8');
+  writeFileSync(join(repo, 'layout', 'theme.liquid'), `{% section 'legacy' %}\n${layoutBefore}`);
+  for (const n of ['legacy', 'orphan']) write(`sections/${n}.liquid`, `<div></div>\n{% schema %}{ "name": "${n}", "settings": [] }{% endschema %}\n`);
+  const placed = kit('contract.mjs', KEY, '--files', 'sections/legacy.liquid,sections/orphan.liquid');
+  writeFileSync(join(repo, 'layout', 'theme.liquid'), layoutBefore);
+  for (const n of ['legacy', 'orphan']) rmSync(join(repo, 'sections', `${n}.liquid`));
+  ok('contract counts {% section %} placements; a section placed nowhere is still a problem',
+    /orphan\.liquid[^"]*renders nowhere/.test(placed.out) && !/legacy\.liquid[^"]*renders nowhere/.test(placed.out), placed.all);
 
   // ── Reconcile an unsynced live edit ──
   // A live edit that never reaches git: reconcile by hand, then --reconciled pins that live version.
@@ -417,6 +433,15 @@ try {
   guardSees('node helper.mjs');
   const afterNo = kit('shopify.mjs', 'mutate', KEY, mfile);
   ok('another guarded call after the prompt voids the seal', afterNo.code === 1 && /wasn't shown/.test(afterNo.err), afterNo.all);
+  // query is unprompted, so a mutation hidden behind a "#" in a string must still be seen.
+  write(`.claude/logs/${KEY}/sneak.graphql`, 'query { shop(x: "#") { id } }\nmutation M { themePublish(id: "gid://shopify/OnlineStoreTheme/1") { theme { id } } }\n');
+  const sneak = kit('shopify.mjs', 'query', `.claude/logs/${KEY}/sneak.graphql`);
+  ok('query refuses a file holding a mutation', sneak.code === 1 && /contains a mutation/.test(sneak.err) && !calls().some((c) => JSON.stringify(c).includes('sneak')), sneak.all);
+  if (process.platform === 'win32') {
+    write(`.claude/logs/${KEY}/r&d.graphql`, '{ shop { name } }\n');
+    const amp = kit('shopify.mjs', 'query', `.claude/logs/${KEY}/r&d.graphql`);
+    ok('an argument cmd.exe would read as syntax fails cleanly, not with a stack trace', amp.code !== 0 && /Refusing to pass/.test(amp.all) && !/at run \(/.test(amp.err), amp.all);
+  }
 
   // ── Stage exits: approve → build → draft → qa → accept → handoff ──
   const logFile = (k, f) => join(repo, '.claude', 'logs', k, f);
@@ -648,6 +673,25 @@ try {
   writeFileSync(st9, JSON.stringify({ ...JSON.parse(readFileSync(st9, 'utf8')), stage: 'conclude' }));
   const clean = kit('kit.mjs', 'done', 'ABC-9', 'conclude', '--answer', 'Accept');
   ok('a clean run finishes without a retro', clean.code === 0 && !/retro/.test(clean.out) && !JSON.parse(readFileSync(st9, 'utf8')).history.some((e) => e.event === 'retro'), clean.all);
+  // Read-only: a file the dev already had changes in keeps its status line when edited again, so its content counts.
+  const headerFile = join(repo, 'sections', 'header.liquid');
+  const headerBefore = readFileSync(headerFile, 'utf8');
+  writeFileSync(headerFile, `${headerBefore}<!-- the dev's work in progress -->\n`);
+  kit('kit.mjs', 'start', 'QST-1', '--investigate');
+  kit('kit.mjs', 'set', 'QST-1', 'type=question');
+  fill('QST-1', '## Question', question);
+  fill('QST-1', '| # | Claim | Label | Source |\n| --- | --- | --- | --- |', '| 1 | The menu comes from the main-menu linklist | Confirmed | |');
+  const unsourced = kit('kit.mjs', 'done', 'QST-1', 'gather');
+  for (const h of ['## Answer', '## Could not determine', '## Next step']) fill('QST-1', h, 'x');
+  const st7 = join(repo, '.claude', 'logs', 'QST-1', 'state.json');
+  writeFileSync(st7, JSON.stringify({ ...JSON.parse(readFileSync(st7, 'utf8')), stage: 'conclude' }));
+  const untouched = kit('kit.mjs', 'done', 'QST-1', 'conclude', '--answer', 'Accept');
+  writeFileSync(st7, JSON.stringify({ ...JSON.parse(readFileSync(st7, 'utf8')), stage: 'conclude' }));
+  writeFileSync(headerFile, `${headerBefore}<!-- the dev's work in progress -->\n<!-- the agent's debug line -->\n`);
+  const edited = kit('kit.mjs', 'done', 'QST-1', 'conclude', '--answer', 'Accept');
+  writeFileSync(headerFile, headerBefore);
+  ok('an investigation needs a source for Confirmed evidence, and catches an edit to a file that already had changes',
+    /without a Source \(#1\)/.test(unsourced.err) && !/theme files changed/.test(untouched.all) && /theme files changed[^\n]*sections\/header\.liquid/.test(edited.err), unsourced.all + untouched.all + edited.all);
 
   // ── Bug fixes reproduce the bug ──
   kit('kit.mjs', 'start', 'ABC-6');

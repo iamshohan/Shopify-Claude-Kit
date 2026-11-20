@@ -1,5 +1,37 @@
 # Changelog
 
+## 1.13.1 — 2026-11-20
+
+From a review of the whole kit, trimmed by a second review to what a well-meaning agent would actually hit, so the guard gets no stricter than it needs to be.
+
+**Guard**
+- **`git -c` settings are checked like saved ones.** `git -c push.default=upstream push -u origin ABC-1`, on a branch the kit made from `origin/main`, pushed to main.
+- **`findstr /s … *` can't read `.claude/.env.local`.** findstr does its own globbing; a pattern that can't match `.env` (`*.liquid`) still passes.
+- **Two wrong blocks removed:** `Get-ChildItem env:PATH` (only the whole environment or a secret's name is denied) and `cat .eslintrc*`. `.envrc` joins the Read deny list.
+- New tests for rules that had none: `git stash drop`/`clear`, `query` refusing a file that hides a mutation, and an argument cmd.exe would misread.
+
+**Implement and QA**
+- **QA no longer fails a section placed with `{% section %}`** (older themes) as "renders nowhere". Without JSON templates on disk, contract.md says placement is unknown instead.
+- **A snippet the layout renders counts as on every page,** and so does an asset it loads, so Gate 2 names a cart drawer change.
+- **The design audit's track gap** compares neighbours in the same row, so a wrapping grid passes, and skips children with no box.
+- **QA's by-hand checklist lists only what the change touches,** and the customizer step is skipped when no section, block or theme setting changed.
+- theme-builder takes only the layout from design.md in reference mode. `__qa.box` is gone from the QA skill (it takes an element, not a selector).
+- **A scope error on a page, article, blog or customer metafield** prints the login command with the scope it needs. The plan skill's scope table is gone: scopes live in `shopify.mjs`.
+- **Intake fetches first** and says when a branch for the key exists, or when the checkout isn't the base, before analysis plans against old code.
+- **Client feedback after handoff:** a defect goes back to build, a changed requirement back to plan.
+- A repo path with `&` gives a clean message instead of a stack trace. `status` shows the feature prefix and QA paths. "—" counts as "none".
+
+**Investigate and feasibility**
+- **Read-only covers files the dev already had changes in:** editing one again is caught at conclude.
+- **Confirmed evidence needs a source.** Docs claims cite the shopify.dev URL and the quoted sentence, and the evidence checker can fetch it. `fetch --live` is a storefront source the checker can re-read. After "Dig further", the checker runs again.
+- Questions go in as few AskUserQuestion calls as needed (up to 4 each). A `cli-check` problem in a verb investigations don't use no longer stops them. A finished investigation offers to reopen or start a new key.
+
+**Install and update**
+- **One repo, one entry:** on Windows, `C:\Users\ECHOLO~1\…`, `c:\users\…` and the long path were three entries, and `update.mjs` installed three times.
+- `install --all --yes` and `update.mjs` show only the lines about the repo's own files moved aside. A same-version run says "Reinstalling".
+- **A moved kit clone** shows a one-line notice instead of silently ending update notices.
+- `/shopify-update` asks the dev to run `! shopify <command> --help`, which the guard blocks for the agent. The root README points to the prerequisites before install.
+
 ## 1.13.0 — 2026-11-19
 
 From a review of the whole video feature against the CHE-865 and VSD-327 runs. All checked against the code, the real recordings, or a re-recording of CHE-865 scenes.

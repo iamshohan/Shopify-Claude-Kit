@@ -43,8 +43,8 @@ An investigation ends in an answer backed by evidence, not in a code change. The
    - What counts as answered.
    - **Debug:** the URL, the steps, expected vs actual, and where it happens (devices, markets, languages, logged in or not).
 
-   If something is missing, or the request reads two ways that would lead to different work, ask everything in one AskUserQuestion round. Otherwise don't ask.
-4. **Feasibility: check the requirements.** Write § Requirements: one row per acceptance criterion, quoted (for a request without a ticket, the requirements in the dev's words). Mark each one clear, unclear or conflicting. Ask every unclear or conflicting one in the same AskUserQuestion round as step 3, each with 2–4 concrete options and your recommendation first, and record the dev's answer verbatim. Don't ask about what the ticket already settles. If `/shopify-implement` follows, these answers count as decided and aren't asked again.
+   If something is missing, or the request reads two ways that would lead to different work, ask everything in as few AskUserQuestion calls as possible (up to 4 questions each). Otherwise don't ask.
+4. **Feasibility: check the requirements.** Write § Requirements: one row per acceptance criterion, quoted (for a request without a ticket, the requirements in the dev's words). Mark each one clear, unclear or conflicting. Ask every unclear or conflicting one together with step 3's questions, each with 2–4 concrete options and your recommendation first, and record the dev's answer verbatim. Don't ask about what the ticket already settles. If `/shopify-implement` follows, these answers count as decided and aren't asked again.
 
 ### Then: the evidence
 
@@ -53,6 +53,7 @@ An investigation ends in an answer backed by evidence, not in a code change. The
 | Topic | First source | Then |
 | --- | --- | --- |
 | How the theme renders or behaves | Grep the repo. `git log -S "<text>"` or `git log -L` shows when it changed and why. | `node .claude/kit/shopify.mjs pull-live <KEY> <files>` when live may differ from git (admin edits, JSON templates, files that aren't in git) |
+| What the storefront renders | `node .claude/kit/shopify.mjs fetch <KEY> <path> --live`: saves the live page's HTML in `.claude/logs/<KEY>/fetch/` and says which theme rendered it. Cite the saved file, so the evidence checker can re-read it. | the browser, for what only shows after scripts run |
 | Product or collection data | `shopify.mjs query product --handle <h>`, `query collection --handle <h>` | the storefront page |
 | Metafields and metaobjects | `query definitions --owner PRODUCT` (or `COLLECTION`, `PAGE`, …), `query metaobjects --type <type>`; the product query lists a product's metafields | Grep the theme for `metafields.<namespace>` and `metaobjects.` |
 | Menus | `query menus` | the sections that render `linklists` (header, footer, drawers) |
@@ -64,7 +65,7 @@ An investigation ends in an answer backed by evidence, not in a code change. The
 
 **Without Admin API access** (`adminApi: false` in `.claude/shopify-kit.json`, and `query` refuses):
 - **Admin pages in Chrome, look only:** Content → Menus, Settings → Markets, Languages, Custom data, Products and Collections.
-- **Public storefront data:** `/products/<handle>.js`, `/collections/<handle>/products.json`, `/cart.js`, the page's `localization` form, and the rendered HTML.
+- **Public storefront data:** `/products/<handle>.js`, `/collections/<handle>/products.json`, `/cart.js`, the page's `localization` form, and the rendered HTML (`shopify.mjs fetch <KEY> <path> --live`).
 - **Otherwise ask the dev.**
 
 Label what you read this way as usual. A screenshot or page reading is Confirmed if you cite it.
@@ -112,7 +113,7 @@ Check the size against the theme's code, not the ticket's length: count the file
 ### Evidence rules
 
 - **Every claim gets a row in § Evidence,** with one of these labels:
-  - **Confirmed:** you read it or observed it. The source must let someone check it: `file:line`, a query name plus the field, a URL plus what was seen, or a screenshot file.
+  - **Confirmed:** you read it or observed it. The source must let someone check it: `file:line`, a query name plus the field, a fetched page in `.claude/logs/<KEY>/fetch/`, a shopify.dev URL plus the quoted sentence, a URL plus what was seen, or a screenshot file. `done gather` refuses a Confirmed row with no source.
   - **Inferred:** it follows from confirmed facts, but you didn't check it directly.
   - **Assumed:** a default or convention you relied on.
   - **Unknown:** you couldn't find out.
@@ -150,7 +151,7 @@ Check the size against the theme's code, not the ticket's length: count the file
    - Dig further (what?)
    - Wrong question
 
-   Record their words: `kit.mjs done <KEY> conclude --answer "<their words>"`. For "dig further" or "wrong question", run `kit.mjs back <KEY> gather --reason "…"` instead. If `done` prints a `retro`, follow its `ask` (a `kit.mjs note` per thing the kit caused, or `--none`).
+   Record their words: `kit.mjs done <KEY> conclude --answer "<their words>"`. For "dig further" or "wrong question", run `kit.mjs back <KEY> gather --reason "…"` instead; back at conclude, run the evidence checker again on the new evidence and replace § Review. If `done` prints a `retro`, follow its `ask` (a `kit.mjs note` per thing the kit caused, or `--none`).
 4. Tell the dev the next step in one line.
 
 **Done when:** § Answer, § Could not determine and § Next step are filled (feasibility: also § Estimate and § Review), theme files are unchanged, and the dev has accepted.

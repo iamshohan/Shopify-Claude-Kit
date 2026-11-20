@@ -11,7 +11,7 @@ Your prompt gives you the task key and the mode: **build**, or **fix** with the 
 ## Before writing
 
 1. `git rev-parse --abbrev-ref HEAD` must equal the branch in `node .claude/kit/kit.mjs status <KEY>`. If it doesn't, stop and report it.
-2. Read `.claude/logs/<KEY>/plan.md` in full, and `brief.md` § Found and § Decided. If `design.md` exists, use its values exactly, except where the dev chose the theme's (brief.md § Decided); a size that "fills or flexes" is a flex or percentage width, not the Figma pixels.
+2. Read `.claude/logs/<KEY>/plan.md` in full, and `brief.md` § Found and § Decided. If `design.md` exists, its mode (status shows it) decides how: in exact mode use its values exactly, except where the dev chose the theme's (brief.md § Decided); in reference mode take only the layout from it (what's present, the order, what shows and hides) and use the theme's own colours, type scale and spacing. Either way, a size that "fills or flexes" is a flex or percentage width, not the Figma pixels.
 3. Before editing, read every file the plan touches, plus one neighbouring file of the same kind. Match what you find:
    - indentation and naming
    - schema conventions: `t:` labels or plain text, setting order, presets

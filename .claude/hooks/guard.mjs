@@ -321,7 +321,8 @@ function decideCommand(raw, ctx, depth = 0, cwd = null) {
       if (target && !(g.sub === 'checkout' && ctx.isPath(target))) branch = target.replace(/^origin\//, '');
     }
     // An alias, a push refspec, push.default or a branch's upstream can send "git push -u origin X" somewhere else.
-    if ((g.sub === 'config' && gitConfigRisk(g.args) === 'push') || (g.sub === 'branch' && g.args.some((a) => /^(-u|--set-upstream-to(=.*)?|--track)$/.test(a)))) {
+    const oneOff = g.globals.flatMap((a, k) => (g.globals[k - 1] === '-c' ? [a.split('=')[0]] : []));
+    if ((g.sub === 'config' && gitConfigRisk(g.args) === 'push') || oneOff.some((key) => gitConfigRisk([key]) === 'push') || (g.sub === 'branch' && g.args.some((a) => /^(-u|--set-upstream-to(=.*)?|--track)$/.test(a)))) {
       return { decision: 'deny', reason: 'git aliases, push refspecs, push.default and branch upstreams can send a push to a protected branch behind the guard\'s back. Run the git command itself.' };
     }
     if (g.sub === 'push') {
@@ -688,6 +689,10 @@ function selftest() {
     [bash('git config --get alias.co'), null],
     [bash('git config get alias.co'), null],
     [bash('git -c core.autocrlf=false diff'), null],
+    // a one-off -c setting routes a push like a saved one
+    ...[`git -c push.default=upstream push -u origin ${K}`, `git -c remote.origin.push=refs/heads/${K}:refs/heads/main push -u origin ${K}`, 'git -c alias.ship="push origin main" ship'].map((c) => [bash(c), 'deny']),
+    // work thrown away asks first
+    [bash('git stash drop'), 'ask'], [bash('git stash clear'), 'ask'], [bash('git stash list'), null],
     [bash('gh pr create --title "Add USP row" --body "merge after review"'), null],
     [bash('gh pr create --title "USP row" --body "Adds a block. Run shopify theme push only via the kit; .env untouched."'), null],
     [bash('gh pr view 3'), null],
@@ -733,7 +738,7 @@ function selftest() {
     // denied: the environment printed whole, or a secret variable
     ...['env', 'printenv', 'env | grep -i token', 'printenv JIRA_API_TOKEN', 'set', 'export -p', 'node -e "console.log(process.env)"', 'echo $DATABASE_URL']
       .map((c) => [bash(c), 'deny']),
-    [ps('Get-ChildItem env:'), 'deny'], [bash('printenv PATH'), null], [bash('set -euo pipefail; npm test'), null],
+    [ps('Get-ChildItem env:'), 'deny'], [ps('Get-ChildItem env:*'), 'deny'], [ps('Get-ChildItem env:JIRA_API_TOKEN'), 'deny'], [ps('Get-ChildItem env:PATH'), null], [bash('printenv PATH'), null], [bash('set -euo pipefail; npm test'), null],
     // setting a variable isn't printing them; `env FOO=1` alone still prints the environment
     ...['export PATH="$HOME/bin:$PATH"', 'export NODE_ENV=test && npm test', 'declare -x FOO=1'].map((c) => [bash(c), null]), [bash('env FOO=1'), 'deny'], [bash('node -e "console.log(Boolean(process.env.JIRA_API_TOKEN))"'), null],
     // denied: the guard's seal
@@ -841,6 +846,9 @@ function selftest() {
     // recursive searches that reach .claude/.env.local or ~/.claude/.env; ones that can't
     ...['grep -rn JIRA .claude', 'grep -rn JIRA ./.claude', 'grep -rn JIRA ~/.claude', 'rg -uu JIRA .claude', 'grep -rn x ..', 'cd .claude && grep -rn JIRA .'].map((c) => [bash(c), 'deny']),
     [ps('Get-ChildItem -Recurse | Select-String JIRA'), 'deny'],
+    // findstr does its own globbing: * and *.* match .env.local in every folder /s walks; *.liquid can't
+    ...['findstr /s /i JIRA *', 'findstr /s /i JIRA *.*', 'findstr /s JIRA .claude\\*'].map((c) => [bash(c), 'deny']),
+    ...['findstr /s /i hero *.liquid', 'findstr /i hero sections\\*'].map((c) => [bash(c), null]), [bash('cat .eslintrc*'), null],
     ...['cd sections && grep -rn hero .', 'grep -rn hero --include=*.liquid .', 'grep -rn x .claude/kit', 'rg -uu -g "*.liquid" hero', 'rg hero'].map((c) => [bash(c), null]),
     // false positives: a regex isn't a glob, a listing reads no file, a search's pattern names none, reads aren't writes
     ...['grep -n "done .*--answer" .claude/kit/kit.mjs', 'ls .claude/*', 'find . -name ".env*"', 'ls -la ~/AppData/Roaming/shopify-cli-kit-nodejs', 'grep -rn "\\.env" sections/',

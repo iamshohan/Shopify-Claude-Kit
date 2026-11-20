@@ -73,14 +73,19 @@ function designAudit(spec, env) {
       const gap = vertical ? rb.top - ra.bottom : rb.left - ra.right;
       count(near(s.expected, gap), s.name, 'gap', `${s.expected}px`, `${Math.round(gap)}px`);
     } else if (s.type === 'trackGap') {
-      const kids = env.qa(`${s.container} > *`);
-      if (kids.length < 2) { out.missing.push(`${s.name}: fewer than 2 children in ${s.container}`); continue; }
+      // A <style> or hidden child has no box; in a wrapping grid, the next row's first card isn't a neighbour of the last.
+      const kids = env.qa(`${s.container} > *`).map((k) => env.rect(k)).filter((r) => r.right > r.left && r.bottom > r.top);
+      if (kids.length < 2) { out.missing.push(`${s.name}: fewer than 2 visible children in ${s.container}`); continue; }
+      let pairs = 0;
       for (let i = 1; i < kids.length; i++) {
-        const a = env.rect(kids[i - 1]);
-        const b = env.rect(kids[i]);
+        const [a, b] = [kids[i - 1], kids[i]];
+        const inLine = vertical ? a.left < b.right && b.left < a.right : a.top < b.bottom && b.top < a.bottom;
+        if (!inLine) continue;
+        pairs++;
         const gap = vertical ? b.top - a.bottom : b.left - a.right;
         count(near(s.expected, gap), s.name, `gap ${i}–${i + 1}`, `${s.expected}px`, `${Math.round(gap)}px`);
       }
+      if (!pairs) out.missing.push(`${s.name}: no two children of ${s.container} sit side by side on the ${vertical ? 'vertical' : 'horizontal'} axis`);
     } else if (s.type === 'containerPad' || s.type === 'toViewport') {
       const outer = s.type === 'containerPad' ? find(s.name, s.container) : null;
       const inner = s.type === 'containerPad' ? (outer && find(s.name, s.child ? `${s.container} ${s.child}` : `${s.container} > *`)) : find(s.name, s.element);

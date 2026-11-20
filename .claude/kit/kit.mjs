@@ -4,7 +4,8 @@
 // Usage: node .claude/kit/kit.mjs <verb> [<KEY>] ...   (--help lists the verbs)
 // One folder per ticket: .claude/logs/<KEY>/ (state.json, brief.md, plan.md, report.md or investigation.md,
 // kit-notes.md). Also reads the guard's _guard.jsonl and writes logs/kit-feedback.md and kit/probe.*.js.
-import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, mkdtempSync, rmSync, statSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { join, dirname, relative } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
 import {
@@ -121,7 +122,7 @@ function stalePasses(rows = {}, head) {
   };
   return Object.entries(rows).filter(([, r]) => r.verdict === 'PASS' && r.commit && head && r.commit !== head && r.carriedTo !== head && since(r.commit)).map(([n]) => n);
 }
-const saysNone = (key, file, heading, within) => /^(none|n\/a|—)\b/i.test(added(key, file, heading, within).join(' ').replace(/^[-*]\s*/, ''));
+const saysNone = (key, file, heading, within) => /^((none|n\/a)\b|—)/i.test(added(key, file, heading, within).join(' ').replace(/^[-*]\s*/, ''));
 const hasDesign = (st) => Boolean(st.design?.figma) && st.design.figma !== 'none';
 const VERDICTS = ['PASS', 'FAIL', 'NOT TESTED', 'BLOCKED'];
 /** A report row's verdict: the last verdict word in a cell, since Verdict is the last column. */
@@ -202,8 +203,12 @@ function reachOf(path, texts) {
   if (MERCHANT_JSON.test(path)) return 'merchant-owned: admin edits land here, and the merge overwrites any made on live since the base';
   if (path.startsWith('layout/')) return 'renders on every page';
   if (path === 'config/settings_schema.json') return 'theme settings for the whole store';
+  // One level up only: a snippet the layout renders (cart drawer, header parts) is on every page, however few files use it.
+  const renders = (snippet) => new RegExp(`\\b(render|include)\\s+['"]${escapeRe(snippet)}['"]`);
   if (path.startsWith('snippets/')) {
-    const n = count(new RegExp(`\\b(render|include)\\s+['"]${id}['"]`));
+    const re = renders(name.replace(/\.liquid$/, ''));
+    if (others.some(([p, t]) => p.startsWith('layout/') && re.test(t))) return 'rendered from the layout, so on every page';
+    const n = count(re);
     return n > 1 ? `rendered from ${n} files` : null;
   }
   if (path.startsWith('sections/') || path.startsWith('blocks/')) {
@@ -214,6 +219,9 @@ function reachOf(path, texts) {
   }
   if (path.startsWith('assets/')) {
     if (others.some(([p, t]) => p.startsWith('layout/') && t.includes(name))) return 'loaded on every page (layout)';
+    const viaLayout = others.find(([p, t]) => p.startsWith('snippets/') && t.includes(name)
+      && others.some(([q, u]) => q.startsWith('layout/') && renders(p.split('/').pop().replace(/\.liquid$/, '')).test(u)));
+    if (viaLayout) return `loaded on every page (${viaLayout[0]}, which the layout renders)`;
     const n = count(new RegExp(`['"]${escapeRe(name)}['"]`));
     return n > 1 ? `loaded by ${n} files` : null;
   }
@@ -408,13 +416,17 @@ const EXIT_CHECKS = {
   },
   // Investigation stages: gather (the question, then the evidence), then the conclude gate.
   gather: (key, st) => {
-    const labelled = tableRows(key, 'investigation.md', '## Evidence').filter((l) => /\b(Confirmed|Inferred|Assumed|Unknown)\b/.test(l));
+    // Columns: # | Claim | Label | Source.
+    const evidence = tableRows(key, 'investigation.md', '## Evidence').map(cells);
+    const confirmed = evidence.filter((c) => /^Confirmed\b/i.test(c[2] || ''));
+    const unsourced = confirmed.filter((c) => !c[3]).map((c) => `#${c[0]}`);
     return [
       !st.type && 'record the kind of investigation: kit.mjs set <KEY> type=feasibility|debug|question',
       !filled(key, 'investigation.md', '## Question') && 'write the precise question and what counts as answered in investigation.md § Question',
       st.type === 'feasibility' && !tableRows(key, 'investigation.md', '## Requirements').length
         && 'list each requirement in investigation.md § Requirements (quoted, clear or not, and the dev\'s answer to each open one)',
-      !labelled.some((l) => /\bConfirmed\b/.test(l)) && 'no Confirmed evidence yet: read or observe something that settles a claim',
+      !confirmed.length && 'no Confirmed evidence yet: read or observe something that settles a claim',
+      unsourced.length && `Confirmed evidence without a Source (${unsourced.join(', ')}): cite the file:line, query, fetched page or docs URL with the quoted sentence`,
       st.type === 'debug' && tableRows(key, 'investigation.md', '## Hypotheses').length < 2
         && 'a debug investigation needs at least 2 hypotheses in investigation.md § Hypotheses, each confirmed, ruled out or open',
       st.type === 'debug' && !filled(key, 'investigation.md', '## Reproduction')
@@ -442,12 +454,19 @@ EXIT_CHECKS.approve = EXIT_CHECKS.plan;
 // Raw output: git() trims, which would cut the leading space of the first " M path" line.
 const themeStatus = () => run('git', ['status', '--porcelain', '--', ...existingThemeDirs()]).stdout.split(/\r?\n/).filter(Boolean);
 
-/** Theme files whose git status differs from when the investigation started. */
+const statusPath = (l) => l.slice(3).replace(/^.* -> /, '').replace(/^"|"$/g, '');
+// Files the dev already had changes in keep the same status line when edited again, so their content is compared too.
+const dirtyHashes = (lines) => Object.fromEntries(lines.map(statusPath).filter((p) => existsSync(join(ROOT, p)) && statSync(join(ROOT, p)).isFile())
+  .map((p) => [p, createHash('sha1').update(readFileSync(join(ROOT, p))).digest('hex')]));
+
+/** Theme files whose git status, or (for files already changed at the start) content, differs from when the investigation started. */
 function themeChanges(st) {
   const before = new Set(st.readonly?.themeStatus || []);
   const current = themeStatus();
-  const differ = [...current.filter((l) => !before.has(l)), ...[...before].filter((l) => !current.includes(l))];
-  return [...new Set(differ.map((l) => l.slice(3)))];
+  const differ = [...current.filter((l) => !before.has(l)), ...[...before].filter((l) => !current.includes(l))].map(statusPath);
+  const was = st.readonly?.hashes || {};
+  const cur = dirtyHashes(current.filter((l) => before.has(l)));
+  return [...new Set([...differ, ...Object.keys(was).filter((p) => p in cur && cur[p] !== was[p])])];
 }
 
 function existingThemeDirs() {
@@ -617,6 +636,7 @@ function summaryLines(key, st, cfg) {
     if (st.draft.ignoredFiles?.length) lines.push(`Not on the draft (.shopifyignore; list them in report.md § You must still do): ${st.draft.ignoredFiles.join(', ')}`);
     if (st.draft.liveEdits?.length) lines.push(`Live edits since the base that the merge overwrites (report them in report.md § You must still do): ${st.draft.liveEdits.join(', ')}`);
   }
+  if (st.featurePrefix || st.qa?.paths?.length) lines.push(`Feature prefix: ${st.featurePrefix || '—'} · QA paths: ${st.qa?.paths?.join(', ') || '—'}`);
   if (st.baseTheme) lines.push(`Base theme: ${st.baseTheme} stands in for live (live is a campaign theme): drift checks, the draft copy and QA's comparison use it.`);
   if (qaProgress(key, st)) lines.push(qaProgress(key, st));
   if (st.type === 'abtest') lines.push(`A/B (variation and code: brief.md): tool ${st.abtest?.tool || '?'} · running ${st.abtest?.running || '?'}${st.abtest?.reference ? ` · force link ${st.abtest.reference}` : ''}`);
@@ -757,16 +777,24 @@ function selftest() {
   els['.c'] = { s: { border: '1px solid rgb(229, 229, 229)', 'letter-spacing': 'normal', color: 'rgba(0, 0, 0, 0.5)' }, r: box(0, 0, 10, 10) };
   const audited2 = designAudit({ elements: [{ name: 'card', selector: '.c', fixed: { border: '1px solid #E5E5E5', 'letter-spacing': '0px', color: '#000000' } }] }, fakeEnv);
   eq('design audit: colours inside borders, letter-spacing normal, and a half-transparent colour', [audited2.passed, audited2.failures.map((f) => f.what)], [2, ['color']]);
+  // A 2-column grid of 4 cards with a <style> first: gaps are measured within each row, never across the wrap.
+  const grid = [box(0, 0, 0, 0), box(0, 0, 160, 200), box(0, 176, 160, 200), box(216, 0, 160, 200), box(216, 176, 160, 200)];
+  const gridEnv = { ...fakeEnv, qa: () => grid.map((_, i) => i), rect: (i) => grid[i] };
+  const audited3 = designAudit({ spacing: [{ name: 'cards', type: 'trackGap', container: '.g', axis: 'horizontal', expected: 16 }] }, gridEnv);
+  eq('design audit: track gap in a wrapping grid', [audited3.checked, audited3.passed, audited3.verdict], [2, 2, 'PASS']);
   eq('design set', hasDesign({ design: { figma: 'https://www.figma.com/design/abc/x' } }), true);
   eq('design none or unset', [hasDesign({ design: { figma: 'none' } }), hasDesign({})], [false, false]);
   eq('cells', cells('| 3 | a \\| b | PASS |'), ['3', 'a \\| b', 'PASS']);
   eq('cells empty last', cells('| Icons | AC 18 | winner SVGs | |'), ['Icons', 'AC 18', 'winner SVGs', '']);
   const theme = new Map([
-    ['layout/theme.liquid', "{{ 'base.css' | asset_url | stylesheet_tag }}\n{% sections 'header-group' %}"],
+    ['layout/theme.liquid', "{{ 'base.css' | asset_url | stylesheet_tag }}\n{% sections 'header-group' %}\n{% render 'cart-drawer' %}"],
     ['sections/header-group.json', '{"sections":{"h":{"type":"header"}}}'],
     ['sections/a.liquid', "{% render 'icon' %}"], ['sections/b.liquid', "{% render 'icon', name: 'cart' %}\n{% render 'mnav-list' %}"],
     ['snippets/icon.liquid', ''], ['snippets/mnav-list.liquid', ''], ['sections/header.liquid', ''], ['sections/mnav.liquid', ''],
+    ['snippets/cart-drawer.liquid', "{{ 'cart-drawer.js' | asset_url | script_tag }}"],
   ]);
+  eq('reach snippet the layout renders', reachOf('snippets/cart-drawer.liquid', theme), 'rendered from the layout, so on every page');
+  eq('reach asset of a layout snippet', reachOf('assets/cart-drawer.js', theme), 'loaded on every page (snippets/cart-drawer.liquid, which the layout renders)');
   eq('reach shared snippet', reachOf('snippets/icon.liquid', theme), 'rendered from 2 files');
   eq('reach own snippet', reachOf('snippets/mnav-list.liquid', theme), null);
   eq('reach layout asset', reachOf('assets/base.css', theme), 'loaded on every page (layout)');
@@ -836,7 +864,7 @@ switch (verb) {
           createdAt: now(), owner: owner(), stage: stagesFor({ kind: 'investigation' })[0].name, gates: {},
           history: [{ at: now(), event: 'start' }],
           // conclude compares against this, so an investigation can't end with theme files changed.
-          readonly: { head: git(['rev-parse', 'HEAD'], { allowFail: true }), themeStatus: themeStatus() },
+          readonly: (() => { const s = themeStatus(); return { themeStatus: s, hashes: dirtyHashes(s) }; })(),
           draft: {}, mutations: [], previews: [],
         });
       }
@@ -863,7 +891,7 @@ switch (verb) {
     const key = normKey(rawKey);
     const cfg = readConfig({ required: false });
     const st = readState(key, { required: false });
-    if (!st) { print(`${key} not started. Run: node .claude/kit/kit.mjs start ${key}`); break; }
+    if (!st) { print(`${key} not started. Run: node .claude/kit/kit.mjs start ${key} (an implementation), or start ${key} --investigate (a read-only investigation)`); break; }
     print(flags.json ? st : summaryLines(key, st, cfg));
     break;
   }

@@ -1,7 +1,7 @@
 // Install-time rules both installers share (install.mjs for the theme kit, app/install.mjs for the app kit). Installers run
 // from the kit repo itself, so both import this file directly; it is never copied into a theme or app repo.
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, resolve, sep } from 'node:path';
 
 const git = (cwd, args) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
@@ -49,11 +49,19 @@ export function olderBuild(kitDir, installedCommit) {
 
 export const registryPath = (cloneRoot) => process.env.SHOPIFY_KIT_REGISTRY || join(cloneRoot, '.installs.json');
 
+/**
+ * One spelling per folder: on Windows, C:\Users\ECHOLO~1\x, c:\users\echologyx\x and C:\Users\ECHOLOGYX\x are the same
+ * repo, and as separate keys update.mjs installed into it once per spelling.
+ */
+export function repoKey(p) {
+  try { return realpathSync.native(resolve(p)); } catch { return resolve(p); }
+}
+
 /** { "<absolute repo path>": "theme" | "app" }; empty when missing or unreadable. */
 export function readRegistry(cloneRoot) {
   try {
     const r = JSON.parse(readFileSync(registryPath(cloneRoot), 'utf8'));
-    return r && typeof r === 'object' && !Array.isArray(r) ? r : {};
+    return r && typeof r === 'object' && !Array.isArray(r) ? Object.fromEntries(Object.entries(r).map(([k, v]) => [repoKey(k), v])) : {};
   } catch { return {}; }
 }
 
@@ -63,8 +71,12 @@ export function writeRegistry(cloneRoot, registry) {
 
 /** Records a repo after an install. A failed write only costs update.mjs that repo, so it never fails the install. */
 export function register(cloneRoot, repo, kit) {
-  try { writeRegistry(cloneRoot, { ...readRegistry(cloneRoot), [resolve(repo)]: kit }); } catch { /* read-only clone */ }
+  try { writeRegistry(cloneRoot, { ...readRegistry(cloneRoot), [repoKey(repo)]: kit }); } catch { /* read-only clone */ }
 }
+
+/** The installer's lines about the repo's own files it moved or kept aside: the dev must act on these, the rest is routine. */
+export const devNotes = (stdout) => (stdout || '').split(/\r?\n/)
+  .filter((l) => /^(keep the repo's|move the repo's own settings|save the repo's settings|Your own permissions|Move your own entries)/.test(l));
 
 /** -1, 0 or 1 for dotted version numbers (1.0.0 against 1.2.0); text parts compare as 0. */
 export function compareVersions(a, b) {
@@ -147,7 +159,7 @@ export function installAll(cloneRoot, top, { yes = false } = {}) {
       : r.kind === 'both' ? 'looks like a theme and an app: install by hand, with or without --app'
         : !r.git ? 'not the root of a git repo, which the kit needs'
           : null;
-    if (r.kit) registry[r.repo] = r.kit.kind;
+    if (r.kit) registry[repoKey(r.repo)] = r.kit.kind;
     if (!why) fresh.push(r);
     console.log(`  ${!why ? 'new ' : r.kit ? 'has ' : 'skip'}  ${r.kind.padEnd(5)}  ${r.repo}${why ? `  (${why})` : ''}`);
   }
@@ -159,8 +171,10 @@ export function installAll(cloneRoot, top, { yes = false } = {}) {
   let failed = 0;
   for (const r of fresh) {
     const run = spawnSync(process.execPath, [join(cloneRoot, 'install.mjs'), r.repo, ...(r.kind === 'app' ? ['--app'] : [])], { cwd: cloneRoot, encoding: 'utf8' });
-    if (run.status === 0) console.log(`  ok ${r.kind.padEnd(5)}  ${r.repo}`);
-    else { failed++; console.log(`  !! ${r.kind.padEnd(5)}  ${r.repo}: ${(run.stderr || run.stdout).trim().split(/\r?\n/)[0]}`); }
+    if (run.status === 0) {
+      console.log(`  ok ${r.kind.padEnd(5)}  ${r.repo}`);
+      for (const n of devNotes(run.stdout)) console.log(`       ${n}`);
+    } else { failed++; console.log(`  !! ${r.kind.padEnd(5)}  ${r.repo}: ${(run.stderr || run.stdout).trim().split(/\r?\n/)[0]}`); }
   }
   if (failed < fresh.length) console.log('\nNext, in each new repo: open Claude Code there and run /shopify-setup (theme) or /app-setup (app). The kit needs its store before it can work.');
   if (failed) console.log(`${failed} not installed; run node install.mjs <repo> there to see why.`);

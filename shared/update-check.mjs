@@ -34,6 +34,11 @@ function main() {
   const claudeDir = resolve(process.env.CLAUDE_PROJECT_DIR || process.cwd(), '.claude');
   const manifest = JSON.parse(readFileSync(join(claudeDir, '.kit-manifest.json'), 'utf8'));
   const clone = manifest.source;
+  // A moved or re-cloned kit would otherwise silence update notices in every repo for good.
+  if (clone && !existsSync(clone)) {
+    process.stdout.write(JSON.stringify({ systemMessage: `The kit clone this repo was installed from (${clone}) is gone, so kit update notices are off. From the clone you use now: node install.mjs "${process.env.CLAUDE_PROJECT_DIR || process.cwd()}", or node update.mjs --scan <folder of your repos>.` }));
+    return;
+  }
   if (!clone || !existsSync(join(clone, '.git'))) return;
   // One clock per kit: an up-to-date app kit mustn't silence a newer theme kit for 15 days.
   const statePath = process.env.SHOPIFY_KIT_UPDATE_STATE || join(clone, manifest.kit === 'app' ? '.update-check-app.json' : '.update-check.json');

@@ -9,7 +9,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readRegistry, writeRegistry } from './shared/installer-core.mjs';
+import { devNotes, readRegistry, repoKey, writeRegistry } from './shared/installer-core.mjs';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -28,7 +28,7 @@ if (scanAt !== -1) {
   const skip = new Set(['node_modules', '.git', '.claude', 'logs']);
   const walk = (dir, depth) => {
     const manifest = manifestOf(dir);
-    if (manifest && resolve(dir) !== resolve(ROOT)) { registry[resolve(dir)] = manifest.kit === 'app' ? 'app' : 'theme'; return; }
+    if (manifest && repoKey(dir) !== repoKey(ROOT)) { registry[repoKey(dir)] = manifest.kit === 'app' ? 'app' : 'theme'; return; }
     if (depth === 0) return;
     let entries = [];
     try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
@@ -70,11 +70,11 @@ for (const [repo, kit] of repos) {
     continue;
   }
   const run = spawnSync(process.execPath, [join(ROOT, 'install.mjs'), repo, ...(kit === 'app' ? ['--app'] : [])], { cwd: ROOT, encoding: 'utf8' });
-  const headline = (run.stdout || '').split(/\r?\n/).find((l) => /^(Updating|Installing)/.test(l)) || '';
+  const headline = (run.stdout || '').split(/\r?\n/).find((l) => /^(Updating|Reinstalling|Installing)/.test(l)) || '';
   if (run.status === 0) {
     console.log(`  ok ${repo}: ${headline.replace(/ in .*$/, '') || 'updated'}`);
     // The installer's warnings and settings moves are what the dev must act on; the rest is routine.
-    const notes = [...(run.stderr || '').split(/\r?\n/), ...(run.stdout || '').split(/\r?\n/).filter((l) => /settings\.(local|pre-kit)/.test(l))].filter((l) => l.trim());
+    const notes = [...(run.stderr || '').split(/\r?\n/), ...devNotes(run.stdout)].filter((l) => l.trim());
     for (const n of notes) console.log(`       ${n}`);
   }
   else { failed++; console.log(`  !! ${repo}: ${(run.stderr || run.stdout).trim().split(/\r?\n/)[0]}`); }

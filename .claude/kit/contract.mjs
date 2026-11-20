@@ -106,7 +106,7 @@ function settingsOf(list, where, scope) {
 }
 
 // ── Placements ──
-// Where each section type is placed today, from the JSON templates and section groups.
+// Where each section type is placed today, from the JSON templates, section groups and {% section %} tags.
 const placements = {};
 const templateFiles = [
   ...ls('templates').filter((n) => n.endsWith('.json')).map((n) => `templates/${n}`),
@@ -118,6 +118,14 @@ for (const f of templateFiles) {
   try { data = lenientJson(read(f).replace(/^\s*\/\*[\s\S]*?\*\//, '')); } catch { continue; }
   for (const [id, section] of Object.entries(data.sections || {})) (placements[section.type] ||= []).push({ file: f, sectionKey: id, disabled: Boolean(section.disabled) });
 }
+// Older themes place sections with {% section 'x' %} in the layout and in .liquid templates.
+const liquidFiles = [...ls('layout').map((n) => `layout/${n}`), ...ls('templates').filter((n) => n.endsWith('.liquid')).map((n) => `templates/${n}`),
+  ...ls('templates/customers').filter((n) => n.endsWith('.liquid')).map((n) => `templates/customers/${n}`)];
+for (const f of liquidFiles) {
+  for (const m of (read(f) || '').matchAll(/\{%-?\s*section\s+['"]([\w-]+)['"]/g)) (placements[m[1]] ||= []).push({ file: f, sectionKey: null, disabled: false });
+}
+// Some repos keep the JSON templates out of git (the merchant owns them): then placement can't be judged from disk.
+const templatesOnDisk = templateFiles.some((f) => f.startsWith('templates/'));
 
 // ── One entry per changed file ──
 
@@ -158,7 +166,7 @@ for (const file of files) {
     return { name: label(p.name, `${where} preset`), category: label(p.category, `${where} preset category`), blocks: pBlocks.map((b) => b.type) };
   });
   const placedIn = kind === 'section' ? (placements[type] || []) : [];
-  if (kind === 'section' && !presets.length && !placedIn.length) problems.push(`${where}: no presets and not placed in any template, so the merchant can't add it and it renders nowhere`);
+  if (kind === 'section' && !presets.length && !placedIn.length && templatesOnDisk) problems.push(`${where}: no presets and not placed in any template, so the merchant can't add it and it renders nowhere`);
   entries.push({
     file, kind, type, name: label(schema.name, `${where} name`), tag: schema.tag ?? null, class: schema.class ?? null,
     limit: schema.limit ?? null, max_blocks: schema.max_blocks ?? null,
@@ -176,7 +184,8 @@ for (const e of entries) {
   if (e.kind !== 'theme settings') md.push(`- Can be added by the merchant: ${e.addable ? `yes, as ${e.presets.map((p) => `"${p.name}"`).join(', ')}` : 'no (no presets)'}`);
   if (e.enabled_on) md.push(`- enabled_on: ${cell(e.enabled_on)}`);
   if (e.disabled_on) md.push(`- disabled_on: ${cell(e.disabled_on)}`);
-  if (e.placedIn.length) md.push(`- Placed today in: ${e.placedIn.slice(0, 12).map((p) => `${p.file} (${p.sectionKey})`).join(', ')}${e.placedIn.length > 12 ? `, +${e.placedIn.length - 12} more` : ''}`);
+  if (e.placedIn.length) md.push(`- Placed today in: ${e.placedIn.slice(0, 12).map((p) => (p.sectionKey ? `${p.file} (${p.sectionKey})` : `${p.file} ({% section %})`)).join(', ')}${e.placedIn.length > 12 ? `, +${e.placedIn.length - 12} more` : ''}`);
+  else if (e.kind === 'section' && !e.addable && !templatesOnDisk) md.push('- Placement unknown: no JSON templates in this repo, so check in the editor where it renders.');
   md.push('', '| Setting | Type | Label | Default | Options / range | Info | visible_if | Seen in editor |', '| --- | --- | --- | --- | --- | --- | --- | --- |');
   const row = (prefix, s) => md.push(`| ${prefix}${cell(s.id)} | ${cell(s.type)} | ${cell(s.label)} | ${cell(s.default)} | ${cell(s.options ? s.options.map((o) => `${o.value}=${o.label}`).join(', ') : s.type === 'range' ? `${s.min}–${s.max} step ${s.step ?? 1}${s.unit ? ` ${s.unit}` : ''}` : '')} | ${cell(s.info)} | ${cell(s.visible_if)} | |`);
   for (const s of e.settings) row('', s);

@@ -187,10 +187,14 @@ function cliError(r) {
   return (clean(r.stderr) || clean(r.stdout)).slice(-1500);
 }
 
-function loginHint(store, r) {
+// The default login covers products and metaobjects; definitions on these owners need one more scope.
+const OWNER_SCOPES = { PAGE: 'write_content', ARTICLE: 'write_content', BLOG: 'write_content', CUSTOMER: 'write_customers' };
+const ownerScopes = (text) => [...new Set([...String(text).matchAll(/ownerType\W+(PAGE|ARTICLE|BLOG|CUSTOMER)\b/g)].map((m) => OWNER_SCOPES[m[1]]))];
+
+function loginHint(store, r, extra = []) {
   const text = cliError(r);
   if (/No stored app authentication|store auth|missing.*scope|access denied.*scope|requires.*scope/i.test(text)) {
-    return `Admin API login missing or lacks scopes. Ask the dev to run once (with the ! prefix):\n! shopify store auth --store ${store} --scopes ${SCOPES}`;
+    return `Admin API login missing or lacks scopes. Ask the dev to run once (with the ! prefix):\n! shopify store auth --store ${store} --scopes ${[SCOPES, ...extra].join(',')}`;
   }
   if (/log ?in|authenticat|session|token|401/i.test(text)) {
     return `Theme login missing or expired. Ask the dev to run once (with the ! prefix):\n! shopify theme list --store ${store}`;
@@ -198,8 +202,8 @@ function loginHint(store, r) {
   return null;
 }
 
-function failCli(store, r, what) {
-  const hint = loginHint(store, r);
+function failCli(store, r, what, extraScopes = []) {
+  const hint = loginHint(store, r, extraScopes);
   // Exit 0 with an unexpected shape, or a silent failure, still needs something to act on.
   const detail = cliError(r) || `CLI exit code ${r.code}. Output: ${(r.stdout.trim() || r.stderr.trim() || '(none)').slice(-1500)}`;
   fail(`${what} failed.\n${detail}${hint ? `\n\n${hint}` : ''}`);
@@ -424,7 +428,7 @@ function storeExecute(store, file, vars, { mutate = false } = {}) {
   if (vars) args.push('--variable-file', vars);
   if (mutate) args.push('--allow-mutations');
   const r = cli(args);
-  if (r.code !== 0 || r.data?.error) failCli(store, r, 'Admin GraphQL');
+  if (r.code !== 0 || r.data?.error) failCli(store, r, 'Admin GraphQL', mutate ? ownerScopes(`${readFileSync(file, 'utf8')}\n${vars ? readFileSync(vars, 'utf8') : ''}`) : []);
   // A GraphQL response can carry top-level errors with exit 0.
   if (Array.isArray(r.data?.errors) && r.data.errors.length) fail(`Admin GraphQL returned errors:\n${r.data.errors.map((e) => `- ${e.message || JSON.stringify(e)}`).join('\n')}`);
   return r.data;

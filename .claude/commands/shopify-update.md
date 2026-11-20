@@ -18,7 +18,7 @@ The kit's wrapper (`.claude/kit/shopify.mjs`) depends on specific Shopify CLI co
 2. **Everything ok** → tell the dev which CLI and plugin versions are verified, and that `/shopify-implement` can run.
 3. **Problems listed** → for each one:
    - Say what changed in plain words, and which kit verbs and stages it affects; the report names them.
-   - Look up the change: `shopify <command> --help`, the CLI's release notes, or `search_docs` with the `shopify-plugin:shopify` skill.
+   - Look up the change: the CLI's release notes, `search_docs` with the `shopify-plugin:shopify` skill, or ask the dev to run `! shopify <command> --help` (the guard blocks direct CLI calls from you).
    - Propose the exact edit to the kit (file, current text, new text). **Don't edit the kit here.** Kit changes go into the master copy (the Shopify-Claude-Kit repo), so every theme repo gets them through `install.mjs`. The guard also asks before any kit-file edit.
    - Until the kit is fixed, give the dev the safe options:
      - Pin the last verified CLI version: `! npm i -g @shopify/cli@<previous.cliVersion from the report>`.

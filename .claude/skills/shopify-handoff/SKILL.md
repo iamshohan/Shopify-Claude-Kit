@@ -49,4 +49,4 @@ The kit prepares everything and merges nothing. Creating the PR, merging, postin
    - The next steps are theirs: create the PR, merge, follow the go-live order.
    - If you recorded kit notes: they're in `.claude/logs/<KEY>/kit-notes.md`, and `node .claude/kit/kit.mjs feedback` collects all tasks' notes into one file for the kit maintainer.
    - **A walkthrough video for the client:** `/shopify-video <KEY>`, while the draft exists.
-   - **Client or AC feedback later:** run `/shopify-implement <KEY>`, then `kit.mjs back <KEY> build --reason "<feedback>"`.
+   - **Client or AC feedback later:** run `/shopify-implement <KEY>` with the feedback. A defect goes back to build; a changed requirement goes back to plan, so it's approved again.

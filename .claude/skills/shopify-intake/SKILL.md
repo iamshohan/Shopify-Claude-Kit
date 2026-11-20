@@ -11,12 +11,15 @@ user-invocable: false
 **Goal:** `brief.md` § Asked is complete, and the work type and its facts are recorded.
 
 0. **Investigated first?** If `kit.mjs status` says so, read `.claude/logs/<KEY>/investigation.md`. Its question, answer and evidence are this task's starting context. After a feasibility check, its § Requirements answers are decisions the dev already made: copy them into `brief.md` § Decided → Questions and answers (citing investigation.md), so the plan stage doesn't ask them again. Re-check any code it cites at the current commit before relying on it, and carry its Confirmed findings into `brief.md`.
-1. **Read the ticket:** `node .claude/kit/jira.mjs <KEY>`. If the script reports missing credentials, ask the dev to fix `.claude/.env.local` or to paste the ticket text. Don't guess requirements.
-2. **Related tickets.** Read up to three with `node .claude/kit/jira.mjs <KEY> --no-comments`, chosen from the summary, links, parent and `mentionedKeys`.
+1. **Start from current code.** Run `git fetch origin`, then look for a local or remote branch matching the key, ignoring case (`git branch --list`, `git ls-remote --heads origin`).
+   - One exists → tell the dev now, before analysis: a teammate may have started. If they'll reuse it, analyze reads that branch; build asks again when it creates the branch.
+   - The checked-out commit isn't `origin/<baseBranch>` (status names the base) → say so, and ask whether to switch to it before analyze, so the plan is made against the code the build starts from. Never switch with uncommitted changes.
+2. **Read the ticket:** `node .claude/kit/jira.mjs <KEY>`. If the script reports missing credentials, ask the dev to fix `.claude/.env.local` or to paste the ticket text. Don't guess requirements.
+3. **Related tickets.** Read up to three with `node .claude/kit/jira.mjs <KEY> --no-comments`, chosen from the summary, links, parent and `mentionedKeys`.
    - An A/B implementation ticket usually names or links the A/B test ticket ("Implement ABC-120"). That ticket holds the design, the variations and the targeting, so read it. Fetch its comments too if decisions seem to be in them.
    - Skip process tickets such as "Resolve a new Comment in …", "… is ready for Client Review" and "… is Ready to Launch".
    - If you can't tell which ticket is the A/B test, ask.
-3. **Work type.** Pick one and record it with `node .claude/kit/kit.mjs set <KEY> type=<type>`:
+4. **Work type.** Pick one and record it with `node .claude/kit/kit.mjs set <KEY> type=<type>`:
 
    | type | when |
    | --- | --- |
@@ -27,10 +30,10 @@ user-invocable: false
    Tell the dev the type you picked. If two types fit, ask.
 
    The kit only implements tickets that change theme code. For a feasibility check, a debugging task or a question, suggest `/shopify-investigate <KEY>` and stop. App development and content-only work are out of scope.
-4. **Which theme.** The kit builds on the theme that follows the base branch, normally the **live** theme.
+5. **Which theme.** The kit builds on the theme that follows the base branch, normally the **live** theme.
    - **Live is a campaign theme** on another branch, and the ticket is for the regular theme: ask the dev for the theme that follows the base branch, and record it with `kit.mjs set <KEY> baseTheme=<id>` (the guard asks the dev). The drift check, `pull-live`, the draft copy and QA's regression comparison then use it instead of live.
    - **The ticket targets the campaign theme itself:** say that it's out of scope for the kit, and stop.
-5. **A/B ports only.** Ask in one AskUserQuestion round, skipping anything the tickets already state:
+6. **A/B ports only.** Ask in one AskUserQuestion round, skipping anything the tickets already state:
    - Which variation won? (offer the variations named in the ticket)
    - Where is the A/B code? If you already found a copy on this machine, the first option is "Use the copy at <path>" (Recommended): copy it into `.claude/logs/<KEY>/abtest/` yourself instead of waiting for the dev. Other options:
      - "I'll put the files in .claude/logs/<KEY>/abtest/"
@@ -43,9 +46,9 @@ user-invocable: false
    Prefer the built bundle (`build/*.js`, `build/*.css`), because that's what actually ran. Note whether only source code was provided.
 
    The variation and the code's location go in `brief.md` § Asked. Record the rest; `done` refuses without it: `kit.mjs set <KEY> abtest.tool=<tool> abtest.running=<yes|no|unknown>`.
-6. **Bug fixes only.** Make sure you have the steps to reproduce, the page URL, and expected vs actual. Ask for whatever is missing.
-7. **Figma.** `jira.mjs` lists the ticket's Figma links (`figmaLinks`). A **feature** whose ticket links its design: record it with `kit.mjs set <KEY> design.figma=<link>`; if it links several files, ask which is final. A/B ports and bug fixes skip this: the winning code is the source. A design check can still be added at QA if the dev doubts the draft matches.
-8. **Write `brief.md` § Asked**, using the headings already in the file:
+7. **Bug fixes only.** Make sure you have the steps to reproduce, the page URL, and expected vs actual. Ask for whatever is missing.
+8. **Figma.** `jira.mjs` lists the ticket's Figma links (`figmaLinks`). A **feature** whose ticket links its design: record it with `kit.mjs set <KEY> design.figma=<link>`; if it links several files, ask which is final. A/B ports and bug fixes skip this: the winning code is the source. A design check can still be added at QA if the dev doubts the draft matches.
+9. **Write `brief.md` § Asked**, using the headings already in the file:
    - type, tickets, and the winning variation with its code location (A/B ports)
    - a summary of three lines at most
    - **numbered acceptance criteria quoted from the tickets, not paraphrased**; mark any you inferred with "(inferred)"

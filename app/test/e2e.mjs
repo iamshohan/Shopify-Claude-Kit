@@ -7,7 +7,7 @@
 // guard's seal, and the fix, maintain and ab types.
 //   node test/e2e.mjs [--keep]      --keep leaves the temp folder for inspection
 import { spawnSync, execFileSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { delimiter, dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -134,7 +134,7 @@ writeFileSync(outFile, JSON.stringify({ testResults: files.map((file) => ({ name
   // update.mjs re-runs the root installer with --app for repos listed as app.
   const installList = JSON.parse(readFileSync(process.env.SHOPIFY_KIT_REGISTRY, 'utf8'));
   ok('installer lists the repo as an app-kit repo, with the clone in its manifest',
-    Object.entries(installList).some(([p, k]) => k === 'app' && p.toLowerCase() === repo.toLowerCase()) && JSON.parse(read('.claude/.kit-manifest.json')).source === join(KIT, '..'), JSON.stringify(installList));
+    Object.entries(installList).some(([p, k]) => k === 'app' && p === realpathSync.native(repo)) && JSON.parse(read('.claude/.kit-manifest.json')).source === join(KIT, '..'), JSON.stringify(installList));
   ok('installer refuses a folder that isn\'t an app', spawnSync(process.execPath, [join(KIT, 'install.mjs'), tmp], { encoding: 'utf8' }).status === 1);
   const noFlag = rootInstall(repo);
   ok('root installer without --app refuses an app-kit repo', noFlag.status === 1 && /holds the app kit/.test(noFlag.stderr) && !existsSync(join(repo, '.claude', 'kit', 'kit.mjs')), noFlag.stderr || noFlag.stdout);

@@ -4,6 +4,8 @@ Claude Code automation kits for Shopify development: the theme kit takes a Jira 
 
 ## Install
 
+**Before you start (theme kit):** get what [What you need](.claude/README.md#what-you-need) lists. Store access and a Jira token come from other people and can take a day.
+
 ```
 git clone https://github.com/iamshohan/Shopify-Claude-Kit.git
 node Shopify-Claude-Kit/install.mjs <path-to-theme-repo>          # theme kit

@@ -573,7 +573,14 @@ export function searchesSecrets(w, i, root, dir, segs = []) {
     : pwshRecurse || flags.some((f) => /^(-e|--regexp|-f)/.test(f)) ? rest : rest.slice(1);
   if (!paths.length) paths = ['.'];
   const secrets = [join(root, '.claude'), join(homedir(), '.claude')];
-  return paths.some((p) => { const t = dirAfter(p, dir); return t !== null && secrets.some((s) => holds(t, s)); });
+  // findstr globs itself (and PowerShell passes * through unexpanded): /s with * walks every folder for files the name matches.
+  const folder = (p) => {
+    if (prog !== 'findstr' || !/[*?]/.test(p)) return p;
+    const name = basename(p.replace(/\\/g, '/'));
+    const glob = new RegExp(`^${name.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')}$`, 'i');
+    return ['.env', '.env.local'].some((f) => glob.test(f)) ? dirname(p.replace(/\\/g, '/')) : p;
+  };
+  return paths.some((p) => { const t = dirAfter(folder(p), dir); return t !== null && secrets.some((s) => holds(t, s)); });
 }
 
 // ── Secrets ──
@@ -584,7 +591,8 @@ export function searchesSecrets(w, i, root, dir, segs = []) {
 const ENV_NAME = /(^|[\s'"=\\/:])\.env(?!\.(example|sample|template|dist)(?=$|[\s'"`;&|)]))(rc|[.*?[_-][\w.*?[\]-]*)?(?=$|[\s'"`;&|)])|\*\.env\b/i;
 // Globs that reach them (cat .e*, cat .en?, cat .*, .claude/.en?.local), only outside quotes, where the shell expands them:
 // in grep -n "done .*--answer" the .* is a regex.
-const ENV_GLOB = /(^|\s)\.(e[\w.-]*)?[*?[][^\s'"`;&|)]*|(^|[\s=\\/:])\.e[\w.-]*[*?[]/i;
+// The letters before the glob must start ".env": cat .eslintrc* can't reach one.
+const ENV_GLOB = /(^|\s)\.(en?|env[\w.-]*)?[*?[][^\s'"`;&|)]*|(^|[\s=\\/:])\.(en?|env[\w.-]*)[*?[]/i;
 // The Shopify CLI's login folders (shopify-cli-kit-nodejs and friends), with or without a path after them.
 export const CLI_LOGIN = /shopify-cli-[\w-]+/i;
 // Loading .env into a process the agent runs prints it as surely as cat.
@@ -645,7 +653,8 @@ export const envFileIn = (text) => ENV_NAME.test(text) || ENV_GLOB.test(text.rep
  */
 export function dumpsEnv(segment) {
   const s = stripRedirects(segment);
-  if (/^\s*(Get-ChildItem|gci|dir|ls|Get-Item|gi)\s+(-Path\s+)?env:/i.test(s) || /\[(System\.)?Environment\]::GetEnvironmentVariables\(/i.test(s)) return true;
+  const drive = s.match(/^\s*(Get-ChildItem|gci|dir|ls|Get-Item|gi)\s+(-Path\s+)?['"]?env:([^\s'"]*)/i);
+  if ((drive && (!drive[3] || /[*?]/.test(drive[3]) || SECRET_NAME.test(drive[3]))) ||/\[(System\.)?Environment\]::GetEnvironmentVariables\(/i.test(s)) return true;
   if (/\bconsole\.(log|dir|table)\(\s*process\.env\s*\)|JSON\.stringify\(\s*process\.env\s*[,)]|\bnode(\.exe)?\s+(-p|--print)\s+["']?process\.env["']?(?=\s|$)|\bp?print\(\s*(dict\()?os\.environ\s*\)?\s*\)/.test(s)) return true;
   // Only assignments before the program are prefixes: `export FOO=bar` sets a variable, it doesn't print them.
   const assign = (x) => /^[A-Za-z_]\w*=/.test(x);

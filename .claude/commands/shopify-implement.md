@@ -22,6 +22,7 @@ Also:
 
 - **A stage was named after the key** (e.g. `/shopify-implement ABC-123 qa`): use it only if status shows the earlier stages done. To redo an earlier stage, run `kit.mjs back <KEY> <stage> --reason "..."`.
 - **After a compaction or in a new session:** run status first and continue from what it says, not from memory. If status still shows a stage you believe is finished, you skipped `done`: run it now. Never redo a gate the dev already answered.
+- **Status says "finished" and the dev brings feedback** (the client's, or a missed AC): ask whether it's a defect in what was built or a changed requirement. A defect → `kit.mjs back <KEY> build --reason "<feedback>"`; a changed requirement → `kit.mjs back <KEY> plan --reason "<feedback>"`, so the plan is approved again. Then continue as usual.
 - **The dev wants to stop the task:** run `kit.mjs abandon <KEY> --reason "..."`, and walk them through the cleanup list it prints.
 
 ## Rules for the whole run
