@@ -6,6 +6,7 @@
 - **The failure claimed the theme login had expired.** The login check matched `401` anywhere in the error text, including inside a theme id, so devs were told to log in again, which couldn't help. It now matches only a standalone 401. `auth-check` reports an unreadable list as `unreadable output`, not a missing login.
 - **`cli-check` now fails a theme list it can't read.** Before, a list it couldn't parse was only a "login?" note, so this shape change passed `cli-check` on CLI 5.0.1. A failed listing is still a note.
 - The e2e fake CLI now prints CLI 5's shape, and a test covers CLI 4's.
+- **The fake CLI is compared with the real one.** The e2e suite could only prove that the kit agreed with the fake. `cli-check` now also records the structure of `theme list` and `theme info` output in `.claude/cli-check.json`: keys and types only, no theme names or store. The next check in each repo runs in full once to record it. In the kit repo, `test/all.mjs` runs `test/fake-vs-real.mjs`, which compares the fake with the newest CLI version recorded in the theme repos on that machine, and fails on a field or shape the real CLI doesn't print.
 
 ## 1.13.1 — 2026-11-20
 

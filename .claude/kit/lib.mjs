@@ -196,6 +196,30 @@ export function parseCliJson(text) {
   return null;
 }
 
+/**
+ * A JSON value's structure without its values: sorted keys, and 'string', 'number', 'boolean' or 'null' for leaves.
+ * An array is [item shape] with every item's keys merged, or [] when empty. cli-check records the real CLI's
+ * shapes so test/fake-vs-real.mjs can compare the test fake with them, without copying store data.
+ */
+export function shapeOf(value, depth = 0) {
+  if (value === null || value === undefined) return 'null';
+  if (Array.isArray(value)) return value.length && depth < 6 ? [value.map((v) => shapeOf(v, depth + 1)).reduce(mergeShapes)] : [];
+  if (typeof value === 'object') return depth < 6 ? Object.fromEntries(Object.keys(value).sort().map((k) => [k, shapeOf(value[k], depth + 1)])) : {};
+  return typeof value;
+}
+
+// Two items of one array: null fits any type, keys are merged, and two different leaf types are 'mixed'.
+function mergeShapes(a, b) {
+  if (a === 'null') return b;
+  if (b === 'null') return a;
+  if (Array.isArray(a) && Array.isArray(b)) return a.length && b.length ? [mergeShapes(a[0], b[0])] : (a.length ? a : b);
+  const isObj = (s) => s && typeof s === 'object' && !Array.isArray(s);
+  if (isObj(a) && isObj(b)) {
+    return Object.fromEntries([...new Set([...Object.keys(a), ...Object.keys(b)])].sort().map((k) => [k, k in a && k in b ? mergeShapes(a[k], b[k]) : (a[k] ?? b[k])]));
+  }
+  return JSON.stringify(a) === JSON.stringify(b) ? a : 'mixed';
+}
+
 /** The last diagnostic event whose message is a JSON object: where some CLI commands put their --json result. */
 export function diagnosticJson(text) {
   const lines = String(text).split(/\r?\n/);

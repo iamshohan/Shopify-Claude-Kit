@@ -12,7 +12,7 @@ import {
   ROOT, LOGS, KIT_DIR, KIT_VERSION, THEME_DIRS, MERCHANT_JSON, WIN, print, fail, parseArgs, normKey, now, run, git,
   currentBranch, parseCliJson, diagnosticJson, readConfig, readState, writeState, secret, inTaskFolder,
   storefrontGet, renderedTheme, storefrontPath, isThemePath, isStorable, mutationProblems, gqlScan, createdIds, namesKey, sealDigest, SEAL_FILE, draftNameFor, effectiveBase,
-  shopifyIgnore, themeDigest, authSessionProps, execErrorProps, lastVerified,
+  shopifyIgnore, themeDigest, authSessionProps, execErrorProps, lastVerified, shapeOf,
 } from './lib.mjs';
 
 const HELP = `Usage: node .claude/kit/shopify.mjs <verb> ...
@@ -76,7 +76,8 @@ const CLI_CONTRACT = [
 const CHECK_PATH = join(ROOT, '.claude', 'cli-check.json');
 // What the full check depends on from the kit: a release that doesn't change these doesn't need the minute-long check again.
 const contractSha = () => {
-  const h = createHash('sha256').update(JSON.stringify(CLI_CONTRACT));
+  // 'shapes': a release whose check records something new runs it once more, so every repo records it.
+  const h = createHash('sha256').update(JSON.stringify(CLI_CONTRACT)).update('shapes');
   for (const q of readdirSync(join(KIT_DIR, 'queries')).sort()) h.update(q).update(readFileSync(join(KIT_DIR, 'queries', q)));
   return h.digest('hex').slice(0, 16);
 };
@@ -107,8 +108,13 @@ function fullCliCheck(store) {
   for (const field of ['store', 'subdomain', 'scopes', 'expiresAt']) if (!sessionProps[field]) problems.push(`store auth list --json no longer documents sessions[].${field}. Affects: auth-check scopes.`);
   const errorProps = execErrorProps(schema(['store', 'execute']));
   for (const field of ['message', 'tryMessage', 'nextSteps', 'details']) if (!errorProps[field]) notes.push(`store execute errors no longer document error.${field}; error messages may lose detail.`);
+  // The structure (no values) of the read-only commands test/fake-shopify.mjs mimics; test/fake-vs-real.mjs compares them.
+  const shapes = {};
+  const info = cli(['theme', 'info', '--json']);
+  if (info.code === 0 && info.data) shapes['theme info'] = shapeOf(info.data);
   if (store) {
     const r = cli(['theme', 'list', '--store', store, '--json']);
+    if (r.code === 0 && r.data) shapes['theme list'] = shapeOf(r.data);
     const list = themeArray(r.data);
     if (r.code !== 0) notes.push('theme list --json failed (login?), so its output shape is unchecked.');
     else if (!list) problems.push(`theme list --json is neither a list nor { themes: [...] }: ${r.stdout.trim().slice(0, 300)}. Affects: every draft verb and auth-check.`);
@@ -132,7 +138,7 @@ function fullCliCheck(store) {
       }
     }
   }
-  return { problems, notes, pluginVersion: plugin?.version || null };
+  return { problems, notes, shapes, pluginVersion: plugin?.version || null };
 }
 
 // ── Write gates ──
@@ -561,7 +567,7 @@ switch (verb) {
     const report = {
       ok: result.problems.length === 0, cliVersion, pluginVersion, kitVersion: KIT_VERSION, adminApiVersion, contract,
       previous: lastVerified(last),
-      checkedAt: now(), problems: result.problems, notes: result.notes,
+      checkedAt: now(), problems: result.problems, notes: result.notes, shapes: result.shapes,
     };
     writeFileSync(CHECK_PATH, JSON.stringify(report, null, 2));
     print(report);

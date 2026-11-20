@@ -15,6 +15,7 @@ const SUITES = [
   ['theme probe built', REPO, '.claude/kit/kit.mjs', 'build-probe', '--check'],
   ['theme video', REPO, '.claude/kit/video.mjs', '--selftest'],
   ['theme e2e', REPO, 'test/e2e.mjs'],
+  ['fake CLI vs real', REPO, 'test/fake-vs-real.mjs'],
   ['app guard', APP, '.claude/hooks/guard.mjs', '--selftest'],
   ['app kit', APP, '.claude/kit/app.mjs', '--selftest'],
   ['app scenarios', APP, '.claude/kit/scenarios.mjs', '--selftest'],

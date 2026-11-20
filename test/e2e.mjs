@@ -778,9 +778,36 @@ try {
   ok('a failed cli-check keeps the last verified CLI version as previous',
     failedAgain.status === 2 && afterFail.ok === false && afterFail.previous?.cliVersion === '4.9.4', failedAgain.stdout);
   const shapeCheck = (extra) => spawnSync(process.execPath, [join(repo, '.claude', 'kit', 'shopify.mjs'), 'cli-check', '--force'], { cwd: repo, env: { ...env, USERPROFILE: tmp, HOME: tmp, ...extra }, encoding: 'utf8' });
-  const shapes = [shapeCheck({}), shapeCheck({ FAKE_LEGACY_LIST: '1' }), shapeCheck({ FAKE_THEME_LIST_RAW: '{"items":[]}' })];
+  const shapes = [shapeCheck({})];
+  const recorded = JSON.parse(readFileSync(checkFile, 'utf8'));
+  shapes.push(shapeCheck({ FAKE_LEGACY_LIST: '1' }), shapeCheck({ FAKE_THEME_LIST_RAW: '{"items":[]}' }));
   ok('cli-check accepts both theme list shapes and fails an unreadable one',
     !/theme list --json/.test(shapes[0].stdout) && !/theme list --json/.test(shapes[1].stdout) && /theme list --json is neither a list/.test(shapes[2].stdout), shapes.map((s) => s.stdout).join('\n'));
+  // cli-check records the CLI's output structure, never its values (theme names, the store).
+  ok('cli-check records the structure of theme list and theme info, without values',
+    JSON.stringify(recorded.shapes?.['theme list']) === JSON.stringify({ themes: [{ id: 'number', name: 'string', processing: 'boolean', role: 'string' }] })
+      && JSON.stringify(recorded.shapes?.['theme info']) === JSON.stringify({ store: 'string' }) && !/Live|fake-store/.test(JSON.stringify(recorded.shapes)), JSON.stringify(recorded.shapes));
+  // fake-vs-real: the newest CLI version recorded decides; an older CLI's shape (CLI 4's array) doesn't fail it.
+  const twinCheck = join(tmp, 'shape-twin');
+  mkdirSync(join(twinCheck, '.claude'), { recursive: true });
+  const record = (dir, cliVersion, list) => writeFileSync(join(dir, '.claude', 'cli-check.json'), JSON.stringify({ cliVersion, shapes: { ...recorded.shapes, 'theme list': list } }));
+  const shapesRegistry = join(tmp, 'shapes-installs.json');
+  writeFileSync(shapesRegistry, JSON.stringify({ [repo]: 'theme', [twinCheck]: 'theme' }));
+  const vsReal = () => spawnSync(process.execPath, [join(KIT, 'test', 'fake-vs-real.mjs')], { env: { ...process.env, SHOPIFY_KIT_REGISTRY: shapesRegistry }, encoding: 'utf8' });
+  const objectShape = recorded.shapes['theme list'];
+  const arrayShape = objectShape.themes;
+  record(repo, '5.0.1', objectShape);
+  record(twinCheck, '4.9.4', arrayShape);
+  const newestMatches = vsReal();
+  record(twinCheck, '5.1.0', arrayShape);
+  const newerDiffers = vsReal();
+  record(twinCheck, '5.1.0', { themes: [{ id: 'number', name: 'string', role: 'string' }] });
+  const fieldGone = vsReal();
+  ok('fake-vs-real compares the fake with the newest recorded CLI and names what differs',
+    newestMatches.status === 0 && /ok {4}theme list: matches CLI 5\.0\.1 \(1 repo\)/.test(newestMatches.stdout)
+      && newerDiffers.status === 1 && /the fake prints an object, the CLI an array/.test(newerDiffers.stdout)
+      && fieldGone.status === 1 && /themes\[\]\.processing: the fake prints it, the CLI doesn't/.test(fieldGone.stdout),
+    newestMatches.stdout + newerDiffers.stdout + fieldGone.stdout);
   // export-logs: tasks from every listed repo into a dated folder; same-named repos kept apart; old exports removed.
   const exportsDir = join(tmp, 'exports');
   const twin = join(tmp, 'clients', 'theme');
