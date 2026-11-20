@@ -12,6 +12,9 @@ import { parseCliJson, shapeOf } from '../.claude/kit/lib.mjs';
 import { readRegistry } from '../shared/installer-core.mjs';
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..');
+// The CLI version test/fake-shopify.mjs copies. A machine whose newest recording is older (a teammate still on
+// CLI 4) isn't compared: the kit reads both shapes, and the fake can only print one.
+const FAKE_MIMICS = '5.0.1';
 // The exact calls the kit makes (cli() adds --no-input).
 const CALLS = {
   'theme list': ['theme', 'list', '--store', 'fake-store.myshopify.com', '--json', '--no-input'],
@@ -29,7 +32,7 @@ function differences(fake, real, path = '') {
   }
   if (typeof fake === 'object' || typeof real === 'object') {
     if (typeof fake !== 'object' || typeof real !== 'object') return [`${at}: the fake prints ${kind(fake)}, the CLI ${kind(real)}`];
-    return Object.keys(fake).flatMap((k) => (k in real
+    return Object.keys(fake).flatMap((k) => (Object.hasOwn(real, k)
       ? differences(fake[k], real[k], path ? `${path}.${k}` : k)
       : [`${path ? `${path}.` : ''}${k}: the fake prints it, the CLI doesn't`]));
   }
@@ -47,10 +50,11 @@ function selftest() {
     [{ themes: [{ id: 'number' }] }, { themes: [] }, 0],
     [{ store: 'string' }, { store: 'null' }, 0],
     [{ id: 'string' }, { id: 'number' }, 1],
+    [{ constructor: { a: 'string' } }, { b: 'string' }, 1],
   ];
   const bad = cases.filter(([f, r, n]) => differences(f, r).length !== n);
-  const merged = shapeOf([{ id: 1, role: null }, { id: 2, role: 'live', processing: true }, { id: 3, name: 'x' }]);
-  const mergedOk = JSON.stringify(merged) === JSON.stringify([{ id: 'number', name: 'string', processing: 'boolean', role: 'string' }]);
+  const merged = shapeOf([{ id: 1, role: null }, { id: 2, role: 'live', processing: true }, { id: 3, name: 'x', constructor: 'y' }]);
+  const mergedOk = JSON.stringify(merged) === JSON.stringify([{ constructor: 'string', id: 'number', name: 'string', processing: 'boolean', role: 'string' }]);
   if (bad.length || !mergedOk) {
     console.log(`FAIL selftest: ${bad.map((c) => JSON.stringify(c)).join(' ')}${mergedOk ? '' : ` shapeOf merge gave ${JSON.stringify(merged)}`}`);
     process.exit(1);
@@ -98,6 +102,7 @@ let failed = false;
 for (const [name, shape] of Object.entries(fake)) {
   const rec = real[name];
   if (!rec) { lines.push(`--    ${name}: no real CLI output recorded yet (cli-check records it in each theme repo)`); continue; }
+  if (newer(version(FAKE_MIMICS), rec.v)) { lines.push(`--    ${name}: the newest recorded CLI (${rec.cliVersion}) is older than the ${FAKE_MIMICS} the fake copies; not compared`); continue; }
   const diffs = [...new Set(rec.shapes.flatMap((s) => differences(shape, s)))];
   if (diffs.length) failed = true;
   lines.push(diffs.length

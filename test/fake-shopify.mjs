@@ -2,7 +2,8 @@
 // A stand-in for the Shopify CLI, for test/e2e.mjs. It serves themes from folders under
 // $FAKE_SHOPIFY_DIR (themes.json + themes/<id>/...), logs every call to calls.jsonl, and
 // refuses, and records in violations.jsonl, any write to the live theme.
-// It mimics only the output shapes the kit's wrapper reads.
+// It mimics only the output shapes the kit's wrapper reads, as CLI 5.0.1 prints them: when you update it to a newer
+// CLI, update FAKE_MIMICS in test/fake-vs-real.mjs too.
 import { appendFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 

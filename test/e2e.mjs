@@ -375,12 +375,27 @@ try {
   const authOld = withList({ FAKE_LEGACY_LIST: '1' }, 'auth-check');
   ok('verify and auth-check read both theme list shapes',
     legacyVerify.status === 0 && /"themeLogin": "ok"/.test(authNew.stdout) && /"themeLogin": "ok"/.test(authOld.stdout) && /"id": 1\b/.test(authNew.stdout), legacyVerify.stderr + authNew.stdout + authOld.stdout);
-  const raw = { FAKE_THEME_LIST_RAW: '{"items":[{"id":140123}]}' };
+  // Theme names are merchant text: "Login popup test" or "Token gated drop" must not read as a login problem either.
+  const raw = { FAKE_THEME_LIST_RAW: '{"items":[{"id":140123,"name":"Login popup test"},{"id":2,"name":"Token gated drop"}]}' };
   const rawVerify = withList(raw, 'verify', KEY);
   const rawAuth = withList(raw, 'auth-check');
   ok('an unreadable theme list fails without a login hint',
     rawVerify.status !== 0 && /Listing themes failed/.test(rawVerify.stderr) && !/Theme login/.test(rawVerify.stderr)
       && /"themeLogin": "unreadable output/.test(rawAuth.stdout) && !/themeLoginFix/.test(rawAuth.stdout), rawVerify.stderr + rawAuth.stdout);
+  // Exit 0 with a JSON error (how store execute reports failures) is a failed call, so the login hint stays.
+  const jsonError = { FAKE_THEME_LIST_RAW: '{"error":{"message":"You are not logged in"}}' };
+  const errVerify = withList(jsonError, 'verify', KEY);
+  const errAuth = withList(jsonError, 'auth-check');
+  ok('a JSON error from theme list keeps the login hint',
+    errVerify.status !== 0 && /Theme login missing/.test(errVerify.stderr) && /"themeLogin": "missing"/.test(errAuth.stdout) && /themeLoginFix/.test(errAuth.stdout), errVerify.stderr + errAuth.stdout);
+  // cli-check records shapes only on a full run; a listing that works fills one that run couldn't record.
+  const gapCheck = join(repo, '.claude', 'cli-check.json');
+  writeFileSync(gapCheck, JSON.stringify({ ok: true, shapes: {} }));
+  const fills = withList({}, 'verify', KEY);
+  const filled = JSON.parse(readFileSync(gapCheck, 'utf8')).shapes;
+  rmSync(gapCheck);
+  ok('a working theme listing records the shape cli-check couldn\'t',
+    fills.status === 0 && JSON.stringify(filled['theme list']) === JSON.stringify({ themes: [{ id: 'number', name: 'string', processing: 'boolean', role: 'string' }] }), JSON.stringify(filled) + fills.stderr);
 
   // A GitHub-connected draft is never pushed, so verify runs the drift check there: a refused one isn't a verified draft.
   git('push', '-q', '-u', 'origin', KEY);
@@ -803,11 +818,16 @@ try {
   const newerDiffers = vsReal();
   record(twinCheck, '5.1.0', { themes: [{ id: 'number', name: 'string', role: 'string' }] });
   const fieldGone = vsReal();
+  // A machine still on CLI 4 only: older than the CLI the fake copies, so it informs instead of failing.
+  record(repo, '4.9.4', arrayShape);
+  record(twinCheck, '4.9.4', arrayShape);
+  const onlyOlder = vsReal();
   ok('fake-vs-real compares the fake with the newest recorded CLI and names what differs',
     newestMatches.status === 0 && /ok {4}theme list: matches CLI 5\.0\.1 \(1 repo\)/.test(newestMatches.stdout)
       && newerDiffers.status === 1 && /the fake prints an object, the CLI an array/.test(newerDiffers.stdout)
-      && fieldGone.status === 1 && /themes\[\]\.processing: the fake prints it, the CLI doesn't/.test(fieldGone.stdout),
-    newestMatches.stdout + newerDiffers.stdout + fieldGone.stdout);
+      && fieldGone.status === 1 && /themes\[\]\.processing: the fake prints it, the CLI doesn't/.test(fieldGone.stdout)
+      && onlyOlder.status === 0 && /CLI \(4\.9\.4\) is older than the 5\.0\.1 the fake copies/.test(onlyOlder.stdout),
+    newestMatches.stdout + newerDiffers.stdout + fieldGone.stdout + onlyOlder.stdout);
   // export-logs: tasks from every listed repo into a dated folder; same-named repos kept apart; old exports removed.
   const exportsDir = join(tmp, 'exports');
   const twin = join(tmp, 'clients', 'theme');

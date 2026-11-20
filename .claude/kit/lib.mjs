@@ -215,7 +215,7 @@ function mergeShapes(a, b) {
   if (Array.isArray(a) && Array.isArray(b)) return a.length && b.length ? [mergeShapes(a[0], b[0])] : (a.length ? a : b);
   const isObj = (s) => s && typeof s === 'object' && !Array.isArray(s);
   if (isObj(a) && isObj(b)) {
-    return Object.fromEntries([...new Set([...Object.keys(a), ...Object.keys(b)])].sort().map((k) => [k, k in a && k in b ? mergeShapes(a[k], b[k]) : (a[k] ?? b[k])]));
+    return Object.fromEntries([...new Set([...Object.keys(a), ...Object.keys(b)])].sort().map((k) => [k, Object.hasOwn(a, k) && Object.hasOwn(b, k) ? mergeShapes(a[k], b[k]) : (Object.hasOwn(a, k) ? a[k] : b[k])]));
   }
   return JSON.stringify(a) === JSON.stringify(b) ? a : 'mixed';
 }
