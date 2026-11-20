@@ -112,14 +112,13 @@ function fullCliCheck(store) {
   const shapes = {};
   const info = cli(['theme', 'info', '--json']);
   if (!cliFailed(info) && info.data) shapes['theme info'] = shapeOf(info.data);
+  const warnings = [];
+  let themeListUnchecked = false;
   if (store) {
-    const r = cli(['theme', 'list', '--store', store, '--json']);
-    if (!cliFailed(r) && r.data) shapes['theme list'] = shapeOf(r.data);
-    const list = themeArray(r.data);
-    if (cliFailed(r)) notes.push('theme list --json failed (login?), so its output shape is unchecked.');
-    else if (!list) problems.push(`theme list --json is neither a list nor { themes: [...] }: ${r.stdout.trim().slice(0, 300)}. Affects: every draft verb and auth-check.`);
-    else if (!list.every((t) => 'id' in t && 'name' in t && 'role' in t)) problems.push('theme list --json items no longer carry id, name and role. Affects: every draft verb.');
-    else if (!list.some((t) => t.role === 'live')) problems.push('theme list --json no longer marks the live theme with role "live". Affects: draft.');
+    const t = checkThemeList(store);
+    problems.push(...t.problems);
+    if (t.shape) shapes['theme list'] = t.shape;
+    if (t.warning) { warnings.push(t.warning); themeListUnchecked = true; }
   }
   notes.push('theme duplicate/push/preview publish no output schema and can\'t be run read-only; the wrapper fails loudly at run time if their JSON changes (theme.id, theme.preview_url, url).');
   const plugin = pluginInfo();
@@ -138,7 +137,24 @@ function fullCliCheck(store) {
       }
     }
   }
-  return { problems, notes, shapes, pluginVersion: plugin?.version || null };
+  return { problems, notes, warnings, shapes, themeListUnchecked, pluginVersion: plugin?.version || null };
+}
+
+/**
+ * Reads theme list --json the way the draft verbs do. A failed call (usually an expired theme login) is a warning,
+ * not a problem: the CLI may be fine, and investigations that only query the Admin API still work.
+ */
+function checkThemeList(store) {
+  const r = cli(['theme', 'list', '--store', store, '--json']);
+  if (cliFailed(r)) {
+    return { problems: [], shape: null, warning: `theme list failed, so the draft verbs' output wasn't checked; the next cli-check checks it again. ${loginHint(store, r) || cliError(r).slice(0, 300)}` };
+  }
+  const list = themeArray(r.data);
+  const problems = [];
+  if (!list) problems.push(`theme list --json is neither a list nor { themes: [...] }: ${r.stdout.trim().slice(0, 300)}. Affects: every draft verb and auth-check.`);
+  else if (!list.every((t) => 'id' in t && 'name' in t && 'role' in t)) problems.push('theme list --json items no longer carry id, name and role. Affects: every draft verb.');
+  else if (!list.some((t) => t.role === 'live')) problems.push('theme list --json no longer marks the live theme with role "live". Affects: draft.');
+  return { problems, shape: r.data ? shapeOf(r.data) : null, warning: null };
 }
 
 // ── Write gates ──
@@ -237,6 +253,11 @@ function recordShape(name, data) {
   } catch { /* no check yet: cli-check records it */ }
 }
 
+// CLI 4 prints theme ids as numbers, CLI 5 as strings. The kit keeps numbers (state, kit.mjs set, the guard's seals)
+// and compares through sameId, so a string id already in a task's state still matches.
+const toThemeId = (id) => (/^\d+$/.test(String(id)) ? Number(id) : id);
+const sameId = (a, b) => a != null && b != null && String(a) === String(b);
+
 // CLI 4 prints theme list --json as a bare array, CLI 5 as { themes: [...] }.
 function themeArray(data) {
   return Array.isArray(data) ? data : Array.isArray(data?.themes) ? data.themes : null;
@@ -249,7 +270,7 @@ function listThemes(store, name) {
   if (cliFailed(r) || !list) failCli(store, r, 'Listing themes');
   recordShape('theme list', r.data);
   return list
-    .map(({ id, name: n, role, processing }) => ({ id, name: n, role, processing: Boolean(processing) }))
+    .map(({ id, name: n, role, processing }) => ({ id: toThemeId(id), name: n, role, processing: Boolean(processing) }))
     .filter((t) => !name || t.name.toLowerCase().includes(name.toLowerCase()));
 }
 
@@ -257,7 +278,7 @@ function listThemes(store, name) {
 function waitUntilReady(store, id, maxSeconds = 300) {
   const until = Date.now() + maxSeconds * 1000;
   for (;;) {
-    const theme = listThemes(store).find((t) => t.id === id);
+    const theme = listThemes(store).find((t) => sameId(t.id, id));
     if (!theme || !theme.processing) return theme;
     if (Date.now() > until) fail(`Theme ${id} is still processing after ${maxSeconds}s. Try again in a few minutes.`);
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10000);
@@ -274,7 +295,7 @@ function storeHandle(store) {
 function taskDraft(st, themes) {
   const id = st.draft?.themeId;
   if (!id || st.draft.deletedAt) return null;
-  return themes.find((t) => t.id === id) || null;
+  return themes.find((t) => sameId(t.id, id)) || null;
 }
 
 /** Refuses anything that isn't this task's own unpublished theme. */
@@ -580,14 +601,28 @@ switch (verb) {
     let last = null;
     try { last = existsSync(CHECK_PATH) ? JSON.parse(readFileSync(CHECK_PATH, 'utf8')) : null; } catch { /* unreadable: run the full check */ }
     if (!flags.force && last?.ok && last.cliVersion === cliVersion && last.pluginVersion === pluginVersion && last.contract === contract && last.adminApiVersion === adminApiVersion) {
-      print({ ok: true, cliVersion, pluginVersion, kitVersion: KIT_VERSION, adminApiVersion, verifiedAt: last.checkedAt, note: 'unchanged since the last full check' });
+      const cached = { ok: true, cliVersion, pluginVersion, kitVersion: KIT_VERSION, adminApiVersion, verifiedAt: last.checkedAt, note: 'unchanged since the last full check' };
+      // The last check couldn't read theme list (login): check just that, so the cached ok doesn't hide it.
+      if (last.themeListUnchecked && cfg?.store) {
+        const t = checkThemeList(cfg.store);
+        const updated = {
+          ...last, ok: t.problems.length === 0, problems: [...(last.problems || []), ...t.problems], warnings: t.warning ? [t.warning] : [],
+          themeListUnchecked: Boolean(t.warning), shapes: { ...last.shapes, ...(t.shape ? { 'theme list': t.shape } : {}) },
+        };
+        writeFileSync(CHECK_PATH, JSON.stringify(updated, null, 2));
+        if (!updated.ok) { print(updated); process.exit(2); }
+        print({ ...cached, ...(t.warning ? { warnings: updated.warnings } : { note: 'unchanged since the last full check; theme list checked now' }) });
+        break;
+      }
+      print(cached);
       break;
     }
     const result = fullCliCheck(cfg?.store);
     const report = {
       ok: result.problems.length === 0, cliVersion, pluginVersion, kitVersion: KIT_VERSION, adminApiVersion, contract,
       previous: lastVerified(last),
-      checkedAt: now(), problems: result.problems, notes: result.notes, shapes: result.shapes,
+      checkedAt: now(), problems: result.problems, warnings: result.warnings, notes: result.notes, shapes: result.shapes,
+      themeListUnchecked: result.themeListUnchecked,
     };
     writeFileSync(CHECK_PATH, JSON.stringify(report, null, 2));
     print(report);
@@ -618,7 +653,7 @@ switch (verb) {
     const live = cliFailed(themes) ? null : themeArray(themes.data);
     // A call that succeeded with an unreadable list is a shape change, not a login problem: logging in again wouldn't help.
     out.themeLogin = live ? 'ok' : cliFailed(themes) ? 'missing' : `unreadable output (run cli-check --force): ${themes.stdout.trim().slice(0, 200)}`;
-    if (live) out.liveTheme = live.filter((t) => t.role === 'live').map(({ id, name }) => ({ id, name }))[0] || null;
+    if (live) out.liveTheme = live.filter((t) => t.role === 'live').map(({ id, name }) => ({ id: toThemeId(id), name }))[0] || null;
     else if (cliFailed(themes)) out.themeLoginFix = `! shopify theme list --store ${store}`;
     const shopQuery = join(KIT_DIR, 'queries', 'shop.graphql');
     const shop = cli(['store', 'execute', '--store', store, '--query-file', shopQuery, '--json']);
@@ -747,14 +782,14 @@ switch (verb) {
     const name = draftNameFor(key, st);
     // The draft copies the theme the branch follows: live, or the base theme when live is a campaign theme.
     const live = st.baseTheme
-      ? themes.find((t) => t.id === st.baseTheme) || fail(`Base theme ${st.baseTheme} isn't in the store. Check the id: kit.mjs set ${key} baseTheme=<id>.`)
+      ? themes.find((t) => sameId(t.id, st.baseTheme)) || fail(`Base theme ${st.baseTheme} isn't in the store. Check the id: kit.mjs set ${key} baseTheme=<id>.`)
       : themes.find((t) => t.role === 'live') || fail('No live theme found in the store.');
     const same = themes.find((t) => t.name.toUpperCase() === name.toUpperCase() && t.role === 'unpublished');
     const others = themes.filter((t) => t.role !== 'live' && t !== same && namesKey(t.name, key));
     const record = (theme, source, route = 'cli') => {
       const handle = storeHandle(cfg.store);
       st.draft = {
-        themeId: theme.id, name: theme.name, route, source, liveThemeId: live.id, createdAt: now(),
+        themeId: toThemeId(theme.id), name: theme.name, route, source, liveThemeId: live.id, createdAt: now(),
         previewUrl: `https://${cfg.store}/?preview_theme_id=${theme.id}`,
         editorUrl: `https://admin.shopify.com/store/${handle}/themes/${theme.id}/editor`,
         lastPushedCommit: null,
@@ -771,7 +806,7 @@ switch (verb) {
       }
       const wanted = typeof flags.theme === 'string' ? Number(flags.theme) : null;
       const candidates = themes.filter((t) => t.role === 'unpublished'
-        && (wanted ? t.id === wanted : namesKey(t.name, key) || namesKey(t.name, branch)));
+        && (wanted ? sameId(t.id, wanted) : namesKey(t.name, key) || namesKey(t.name, branch)));
       if (candidates.length !== 1) {
         const repo = git(['remote', 'get-url', 'origin'], { allowFail: true }).replace(/^.*[:/]([^/:]+\/[^/]+?)(\.git)?$/, '$1');
         print({
@@ -833,7 +868,7 @@ switch (verb) {
       failCli(cfg.store, r, 'Duplicating the live theme');
     }
     record(theme, `copy of live theme ${live.id}`);
-    waitUntilReady(cfg.store, theme.id);
+    waitUntilReady(cfg.store, toThemeId(theme.id));
     print({ created: true, ...st.draft, otherDraftsForThisTask: others });
     break;
   }
@@ -898,7 +933,7 @@ switch (verb) {
     const key = normKey(pos[0]);
     const st = writableTask(key);
     if (!st.draft?.themeId) fail(`No draft yet. Run: shopify.mjs draft ${key}`);
-    const target = listThemes(cfg.store).find((t) => t.id === st.draft.themeId);
+    const target = listThemes(cfg.store).find((t) => sameId(t.id, st.draft.themeId));
     assertOwnDraft(key, st, target);
     const { files, gone, base, sources } = branchFiles(st);
     if (!files.length) fail('The branch has no committed theme changes beyond its base that Shopify stores.');
@@ -939,7 +974,7 @@ switch (verb) {
     const url = live ? origin + path : `${origin}${path}${path.includes('?') ? '&' : '?'}preview_theme_id=${id}`;
     const page = await storefrontGet(url);
     const theme = renderedTheme(page.html);
-    const rightTheme = live ? theme?.role === 'main' : theme?.id === id;
+    const rightTheme = live ? theme?.role === 'main' : sameId(theme?.id, id);
     const dir = join(LOGS, key, 'fetch');
     mkdirSync(dir, { recursive: true });
     const file = join(dir, `${live ? 'live' : 'draft'}-${path.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '') || 'home'}.html`);
@@ -966,7 +1001,7 @@ switch (verb) {
     let overrides;
     try { overrides = JSON.parse(readFileSync(abs, 'utf8')); } catch (e) { fail(`Overrides file isn't valid JSON: ${e.message}`); }
     if (!overrides.theme_changes) fail('Overrides need a top-level "theme_changes" object. Start from .claude/kit/templates/preview-overrides.example.json.');
-    assertOwnDraft(key, st, listThemes(cfg.store).find((t) => t.id === st.draft.themeId));
+    assertOwnDraft(key, st, listThemes(cfg.store).find((t) => sameId(t.id, st.draft.themeId)));
     const file = relative(ROOT, abs).replaceAll('\\', '/');
     // Re-previewing the same overrides file updates its preview instead of creating another.
     const previous = [...st.previews].reverse().find((p) => p.file === file && p.id);
@@ -1021,7 +1056,7 @@ switch (verb) {
     const key = normKey(pos[0]);
     const st = writableTask(key);
     if (!st.draft?.themeId || st.draft.deletedAt) fail(`${key} has no draft to delete.`);
-    const target = listThemes(cfg.store).find((t) => t.id === st.draft.themeId);
+    const target = listThemes(cfg.store).find((t) => sameId(t.id, st.draft.themeId));
     // Deleted in the admin already: record it, so status, list and abandon stop offering it. Never suggest
     // `draft` here: it would make a new copy of live.
     if (!target) {
@@ -1035,7 +1070,7 @@ switch (verb) {
     }
     assertOwnDraft(key, st, target);
     if (flags['dry-run']) { print({ dryRun: true, wouldDelete: target }); break; }
-    consumeSeal(key, { verb: 'delete-draft', themeId: target.id });
+    consumeSeal(key, { verb: 'delete-draft', themeId: st.draft.themeId });
     const r = cli(['theme', 'delete', '--store', cfg.store, '--theme', String(target.id), '--force']);
     if (r.code !== 0) failCli(cfg.store, r, 'Deleting the draft');
     st.draft.deletedAt = now();

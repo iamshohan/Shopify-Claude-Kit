@@ -1,4 +1,4 @@
-# Shopify Implementation Kit · v1.13.2
+# Shopify Implementation Kit · v1.13.3
 
 A Claude Code setup for Shopify theme repos.
 

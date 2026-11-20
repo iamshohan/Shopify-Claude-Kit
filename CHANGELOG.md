@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.13.3 — 2026-11-20
+
+**Shopify CLI 5 broke push and verify a second way.** CLI 5.0.1 prints theme ids as strings (`"182697394443"`), while the kit's task state, `kit.mjs set` and the guard's seals hold numbers. So push, verify, preview, delete-draft and draft's reuse of an existing draft said "Theme … no longer exists in the store". The kit now converts ids to numbers when it reads them from the CLI, and compares them as strings, so a string id that 1.13.2 already wrote into a task's state matches too. The e2e fake prints string ids now. Against the old code, 23 e2e cases fail.
+- **`cli-check` no longer says a plain ok when the theme login stops it.** It used to file this as a note nobody acted on. Now it gives a `warning` with the login command; a stale session shows up as "Service is not valid for authentication". The exit code stays 0, so an investigation that only queries the Admin API isn't blocked. Until it can read the theme list, every later `cli-check` checks just that one call again instead of reusing its cached ok. `/shopify-implement` and `/shopify-investigate` pass the warning on to the dev.
+- `test/fake-vs-real.mjs` caught the id change from vetevo's first recording the same day 1.13.2 shipped, after the dev hit it.
+
 ## 1.13.2 — 2026-11-20
 
 **Shopify CLI 5 broke every draft verb.** CLI 5 prints `theme list --json` as `{ "themes": [...] }` instead of a bare array, so draft, push, verify, preview and delete-draft failed with "Listing themes failed", and `auth-check` said `themeLogin: missing`. Both shapes are now read.

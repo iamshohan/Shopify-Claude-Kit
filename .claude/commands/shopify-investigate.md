@@ -12,7 +12,7 @@ You are running a read-only investigation with the Shopify Implementation Kit. A
 
 1. **Nothing given** → run `node .claude/kit/kit.mjs list`, ask the dev which investigation to continue or what to investigate, and stop until they answer.
 2. **`.claude/shopify-kit.json` missing** → tell the dev to run `/shopify-setup` first, and stop.
-3. **Once per session,** run `node .claude/kit/shopify.mjs cli-check`. If it reports problems (exit 2), read each one's "Affects:". Stop and tell the dev to run `/shopify-update` only when one affects what investigations use: `query`, `pull-live`, `fetch`, `auth-check` or docs lookups. Otherwise mention them in one line and go on.
+3. **Once per session,** run `node .claude/kit/shopify.mjs cli-check`. If it reports problems (exit 2), read each one's "Affects:". Stop and tell the dev to run `/shopify-update` only when one affects what investigations use: `query`, `pull-live`, `fetch`, `auth-check` or docs lookups. Otherwise mention them in one line and go on. Pass on its `warnings` the same way (usually a theme login to renew, which `pull-live` needs).
 4. **The key:**
    - A ticket key in the arguments (like `ABC-123`) → use it.
    - Only a question → use `INV-<month><day><hour><minute>`, for example `INV-10201530`.

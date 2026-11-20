@@ -394,8 +394,16 @@ try {
   const fills = withList({}, 'verify', KEY);
   const filled = JSON.parse(readFileSync(gapCheck, 'utf8')).shapes;
   rmSync(gapCheck);
+  // VET-689: CLI 5's ids are strings (the fake prints them so), the kit's state holds numbers; a draft that 1.13.2
+  // recorded with a string id must match too.
+  const numericDraft = state().draft;
+  writeFileSync(statePath, JSON.stringify({ ...state(), draft: { ...numericDraft, themeId: String(numericDraft.themeId) } }));
+  const stringIdVerify = kit('shopify.mjs', 'verify', KEY);
+  writeFileSync(statePath, JSON.stringify({ ...state(), draft: numericDraft }));
+  ok('theme ids match whether the CLI or the task state holds them as strings or numbers',
+    typeof numericDraft.themeId === 'number' && stringIdVerify.code === 0, stringIdVerify.all);
   ok('a working theme listing records the shape cli-check couldn\'t',
-    fills.status === 0 && JSON.stringify(filled['theme list']) === JSON.stringify({ themes: [{ id: 'number', name: 'string', processing: 'boolean', role: 'string' }] }), JSON.stringify(filled) + fills.stderr);
+    fills.status === 0 && JSON.stringify(filled['theme list']) === JSON.stringify({ themes: [{ id: 'string', name: 'string', processing: 'boolean', role: 'string' }] }), JSON.stringify(filled) + fills.stderr);
 
   // A GitHub-connected draft is never pushed, so verify runs the drift check there: a refused one isn't a verified draft.
   git('push', '-q', '-u', 'origin', KEY);
@@ -798,9 +806,22 @@ try {
   shapes.push(shapeCheck({ FAKE_LEGACY_LIST: '1' }), shapeCheck({ FAKE_THEME_LIST_RAW: '{"items":[]}' }));
   ok('cli-check accepts both theme list shapes and fails an unreadable one',
     !/theme list --json/.test(shapes[0].stdout) && !/theme list --json/.test(shapes[1].stdout) && /theme list --json is neither a list/.test(shapes[2].stdout), shapes.map((s) => s.stdout).join('\n'));
+  // A theme login that stops the check is a warning with the login command, and a cached ok re-checks just theme list.
+  const loginGone = { FAKE_THEME_LIST_RAW: '{"error":{"message":"Service is not valid for authentication"}}' };
+  const warned = shapeCheck(loginGone);
+  const warnedFile = JSON.parse(readFileSync(checkFile, 'utf8'));
+  writeFileSync(checkFile, JSON.stringify({ ...warnedFile, ok: true, problems: [] }));
+  const stillGone = spawnSync(process.execPath, [join(repo, '.claude', 'kit', 'shopify.mjs'), 'cli-check'], { cwd: repo, env: { ...env, USERPROFILE: tmp, HOME: tmp, ...loginGone }, encoding: 'utf8' });
+  const back = cliCheck();
+  const afterBack = JSON.parse(readFileSync(checkFile, 'utf8'));
+  ok('cli-check warns when the theme login stops it, and re-checks theme list until it can',
+    /Theme login missing or expired[\s\S]*shopify theme list --store/.test(JSON.stringify(warnedFile.warnings)) && warnedFile.themeListUnchecked === true
+      && stillGone.status === 0 && /"warnings"/.test(stillGone.stdout) && /unchanged since/.test(stillGone.stdout)
+      && back.status === 0 && /theme list checked now/.test(back.stdout) && afterBack.themeListUnchecked === false && Boolean(afterBack.shapes['theme list']),
+    warned.stdout + stillGone.stdout + back.stdout);
   // cli-check records the CLI's output structure, never its values (theme names, the store).
   ok('cli-check records the structure of theme list and theme info, without values',
-    JSON.stringify(recorded.shapes?.['theme list']) === JSON.stringify({ themes: [{ id: 'number', name: 'string', processing: 'boolean', role: 'string' }] })
+    JSON.stringify(recorded.shapes?.['theme list']) === JSON.stringify({ themes: [{ id: 'string', name: 'string', processing: 'boolean', role: 'string' }] })
       && JSON.stringify(recorded.shapes?.['theme info']) === JSON.stringify({ store: 'string' }) && !/Live|fake-store/.test(JSON.stringify(recorded.shapes)), JSON.stringify(recorded.shapes));
   // fake-vs-real: the newest CLI version recorded decides; an older CLI's shape (CLI 4's array) doesn't fail it.
   const twinCheck = join(tmp, 'shape-twin');
@@ -816,7 +837,7 @@ try {
   const newestMatches = vsReal();
   record(twinCheck, '5.1.0', arrayShape);
   const newerDiffers = vsReal();
-  record(twinCheck, '5.1.0', { themes: [{ id: 'number', name: 'string', role: 'string' }] });
+  record(twinCheck, '5.1.0', { themes: [{ id: 'string', name: 'string', role: 'string' }] });
   const fieldGone = vsReal();
   // A machine still on CLI 4 only: older than the CLI the fake copies, so it informs instead of failing.
   record(repo, '4.9.4', arrayShape);

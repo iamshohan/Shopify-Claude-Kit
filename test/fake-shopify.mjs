@@ -64,10 +64,11 @@ function walk(dir, base = dir, acc = []) {
 switch (cmd) {
   case 'version': out('3.99.0-fake'); break;
   case 'theme list': {
-    // CLI 5's shape ({ themes: [...] }); FAKE_LEGACY_LIST prints CLI 4's bare array, FAKE_THEME_LIST_RAW any text.
+    // CLI 5's shape ({ themes: [...] }, ids as strings); FAKE_LEGACY_LIST prints CLI 4's (a bare array, numeric ids),
+    // FAKE_THEME_LIST_RAW any text.
     const list = themes().filter((t) => !flags.role || t.role === flags.role).map((t) => ({ ...t, processing: false }));
     if (process.env.FAKE_THEME_LIST_RAW) process.stdout.write(`${process.env.FAKE_THEME_LIST_RAW}\n`);
-    else out(process.env.FAKE_LEGACY_LIST ? list : { themes: list });
+    else out(process.env.FAKE_LEGACY_LIST ? list : { themes: list.map((t) => ({ ...t, id: String(t.id) })) });
     break;
   }
   case 'theme info': out({ store: 'fake-store.myshopify.com' }); break;
