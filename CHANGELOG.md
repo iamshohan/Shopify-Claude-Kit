@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.13.4 — 2026-11-21
+
+From VET-33's kit notes.
+- **The design audit couldn't run.** `kit.mjs design-audit` wrote its file ending in `;`, and `browser_run_code_unsafe` evaluates a file as one expression, so every exact-mode audit threw "Unexpected token ';'". QA had to copy the file by hand. The e2e test now checks that the file parses as one expression.
+- **Plan asks about state that leaves the page.** For a discount code, the cart or a cookie, it asks what other pages and the cart show, and how it combines with codes already active. VET-33 found both questions at build review and reversed one after QA, which made build the longest stage (169 of 234 minutes).
+- Intake: an A/B ticket with no test code to port is a `feature`.
+- Build: a test run reuses a `<KEY>-kit-test` branch the dev already made in another case. When `.shopifyignore` skips a file, the question says "upload to the draft theme", not "push", which devs read as git push.
+
 ## 1.13.3 — 2026-11-20
 
 **Shopify CLI 5 broke push and verify a second way.** CLI 5.0.1 prints theme ids as strings (`"182697394443"`), while the kit's task state, `kit.mjs set` and the guard's seals hold numbers. So push, verify, preview, delete-draft and draft's reuse of an existing draft said "Theme … no longer exists in the store". The kit now converts ids to numbers when it reads them from the CLI, and compares them as strings, so a string id that 1.13.2 already wrote into a task's state matches too. The e2e fake prints string ids now. Against the old code, 23 e2e cases fail.

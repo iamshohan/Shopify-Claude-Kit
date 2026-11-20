@@ -229,6 +229,10 @@ try {
     /fill the selector the build creates for desktop: Title; desktop: Title → cards/.test(exactPlan.err) && /design-audit ABC-1 <viewport>/.test(exactPlan.err)
       && audit.code === 0 && /function designAudit/.test(readFileSync(auditFile, 'utf8')) && readFileSync(auditFile, 'utf8').includes('"selector":".feat__title"')
       && kit('kit.mjs', 'design-audit', KEY, 'mobile').code === 1 && /Design: Figma .* exact mode/.test(kit('kit.mjs', 'status', KEY).out), exactPlan.all + audit.all);
+  // browser_run_code_unsafe evaluates the file as one expression: a trailing ';' is a SyntaxError there (VET-33).
+  let auditParses = false;
+  try { auditParses = typeof new Function(`return (\n${readFileSync(auditFile, 'utf8')}\n);`)() === 'function'; } catch {}
+  ok('design-audit writes one expression that browser_run_code_unsafe can run', auditParses);
   rmSync(checksPath);
   rmSync(auditFile);
   writeFileSync(statePath, fresh);

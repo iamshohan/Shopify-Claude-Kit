@@ -40,6 +40,7 @@ user-invocable: false
    - missing copy per locale
    - the placement choice and each setting's default
    - risky findings
+   - state the feature carries beyond its page (a discount code, the cart, a cookie): what other pages and the cart show, and how it combines with codes or offers already active. VET-33 found both at build review and reversed one after QA.
    - each row of `design.md` § Differs from the theme or the A/B code: follow Figma, or keep the theme's value (or the winner's). Group rows of one kind into one question ("Figma's greys are 1–2 shades off the colour scheme: use the scheme?").
 
    - **each value you'd keep in code that an editability line reaches**: one question per value, never folded into another question. Name the AC: "AC 18 says the client manages the menu without a developer. Keep the six utility icons in code anyway?"

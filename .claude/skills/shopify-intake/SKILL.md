@@ -24,7 +24,7 @@ user-invocable: false
    | type | when |
    | --- | --- |
    | `abtest` | the ticket implements a tested, winning variation on the live site |
-   | `feature` | the client asks for a new feature or change directly (no A/B test behind it) |
+   | `feature` | the client asks for a new feature or change directly (no A/B test behind it). Also an A/B ticket with no test code or live variation to port: the dev builds it from the criteria and the design |
    | `bugfix` | something is broken and must be fixed |
 
    Tell the dev the type you picked. If two types fit, ask.

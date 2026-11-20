@@ -11,7 +11,7 @@ user-invocable: false
 1. **Branch.** Theme changes go on the task branch.
    - Run `git status --porcelain`. If it shows uncommitted changes to theme files, ask the dev what to do with them. Never stash or discard anything without asking.
    - **The branch exists in status** (fix loops, resume): `git switch <branch>`.
-   - **Test run** (status says TEST RUN): create the branch with the name from status (`<KEY>-kit-test`) as in step 2 below, even when a teammate's branch for the key exists. Never push it.
+   - **Test run** (status says TEST RUN): create the branch with the name from status (`<KEY>-kit-test`) as in step 2 below, even when a teammate's branch for the key exists. If a local branch with that name in another case already exists (the dev made it), switch to it and record its exact name with `set branch=`. Never push it.
    - **No branch yet:**
      1. Run `git fetch origin`, then `git branch --list` and `git ls-remote --heads origin`. Look for a local or remote branch matching the key, ignoring case (e.g. `abc-123` for ABC-123). If one exists, ask the dev:
         - **"Reuse it"** → `git switch <it>`, and the base is `git merge-base origin/<baseBranch> HEAD`
@@ -85,7 +85,7 @@ user-invocable: false
 4. **Push:** `node .claude/kit/shopify.mjs push <KEY>`. It uploads every theme file the branch's commits touched (including files reverted to their base content), then pulls them back and compares them with HEAD. When it refuses, its message says what to do. Three that need more:
    - **Live changed merchant JSON the branch changes:** `--reconciled` only after the dev confirms the branch holds live's edits. Other files live changed (a hotfix in the code editor) are listed as `liveEditedSinceBase`, not refused: tell the dev; QA lists them in the report.
    - **Shopify rejected a file**, for example a Liquid error: fix it in fix mode, commit, and push again.
-   - **`.shopifyignore` excludes a file the branch changes:** ask the dev how it reaches the store. Only with their yes, `push <KEY> --skip-ignored`; status then lists the file for report.md § You must still do.
+   - **`.shopifyignore` excludes a file the branch changes:** ask the dev how it reaches the store. Say "upload to the draft theme", not "push": devs read push as git push. Only with their yes, `push <KEY> --skip-ignored`; status then lists the file for report.md § You must still do.
 5. **Check the page:** `node .claude/kit/shopify.mjs fetch <KEY> <path> --find <text>`.
 6. Give the dev the preview URL and the editor URL.
 
