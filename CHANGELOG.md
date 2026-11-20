@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.13.2 — 2026-11-20
+
+**Shopify CLI 5 broke every draft verb.** CLI 5 prints `theme list --json` as `{ "themes": [...] }` instead of a bare array, so draft, push, verify, preview and delete-draft failed with "Listing themes failed", and `auth-check` said `themeLogin: missing`. Both shapes are now read.
+- **The failure claimed the theme login had expired.** The login check matched `401` anywhere in the error text, including inside a theme id, so devs were told to log in again, which couldn't help. It now matches only a standalone 401. `auth-check` reports an unreadable list as `unreadable output`, not a missing login.
+- **`cli-check` now fails a theme list it can't read.** Before, a list it couldn't parse was only a "login?" note, so this shape change passed `cli-check` on CLI 5.0.1. A failed listing is still a note.
+- The e2e fake CLI now prints CLI 5's shape, and a test covers CLI 4's.
+
 ## 1.13.1 — 2026-11-20
 
 From a review of the whole kit, trimmed by a second review to what a well-meaning agent would actually hit, so the guard gets no stricter than it needs to be.

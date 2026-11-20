@@ -108,10 +108,12 @@ function fullCliCheck(store) {
   const errorProps = execErrorProps(schema(['store', 'execute']));
   for (const field of ['message', 'tryMessage', 'nextSteps', 'details']) if (!errorProps[field]) notes.push(`store execute errors no longer document error.${field}; error messages may lose detail.`);
   if (store) {
-    const list = cli(['theme', 'list', '--store', store, '--json']);
-    if (!Array.isArray(list.data)) notes.push('theme list --json could not be read (login?), so its output shape is unchecked.');
-    else if (!list.data.every((t) => 'id' in t && 'name' in t && 'role' in t)) problems.push('theme list --json items no longer carry id, name and role. Affects: every draft verb.');
-    else if (!list.data.some((t) => t.role === 'live')) problems.push('theme list --json no longer marks the live theme with role "live". Affects: draft.');
+    const r = cli(['theme', 'list', '--store', store, '--json']);
+    const list = themeArray(r.data);
+    if (r.code !== 0) notes.push('theme list --json failed (login?), so its output shape is unchecked.');
+    else if (!list) problems.push(`theme list --json is neither a list nor { themes: [...] }: ${r.stdout.trim().slice(0, 300)}. Affects: every draft verb and auth-check.`);
+    else if (!list.every((t) => 'id' in t && 'name' in t && 'role' in t)) problems.push('theme list --json items no longer carry id, name and role. Affects: every draft verb.');
+    else if (!list.some((t) => t.role === 'live')) problems.push('theme list --json no longer marks the live theme with role "live". Affects: draft.');
   }
   notes.push('theme duplicate/push/preview publish no output schema and can\'t be run read-only; the wrapper fails loudly at run time if their JSON changes (theme.id, theme.preview_url, url).');
   const plugin = pluginInfo();
@@ -196,7 +198,8 @@ function loginHint(store, r, extra = []) {
   if (/No stored app authentication|store auth|missing.*scope|access denied.*scope|requires.*scope/i.test(text)) {
     return `Admin API login missing or lacks scopes. Ask the dev to run once (with the ! prefix):\n! shopify store auth --store ${store} --scopes ${[SCOPES, ...extra].join(',')}`;
   }
-  if (/log ?in|authenticat|session|token|401/i.test(text)) {
+  // \b401\b: a theme id in the detail text can contain the digits 401.
+  if (/log ?in|authenticat|session|token|\b401\b/i.test(text)) {
     return `Theme login missing or expired. Ask the dev to run once (with the ! prefix):\n! shopify theme list --store ${store}`;
   }
   return null;
@@ -209,11 +212,17 @@ function failCli(store, r, what, extraScopes = []) {
   fail(`${what} failed.\n${detail}${hint ? `\n\n${hint}` : ''}`);
 }
 
+// CLI 4 prints theme list --json as a bare array, CLI 5 as { themes: [...] }.
+function themeArray(data) {
+  return Array.isArray(data) ? data : Array.isArray(data?.themes) ? data.themes : null;
+}
+
 // Filters locally: the CLI's --name exits with an error when nothing matches.
 function listThemes(store, name) {
   const r = cli(['theme', 'list', '--store', store, '--json']);
-  if (r.code !== 0 || !Array.isArray(r.data)) failCli(store, r, 'Listing themes');
-  return r.data
+  const list = themeArray(r.data);
+  if (r.code !== 0 || !list) failCli(store, r, 'Listing themes');
+  return list
     .map(({ id, name: n, role, processing }) => ({ id, name: n, role, processing: Boolean(processing) }))
     .filter((t) => !name || t.name.toLowerCase().includes(name.toLowerCase()));
 }
@@ -580,9 +589,11 @@ switch (verb) {
     }
     if (out.cliLastStore && out.cliLastStore !== store) out.note = `The CLI was last used with ${out.cliLastStore}; the kit passes --store ${store} on every call, so that doesn't matter here.`;
     const themes = cli(['theme', 'list', '--store', store, '--json', '--role', 'live']);
-    out.themeLogin = Array.isArray(themes.data) ? 'ok' : 'missing';
-    if (Array.isArray(themes.data)) out.liveTheme = themes.data.map(({ id, name }) => ({ id, name }))[0] || null;
-    else out.themeLoginFix = `! shopify theme list --store ${store}`;
+    const live = themeArray(themes.data);
+    // Exit 0 with an unreadable list is a shape change, not a login problem: logging in again wouldn't help.
+    out.themeLogin = live ? 'ok' : themes.code === 0 ? `unreadable output (run cli-check --force): ${themes.stdout.trim().slice(0, 200)}` : 'missing';
+    if (live) out.liveTheme = live.map(({ id, name }) => ({ id, name }))[0] || null;
+    else if (themes.code !== 0) out.themeLoginFix = `! shopify theme list --store ${store}`;
     const shopQuery = join(KIT_DIR, 'queries', 'shop.graphql');
     const shop = cli(['store', 'execute', '--store', store, '--query-file', shopQuery, '--json']);
     if (shop.data?.data?.shop || shop.data?.shop) {

@@ -367,6 +367,21 @@ try {
 
   ok('verify: the draft matches HEAD', kit('shopify.mjs', 'verify', KEY).code === 0);
 
+  // VET-689: CLI 5 prints theme list --json as { themes: [...] } (the fake's default), CLI 4 as a bare array.
+  // An unreadable list must not read as a login problem, even when a theme id in it contains 401.
+  const withList = (extra, ...args) => spawnSync(process.execPath, [join(repo, '.claude', 'kit', 'shopify.mjs'), ...args], { cwd: repo, env: { ...env, ...extra }, encoding: 'utf8' });
+  const legacyVerify = withList({ FAKE_LEGACY_LIST: '1' }, 'verify', KEY);
+  const authNew = withList({}, 'auth-check');
+  const authOld = withList({ FAKE_LEGACY_LIST: '1' }, 'auth-check');
+  ok('verify and auth-check read both theme list shapes',
+    legacyVerify.status === 0 && /"themeLogin": "ok"/.test(authNew.stdout) && /"themeLogin": "ok"/.test(authOld.stdout) && /"id": 1\b/.test(authNew.stdout), legacyVerify.stderr + authNew.stdout + authOld.stdout);
+  const raw = { FAKE_THEME_LIST_RAW: '{"items":[{"id":140123}]}' };
+  const rawVerify = withList(raw, 'verify', KEY);
+  const rawAuth = withList(raw, 'auth-check');
+  ok('an unreadable theme list fails without a login hint',
+    rawVerify.status !== 0 && /Listing themes failed/.test(rawVerify.stderr) && !/Theme login/.test(rawVerify.stderr)
+      && /"themeLogin": "unreadable output/.test(rawAuth.stdout) && !/themeLoginFix/.test(rawAuth.stdout), rawVerify.stderr + rawAuth.stdout);
+
   // A GitHub-connected draft is never pushed, so verify runs the drift check there: a refused one isn't a verified draft.
   git('push', '-q', '-u', 'origin', KEY);
   const verifiedAt = state().draft.verifiedCommit;
@@ -762,6 +777,10 @@ try {
   const afterFail = JSON.parse(readFileSync(checkFile, 'utf8'));
   ok('a failed cli-check keeps the last verified CLI version as previous',
     failedAgain.status === 2 && afterFail.ok === false && afterFail.previous?.cliVersion === '4.9.4', failedAgain.stdout);
+  const shapeCheck = (extra) => spawnSync(process.execPath, [join(repo, '.claude', 'kit', 'shopify.mjs'), 'cli-check', '--force'], { cwd: repo, env: { ...env, USERPROFILE: tmp, HOME: tmp, ...extra }, encoding: 'utf8' });
+  const shapes = [shapeCheck({}), shapeCheck({ FAKE_LEGACY_LIST: '1' }), shapeCheck({ FAKE_THEME_LIST_RAW: '{"items":[]}' })];
+  ok('cli-check accepts both theme list shapes and fails an unreadable one',
+    !/theme list --json/.test(shapes[0].stdout) && !/theme list --json/.test(shapes[1].stdout) && /theme list --json is neither a list/.test(shapes[2].stdout), shapes.map((s) => s.stdout).join('\n'));
   // export-logs: tasks from every listed repo into a dated folder; same-named repos kept apart; old exports removed.
   const exportsDir = join(tmp, 'exports');
   const twin = join(tmp, 'clients', 'theme');

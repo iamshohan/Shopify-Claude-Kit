@@ -62,7 +62,13 @@ function walk(dir, base = dir, acc = []) {
 // Reads (list, info, pull, check) are allowed on live; push and delete go through refuseLive().
 switch (cmd) {
   case 'version': out('3.99.0-fake'); break;
-  case 'theme list': out(themes().filter((t) => !flags.role || t.role === flags.role).map((t) => ({ ...t, processing: false }))); break;
+  case 'theme list': {
+    // CLI 5's shape ({ themes: [...] }); FAKE_LEGACY_LIST prints CLI 4's bare array, FAKE_THEME_LIST_RAW any text.
+    const list = themes().filter((t) => !flags.role || t.role === flags.role).map((t) => ({ ...t, processing: false }));
+    if (process.env.FAKE_THEME_LIST_RAW) process.stdout.write(`${process.env.FAKE_THEME_LIST_RAW}\n`);
+    else out(process.env.FAKE_LEGACY_LIST ? list : { themes: list });
+    break;
+  }
   case 'theme info': out({ store: 'fake-store.myshopify.com' }); break;
   case 'theme duplicate': {
     const src = target();
