@@ -640,7 +640,7 @@ switch (verb) {
     out.cliCommands = missing.length ? `missing: ${missing.join(', ')} (ask the dev to update: ! npm i -g @shopify/cli@latest)` : 'ok';
     // The CLI remembers the last store it was used with, often the previous project's: a hint, never this repo's store.
     const info = cli(['theme', 'info', '--json']);
-    out.cliLastStore = info.data?.store || null;
+    out.cliLastStore = info.data?.storeDomain || info.data?.store || null; // CLI 5: storeDomain; CLI 4: store
     const store = flags.store || cfg?.store;
     out.store = store || null;
     if (!store) {

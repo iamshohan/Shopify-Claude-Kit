@@ -189,7 +189,7 @@ if (argv.includes('--check')) {
     envLocalIgnoredByGit: ignored,
     fix: !ignored
       ? 'STOP: .claude/.env.local is not git-ignored here, so a token in it could be committed. Re-run the kit installer (it writes .claude/.gitignore) or add .claude/ to the repo\'s .gitignore first.'
-      : c.source ? null : 'Create .claude/.env.local with two lines: JIRA_USER=<your Atlassian email> and JIRA_API_TOKEN=<token from id.atlassian.com>. Never paste the token into chat.',
+      : c.source ? null : 'Create ~/.claude/.env once (it covers every kit repo on this machine) with two lines: JIRA_USER=<your Atlassian email> and JIRA_API_TOKEN=<token from id.atlassian.com>. Use .claude/.env.local only when this repo needs another Jira account. Never paste the token into chat.',
   });
   process.exit(ignored ? 0 : 2);
 }
@@ -199,7 +199,7 @@ if (argv.includes('--check')) {
 const key = normKey(argv.find((a) => !a.startsWith('--')));
 if (!c.base) fail(`No Jira URL. Set jiraBaseUrl in ${CONFIG_REL} (run ${SETUP}).`);
 if (c.baseProblem) fail(c.baseProblem);
-if (!c.user || !c.token) fail('No Jira credentials. Create .claude/.env.local with JIRA_USER and JIRA_API_TOKEN (see .claude/README.md), or paste the ticket text instead.');
+if (!c.user || !c.token) fail('No Jira credentials. Create ~/.claude/.env with JIRA_USER and JIRA_API_TOKEN (once per machine; see .claude/README.md), or paste the ticket text instead.');
 
 const issue = await get(c, `/rest/api/3/issue/${encodeURIComponent(key)}?expand=names`);
 if (!issue) fail(`${key} not found on ${c.base}, or you can't see it.`);

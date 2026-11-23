@@ -25,7 +25,7 @@ disable-model-invocation: true
 5. **Login.** If `node .claude/kit/shopify.mjs info` fails on a login, ask the dev to run `! shopify auth login`. Don't run it yourself.
 6. **Jira** (when `jiraBaseUrl` is set). Run `node .claude/kit/jira.mjs --check`.
    - **`envLocalIgnoredByGit` is false (exit 2):** stop here. A token written into `.claude/.env.local` could be committed. Re-run the kit installer (it writes `.claude/.gitignore`), or add `.claude/` to the repo's `.gitignore`, then check again.
-   - **Credentials are missing:** tell the dev to create `.claude/.env.local` with `JIRA_USER=<their Atlassian email>` and `JIRA_API_TOKEN=<API token from id.atlassian.com → Security → API tokens>`, and never to paste the token into chat.
+   - **Credentials are missing:** tell the dev to create `~/.claude/.env` once (it covers every kit repo on this machine) with `JIRA_USER=<their Atlassian email>` and `JIRA_API_TOKEN=<API token from id.atlassian.com → Security → API tokens>`, and never to paste the token into chat. `.claude/.env.local` is only for a repo that needs another Jira account (it wins). `JIRA_BASE_URL` stays out of `~/.claude/.env`, where it would override every repo's `jiraBaseUrl`.
 7. **Next:** `appspec/surfaces.json` missing → `/app-onboard`. Otherwise `/app-change`.
 
 Report in at most 6 lines: what was set, what the dev still has to do.

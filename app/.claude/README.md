@@ -42,7 +42,7 @@ It catches a well-meaning agent's mistakes; branch protection, Partner Dashboard
 
 ## Files
 
-`appspec/` is in git: `project.md`, `surfaces.json`, `security-baseline.json`, `changes/<ID>/` (open: `proposal.md`, `change.json`), `archive/<date>-<ID>/` (done, with `handoff.md`; the ledger is read from here). Yours, not in git: `.claude/app-kit.json`, `.claude/.env.local` (Jira credentials), `.claude/logs/`.
+`appspec/` is in git: `project.md`, `surfaces.json`, `security-baseline.json`, `changes/<ID>/` (open: `proposal.md`, `change.json`), `archive/<date>-<ID>/` (done, with `handoff.md`; the ledger is read from here). Yours, not in git: `.claude/app-kit.json`, `.claude/.env.local` (Jira credentials for this repo only, when it needs another account), `.claude/logs/`.
 
 ## Handover
 
@@ -52,5 +52,5 @@ Commit `appspec/changes/<ID>/` with the work and `git push -u origin <branch>`. 
 
 - Install from the kit repo: `node install.mjs <path-to-app-repo> --app`. It never touches `appspec/` or `app-kit.json`.
 - Update every kit repo on your machine (theme and app): `node update.mjs` from the kit repo. Repos installed before it existed: `node update.mjs --scan <folder>` once. Every 15 days, a session mentions it once when a newer kit is out.
-- Jira: put `JIRA_USER` and `JIRA_API_TOKEN` in `.claude/.env.local` (git-ignored, unreadable to Claude). Without it, paste the ticket text.
+- Jira: put `JIRA_USER` and `JIRA_API_TOKEN` in `~/.claude/.env` once per machine (unreadable to Claude; it covers every kit repo). `.claude/.env.local` (git-ignored, also unreadable) overrides it for one repo; keep `JIRA_BASE_URL` there, not in `~/.claude/.env`, where it would apply to every repo. Without credentials, paste the ticket text.
 - Kit problems: `node .claude/kit/app.mjs feedback` writes `.claude/logs/kit-feedback.md` for the kit's maintainer.

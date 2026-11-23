@@ -379,6 +379,8 @@ try {
   const authOld = withList({ FAKE_LEGACY_LIST: '1' }, 'auth-check');
   ok('verify and auth-check read both theme list shapes',
     legacyVerify.status === 0 && /"themeLogin": "ok"/.test(authNew.stdout) && /"themeLogin": "ok"/.test(authOld.stdout) && /"id": 1\b/.test(authNew.stdout), legacyVerify.stderr + authNew.stdout + authOld.stdout);
+  ok('auth-check reads the CLI\'s last store from CLI 5\'s storeDomain and CLI 4\'s store',
+    [authNew, authOld].every((r) => /"cliLastStore": "fake-store\.myshopify\.com"/.test(r.stdout)), authNew.stdout + authOld.stdout);
   // Theme names are merchant text: "Login popup test" or "Token gated drop" must not read as a login problem either.
   const raw = { FAKE_THEME_LIST_RAW: '{"items":[{"id":140123,"name":"Login popup test"},{"id":2,"name":"Token gated drop"}]}' };
   const rawVerify = withList(raw, 'verify', KEY);
@@ -836,7 +838,7 @@ try {
   // cli-check records the CLI's output structure, never its values (theme names, the store).
   ok('cli-check records the structure of theme list and theme info, without values',
     JSON.stringify(recorded.shapes?.['theme list']) === JSON.stringify({ themes: [{ id: 'string', name: 'string', processing: 'boolean', role: 'string' }] })
-      && JSON.stringify(recorded.shapes?.['theme info']) === JSON.stringify({ store: 'string' }) && !/Live|fake-store/.test(JSON.stringify(recorded.shapes)), JSON.stringify(recorded.shapes));
+      && recorded.shapes?.['theme info']?.storeDomain === 'string' && recorded.shapes['theme info'].developmentThemeId === 'null' && !/Live|fake-store/.test(JSON.stringify(recorded.shapes)), JSON.stringify(recorded.shapes));
   // fake-vs-real: the newest CLI version recorded decides; an older CLI's shape (CLI 4's array) doesn't fail it.
   const twinCheck = join(tmp, 'shape-twin');
   mkdirSync(join(twinCheck, '.claude'), { recursive: true });

@@ -90,11 +90,12 @@ One compact block:
   - **Restart Claude Code** once, if step 3 installed the plugin or `kit-browser`: new tools load at startup. No need to run `/shopify-setup` again.
   - **Theme login** missing → `! shopify theme list --store <store>` (a browser login: the guard blocks the agent from running it). The `!` prefix runs it here; any terminal works without it.
   - **Admin API login**, if the dev chose Full or Read-only and it's missing → the command from step 2, with `!`. Afterwards `auth-check` confirms it.
-  - **Jira**, when credentials are missing: create `.claude/.env.local` with these two lines, and never paste the token into chat (without a token the kit still works from pasted ticket text):
+  - **Jira**, when credentials are missing: create `~/.claude/.env` once (it covers every kit repo on this machine) with these two lines, and never paste the token into chat (without a token the kit still works from pasted ticket text):
     ```
     JIRA_USER=<their Atlassian email>
     JIRA_API_TOKEN=<API token from id.atlassian.com → Security → API tokens>
     ```
+    `.claude/.env.local` holds the same lines when this repo needs another Jira account; it wins over `~/.claude/.env`. Leave `JIRA_BASE_URL` out of `~/.claude/.env`: there it would override `jiraBaseUrl` in every repo.
   - **Claude in Chrome** missing → install the extension; the dev logs into the store admin in that Chrome profile and gives it site access to the storefront domain and `admin.shopify.com`. Without it, customizer checks are BLOCKED.
   - A protected branch GitHub doesn't protect, an install that failed, anything else that's ✗.
 - End with: "Ready. Start a task with /shopify-implement <KEY>, or investigate with /shopify-investigate <KEY or question>. If anything above looks wrong, or you don't want something I set up, tell me." When something under Needs you blocks tasks (the theme login, a restart), say "Ready once you've done the steps above".

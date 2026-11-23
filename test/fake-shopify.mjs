@@ -71,7 +71,9 @@ switch (cmd) {
     else out(process.env.FAKE_LEGACY_LIST ? list : { themes: list.map((t) => ({ ...t, id: String(t.id) })) });
     break;
   }
-  case 'theme info': out({ store: 'fake-store.myshopify.com' }); break;
+  // CLI 5 renamed store to storeDomain; FAKE_LEGACY_LIST gives CLI 4's shape.
+  case 'theme info': out(process.env.FAKE_LEGACY_LIST ? { store: 'fake-store.myshopify.com' }
+    : { cliVersion: '5.0.1', developmentThemeId: null, nodeVersion: process.version, os: 'fake', shell: 'fake', storeDomain: 'fake-store.myshopify.com' }); break;
   case 'theme duplicate': {
     const src = target();
     const list = themes();

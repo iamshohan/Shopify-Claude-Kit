@@ -1,4 +1,4 @@
-# Shopify Implementation Kit · v1.13.6
+# Shopify Implementation Kit · v1.13.7
 
 A Claude Code setup for Shopify theme repos.
 
@@ -39,12 +39,12 @@ For every Shopify repo under a folder at once, `node Shopify-Claude-Kit/install.
 
 Use the installer, not a hand copy. It writes `.claude/.gitignore`, which keeps the kit and your credentials out of the theme repo's git. `.claude/settings.json` is the kit's and is replaced on every update. Put your own permissions, hooks and env in `.claude/settings.local.json`: Claude Code merges the two, and the kit's deny and ask rules still win. If the repo already has its own `settings.json`, the installer moves what it adds beyond the kit's into `settings.local.json` and says so.
 
-Then open Claude Code in the repo, trust the folder, and run **`/shopify-setup`**. It proves the guard is live and checks every tool and login without asking. Then it confirms `.claude/shopify-kit.json` with you in one round, installs what this machine is missing after one go-ahead, and ends with what only you can do: logins, a restart if it installed something, and `.claude/.env.local`:
+Then open Claude Code in the repo, trust the folder, and run **`/shopify-setup`**. It proves the guard is live and checks every tool and login without asking. Then it confirms `.claude/shopify-kit.json` with you in one round, installs what this machine is missing after one go-ahead, and ends with what only you can do: logins, a restart if it installed something, and `~/.claude/.env` (once per machine; it covers every kit repo):
 ```
 JIRA_USER=you@company.com
 JIRA_API_TOKEN=...
 ```
-That file is yours alone: git ignores it, and Claude can't read it.
+That file is yours alone: Claude can't read it. A repo that needs another Jira account gets the same lines in `.claude/.env.local`, which git ignores and which wins over `~/.claude/.env`. Keep `JIRA_BASE_URL` out of `~/.claude/.env`: there it overrides `jiraBaseUrl` in every repo.
 
 ### Admin API login (optional, once per store)
 
@@ -161,7 +161,7 @@ The logs are history, not a knowledge base: every task reads the code fresh.
 | Setup: the guard didn't block `shopify version` | Update Claude Code and trust the folder. Don't use the kit until it's blocked. |
 | "Theme login missing or expired" | `! shopify theme list --store <store>` |
 | "Admin API login missing or lacks scopes", or an investigation's query gets "access denied" | the login command `node .claude/kit/shopify.mjs auth-check` prints, with your store and the missing scopes filled in |
-| "No Jira credentials" | create `.claude/.env.local`, or paste the ticket text |
+| "No Jira credentials" | create `~/.claude/.env` (or `.claude/.env.local` for this repo only), or paste the ticket text |
 | "The theme library is full" | delete old kit drafts with `shopify.mjs delete-draft <KEY>`, and others in the admin (stores allow 20 themes, 100 on Plus) |
 | push: "Live has changed … since this branch's base" (merchant JSON) | merge `origin/<base>` into the task branch, commit, push again. If admin edits never reach git: carry them into the branch, commit, and `push <KEY> --reconciled <file>` (you're asked to confirm). Other files live changed (a code-editor hotfix) are only listed, and the report names them |
 | push: "Shopify rejected files" | fix the named file (often a Liquid error), commit, push again |

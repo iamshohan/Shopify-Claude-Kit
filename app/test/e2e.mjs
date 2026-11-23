@@ -173,7 +173,21 @@ writeFileSync(outFile, JSON.stringify({ testResults: files.map((file) => ({ name
   const noJira = Object.fromEntries(Object.keys(env).filter((k) => /^JIRA_/.test(k)).map((k) => [k, '']));
   const jira = (...a) => node('kit/jira.mjs', a, { ...noJira, HOME: tmp, USERPROFILE: tmp });
   const jc = jira('--check');
-  ok('jira --check without credentials names the file to create, which git ignores', jc.code === 0 && json(jc).credentials === 'missing' && json(jc).envLocalIgnoredByGit === true && /\.env\.local/.test(json(jc).fix || ''), jc.all);
+  ok('jira --check without credentials names ~/.claude/.env, and .env.local is git-ignored', jc.code === 0 && json(jc).credentials === 'missing' && json(jc).envLocalIgnoredByGit === true && /~\/\.claude\/\.env /.test(json(jc).fix || ''), jc.all);
+  // Precedence between the dev's two files, in a home of its own.
+  const jHome = join(tmp, 'jira-home');
+  const globalEnv = join(jHome, '.claude', '.env');
+  mkdirSync(dirname(globalEnv), { recursive: true });
+  const jiraIn = () => json(node('kit/jira.mjs', ['--check'], { ...noJira, HOME: jHome, USERPROFILE: jHome }));
+  writeFileSync(globalEnv, 'JIRA_USER=global@example.com\nJIRA_API_TOKEN=g\n');
+  const jg = jiraIn();
+  ok('jira --check uses ~/.claude/.env when the repo has none', jg.credentials === globalEnv && jg.user === 'global@example.com', JSON.stringify(jg));
+  write('.claude/.env.local', 'JIRA_USER=local@example.com\nJIRA_API_TOKEN=l\n');
+  const jl = jiraIn();
+  ok('.claude/.env.local wins over ~/.claude/.env', /\.env\.local$/.test(jl.credentials || '') && jl.user === 'local@example.com', JSON.stringify(jl));
+  rmSync(join(repo, '.claude', '.env.local'));
+  writeFileSync(globalEnv, 'JIRA_USER=global@example.com\nJIRA_API_TOKEN=g\nJIRA_BASE_URL=https://other.atlassian.net\n');
+  ok('a JIRA_BASE_URL in ~/.claude/.env overrides the repo\'s jiraBaseUrl (why the docs keep it out)', jiraIn().baseUrl === 'https://other.atlassian.net');
   ok('the guard lets jira.mjs run', decision('Bash', { command: 'node .claude/kit/jira.mjs GIFT-1' }) === 'allow');
   const cfgText = read('.claude/app-kit.json');
   write('.claude/app-kit.json', JSON.stringify({ ...JSON.parse(cfgText), jiraBaseUrl: 'https://evil.example' }));

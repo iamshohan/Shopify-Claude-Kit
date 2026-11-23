@@ -36,7 +36,7 @@ Open Claude Code in the repo you installed into, trust the folder when it asks, 
 - **Theme repo:** `/shopify-setup`. It proves the guard is live, checks the Shopify CLI, your logins and tools (with the exact fix for anything missing), and writes `.claude/shopify-kit.json` with you.
 - **App repo:** `/app-setup`, then `/app-onboard` (once per repo). Setup checks the CLI and writes `.claude/app-kit.json` (dev store, app config, verify commands). Onboard creates `appspec/` with the app's current surfaces; commit it.
 
-For Jira keys, both setups tell you when to create `.claude/.env.local`:
+For Jira keys, both setups tell you when to create `~/.claude/.env` (once per machine; it covers every kit repo):
 
 ```
 JIRA_USER=you@company.com

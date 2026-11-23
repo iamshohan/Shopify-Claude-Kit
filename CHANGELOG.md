@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.13.7 — 2026-11-23
+
+**One Jira token file per machine.** `jira.mjs` has always read `~/.claude/.env` after `.claude/.env.local`, but setup, the READMEs and its own messages only named the per-repo file, so teammates made one in every repo. Now they point to `~/.claude/.env`, created once, which covers every theme and app repo on the machine. `.claude/.env.local` is for a repo that needs another Jira account, and wins when both exist. `JIRA_BASE_URL` stays out of the global file: there it would override `jiraBaseUrl` in every repo. Claude can read neither file. Tests cover the order of the two files and the base-URL override.
+
+**CLI 5 fix:** `shopify theme info` now names the store `storeDomain`, not `store`, so `auth-check`'s `cliLastStore` (setup's hint for which store the CLI was last used with) was always empty. It reads both now. Found by `cli-check` in a theme repo; the e2e fake CLI prints CLI 5's shape.
+
 ## 1.13.6 — 2026-11-23
 
 **`/shopify-setup` asks twice, not at every step.** Setting up a colleague showed a wall of "install this" messages and separate questions (plugin, browser, video tools). Now:
