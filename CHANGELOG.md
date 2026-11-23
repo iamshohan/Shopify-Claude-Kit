@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.13.6 — 2026-11-23
+
+**`/shopify-setup` asks twice, not at every step.** Setting up a colleague showed a wall of "install this" messages and separate questions (plugin, browser, video tools). Now:
+- The checks run without reporting each one. Only a guard that isn't live stops setup.
+- **The dev confirms the config** in one round: the values, plus only what can't be decided for them (the store, the draft route, the Admin API login, which installs an app on the store).
+- **One go-ahead for the machine:** setup lists what it will install (Shopify plugin, `kit-browser`, video tools, telemetry opt-out), the dev says yes or names what to leave out, and setup runs the commands itself and checks them without a restart.
+- **The summary ends with what only the dev can do:** the browser logins (the guard blocks the agent from them), the Jira token file, and a restart if something was installed. No second `/shopify-setup` run.
+
 ## 1.13.5 — 2026-11-23
 
 **No ticket references in theme code.** VET-33's code carried 8 comments like `(VET-33)`, `(AC 7)` and `(Q9)`, which outlive the ticket and mean nothing to the next dev. The PR and plan.md hold those.

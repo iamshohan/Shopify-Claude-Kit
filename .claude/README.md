@@ -1,4 +1,4 @@
-# Shopify Implementation Kit · v1.13.5
+# Shopify Implementation Kit · v1.13.6
 
 A Claude Code setup for Shopify theme repos.
 
@@ -11,7 +11,7 @@ It never publishes a theme, writes to the live theme, or pushes or merges into t
 
 ## What you need
 
-Get these before `/shopify-setup`. It checks each one and gives the fix, but some come from other people and take time.
+`/shopify-setup` installs the Shopify plugin, `kit-browser` and the video tools itself, after one go-ahead. Get the rest before it: some come from other people and take time.
 
 | Need | Check or get it |
 | --- | --- |
@@ -39,7 +39,7 @@ For every Shopify repo under a folder at once, `node Shopify-Claude-Kit/install.
 
 Use the installer, not a hand copy. It writes `.claude/.gitignore`, which keeps the kit and your credentials out of the theme repo's git. `.claude/settings.json` is the kit's and is replaced on every update. Put your own permissions, hooks and env in `.claude/settings.local.json`: Claude Code merges the two, and the kit's deny and ask rules still win. If the repo already has its own `settings.json`, the installer moves what it adds beyond the kit's into `settings.local.json` and says so.
 
-Then open Claude Code in the repo, trust the folder, and run **`/shopify-setup`**. It proves the guard is live, checks every tool and login the kit needs (and gives the exact fix for each one missing, including the optional Admin API login), writes `.claude/shopify-kit.json` with you, and tells you when to create `.claude/.env.local`:
+Then open Claude Code in the repo, trust the folder, and run **`/shopify-setup`**. It proves the guard is live and checks every tool and login without asking. Then it confirms `.claude/shopify-kit.json` with you in one round, installs what this machine is missing after one go-ahead, and ends with what only you can do: logins, a restart if it installed something, and `.claude/.env.local`:
 ```
 JIRA_USER=you@company.com
 JIRA_API_TOKEN=...
