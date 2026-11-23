@@ -388,8 +388,17 @@ const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
  * GET a storefront page. ?preview_theme_id only sets a cookie and redirects; a client that drops
  * cookies on the redirect is served the live theme without any error, so redirects are followed by hand.
  */
+/**
+ * Milliseconds to wait before retrying a 429 or 5xx: the server's Retry-After in seconds, else 3, 8, then 15 s, capped
+ * at 30 s. Shopify's storefront limit outlasts a few seconds, after QA's own page loads especially (VSD-349).
+ */
+export function retryDelay(retryAfter, attempt) {
+  const s = Number(retryAfter);
+  return Math.min(Number.isFinite(s) && s > 0 ? s : [3, 8, 15][attempt - 1] ?? 15, 30) * 1000;
+}
+
 export async function storefrontGet(url, jar = new Map()) {
-  for (let attempt = 1; attempt <= 3; attempt++) {
+  for (let attempt = 1; ; attempt++) {
     let current = url;
     let res;
     for (let hop = 0; hop < 8; hop++) {
@@ -406,10 +415,12 @@ export async function storefrontGet(url, jar = new Map()) {
       }
       break;
     }
-    if (res.status === 429 || res.status >= 500) { await new Promise((r) => setTimeout(r, 2000 * attempt)); continue; }
+    if ((res.status === 429 || res.status >= 500) && attempt < 4) {
+      await new Promise((r) => setTimeout(r, retryDelay(res.headers.get('retry-after'), attempt)));
+      continue;
+    }
     return { status: res.status, url: current, html: await res.text() };
   }
-  return { status: 429, url, html: '' };
 }
 
 /** The theme that rendered a page, from Shopify.theme in its HTML. */

@@ -7,6 +7,10 @@
 - `done build` refuses lines the branch adds to code files (not JSON) that name a ticket of the task's project, or an AC or Q number in a comment, and lists each as `file:line`. Run on VET-33's diff, it finds all 8 and nothing else.
 - This happens at build, not handoff: a change after QA would leave the draft different from what QA tested.
 
+From VSD-349's kit notes:
+- **`compare.mjs` gave up too soon on a rate limit.** Shopify answered 3 of 7 paths with HTTP 429, after QA's own page loads, and the kit's 2 retries (2 s and 4 s) didn't outlast it. Storefront requests now retry three times, honouring `Retry-After` or else waiting 3, 8 and 15 s (at most 30 s each). A 429 that outlasts that is reported as a rate limit to wait out, not "bot protection or a redirect?".
+- **`kit.mjs <verb> --help`** printed "undefined is not a Jira key". It now prints that verb's usage.
+
 ## 1.13.4 — 2026-11-21
 
 From VET-33's kit notes.

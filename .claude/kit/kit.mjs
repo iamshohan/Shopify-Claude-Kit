@@ -11,7 +11,7 @@ import { homedir, tmpdir } from 'node:os';
 import {
   ROOT, KIT_DIR, LOGS, KIT_VERSION, STAGES, stagesFor, THEME_DIRS, MERCHANT_JSON, print, fail, parseArgs, normKey, now, run, git, currentBranch,
   readConfig, readState, writeState, owner, branchFor, protectedBranches, storefrontPath, parseCliJson, diagnosticJson, ignoreMatcher, TEST_SUFFIX,
-  effectiveBase, namesKey, unMsys, unMsysFrom, mutationProblems, shopifyIgnore, themeDigest,
+  effectiveBase, namesKey, unMsys, unMsysFrom, mutationProblems, shopifyIgnore, themeDigest, retryDelay,
   authSessionProps, execErrorProps, lastVerified,
 } from './lib.mjs';
 import { due, newerVersion } from './update-check.mjs';
@@ -46,6 +46,18 @@ Kit feedback (problems with the kit itself, not the ticket)
   build-probe [--check]                  maintainers: regenerate kit/probe.inject.js and probe.init.js after changing
                                          kit/probe.js; --check exits 1 if they don't match it
   --selftest                             test the pure helpers`;
+
+/** HELP's lines for one verb: each line that starts with it, plus the indented continuation lines after it. */
+function verbHelp(verb) {
+  const out = [];
+  let inVerb = false;
+  for (const l of HELP.split('\n').slice(1)) {
+    if (!l.startsWith(' ')) inVerb = false;
+    else if (/^ {2}\S/.test(l)) inVerb = l.trim().split(/\s/)[0] === verb;
+    if (inVerb) out.push(l);
+  }
+  return out;
+}
 
 const list = (v) => v.split(',').map((s) => s.trim()).filter(Boolean);
 const oneOf = (...allowed) => (v) => (allowed.includes(v) ? v : fail(`Expected one of: ${allowed.join(', ')}`));
@@ -720,6 +732,8 @@ function selftest() {
   const checks = [];
   const eq = (name, got, want) => checks.push([name, JSON.stringify(got) === JSON.stringify(want), got, want]);
   eq('parseArgs booleans', parseArgs(['push', '--dry-run', 'ABC-1']), { _: ['push', 'ABC-1'], flags: { 'dry-run': true } });
+  eq('retryDelay: Retry-After wins, capped at 30 s; else 3, 8, 15 s', [retryDelay('5', 1), retryDelay('120', 1), retryDelay(null, 1), retryDelay('Wed, 21 Oct 2026', 2), retryDelay(null, 3)], [5000, 30000, 3000, 8000, 15000]);
+  eq('verbHelp: the verb\'s lines with their continuations; none for an unknown verb', [verbHelp('qa-row').length, verbHelp('done').length, verbHelp('abandon').length, verbHelp('nope').length], [4, 2, 1, 0]);
   eq('parseArgs values', parseArgs(['done', 'ABC-1', 'approve', '--answer', 'use a block']), { _: ['done', 'ABC-1', 'approve'], flags: { answer: 'use a block' } });
   eq('storefrontPath plain', storefrontPath('cart'), '/cart');
   eq('storefrontPath home', storefrontPath('home'), '/');
@@ -851,6 +865,12 @@ const rest = words.map((w) => unMsys(w));
 for (const f of ['answer', 'measured', 'how', 'reason']) if (typeof flags[f] === 'string') flags[f] = unMsys(flags[f]);
 
 if (process.argv.includes('--selftest')) selftest();
+// "<verb> --help" used to reach the verb and fail on the missing key (VSD-349).
+if (flags.help && verb && verb !== 'help') {
+  const lines = verbHelp(verb);
+  print(lines.length ? `Usage: node .claude/kit/kit.mjs\n${lines.join('\n').replace('{SETTABLE}', Object.keys(SETTABLE).join(', '))}` : HELP.replace('{SETTABLE}', Object.keys(SETTABLE).join(', ')));
+  process.exit(0);
+}
 
 switch (verb) {
   case 'list': {

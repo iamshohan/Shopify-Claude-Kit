@@ -95,6 +95,7 @@ for (const path of list) {
   // BLOCKED, not DIFFERS, when either side isn't the page we meant to compare: a password page,
   // no theme on live, or a draft request that Shopify served from another theme.
   if (/\/password/.test(live.url) || /\/password/.test(draft.url)) { row.verdict = 'BLOCKED'; row.why = 'storefront is password-protected'; results.push(row); continue; }
+  if (live.status === 429 || draft.status === 429) { row.verdict = 'BLOCKED'; row.why = 'Shopify rate-limited the storefront (HTTP 429, still after about 30 s of retries). Wait a minute, then run compare again with just the blocked paths'; results.push(row); continue; }
   if (!lt || live.status >= 400) { row.verdict = 'BLOCKED'; row.why = `the live page didn't render a theme (HTTP ${live.status}; bot protection or a redirect?)`; results.push(row); continue; }
   if (dt?.id !== draftId) { row.verdict = 'BLOCKED'; row.why = `the draft request rendered theme ${dt?.id ?? 'unknown'}, not ${draftId}`; results.push(row); continue; }
   if (st.baseTheme && lt.id !== st.baseTheme) { row.verdict = 'BLOCKED'; row.why = `the base theme request rendered theme ${lt.id}, not ${st.baseTheme}`; results.push(row); continue; }
