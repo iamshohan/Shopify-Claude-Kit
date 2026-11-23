@@ -353,7 +353,9 @@ const EXIT_CHECKS = {
     const check = st.check;
     // A check counts for the content it ran on. A record made before the kit stored that content has none: check runs once more.
     const stale = check && check.content !== themeDigest();
+    const refs = ahead > 0 ? ticketRefs(key, st) : [];
     return [
+      refs.length && `code comments name the ticket, an AC or a plan question (${refs.slice(0, 6).join(', ')}${refs.length > 6 ? ` and ${refs.length - 6} more` : ''}). The PR and plan.md hold those: keep the comment's why and drop the reference, then commit and run check again`,
       currentBranch() !== st.branch && `check out the task branch ${st.branch}`,
       dirty && 'commit the theme changes on the task branch',
       ahead === 0 && 'the branch has no commits beyond its base yet',
@@ -484,6 +486,32 @@ function branchDiff(st) {
   const head = `refs/heads/${st.branch}`;
   const base = effectiveBase(st, readConfig({ required: false }), head);
   return git(['diff', '--name-only', '--no-renames', '--relative', base, head, '--', ...THEME_DIRS], { allowFail: true }).split('\n').filter(Boolean);
+}
+
+/**
+ * Lines the branch adds to code files (not JSON) that name a ticket of the key's project, or an AC or Q number in a
+ * comment. Those belong in the PR and plan.md; in the theme they outlive the ticket. Returns "path:line" strings.
+ */
+function ticketRefs(key, st) {
+  const base = effectiveBase(st, readConfig({ required: false }), 'HEAD');
+  const diff = git(['diff', '-U0', '--no-renames', '--relative', base, 'HEAD', '--', ...THEME_DIRS], { allowFail: true });
+  const ticket = new RegExp(`\\b${key.split('-')[0]}-\\d+\\b`, 'i');
+  // Only lines with a comment marker: "Q4" or "AC 2" could be real text elsewhere. A ticket key never is.
+  const comment = /\/\/|\/\*|^\s*\*|<!--|\{%-?\s*(comment|#)/;
+  const planRef = /\bAC ?\d+\b|\bQ\d+\b/;
+  const hits = [];
+  let file = null;
+  let line = 0;
+  for (const l of diff.split('\n')) {
+    if (l.startsWith('+++ ')) { file = l.slice(4).replace(/^b\//, ''); continue; }
+    const hunk = /^@@ -\S+ \+(\d+)/.exec(l);
+    if (hunk) { line = Number(hunk[1]); continue; }
+    if (!l.startsWith('+') || !file || file.endsWith('.json')) continue;
+    const text = l.slice(1);
+    if (ticket.test(text) || (comment.test(text) && planRef.test(text))) hits.push(`${file}:${line}`);
+    line++;
+  }
+  return hits;
 }
 
 /** Why the draft isn't the branch: push and verify record verifiedCommit only once every file reads back equal to HEAD. */

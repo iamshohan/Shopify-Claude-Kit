@@ -28,6 +28,7 @@ Your prompt gives you the task key and the mode: **build**, or **fix** with the 
 - **Every merchant-facing string goes in settings or locale files, never inline.** Add each locale key to every locale file § Decided names (every locale file the theme has, if it names none), using the plan's translations. If a translation is missing, use the default-locale text and list the key under "Needs translation".
 - **Never edit minified vendor files** (`brief.md` § Found lists them). New CSS and JS go where the plan says.
 - **Merchant JSON** (`templates/*.json`, `sections/*.json`, `config/settings_data.json`): edit only if the plan says so. The guard will ask the dev.
+- **Comments explain the code, not the task.** One short line for a non-obvious why; nothing that restates the code. No ticket keys, AC or Q numbers, and no plan or review history ("per the dev", "fix 2"): the PR and plan.md hold those, and `done build` refuses ticket references.
 - **No unrelated changes.** No reformatting, renaming or "improvements" outside the plan. Report problems you notice instead.
 - **Build step:** if the repo has one for the assets you touched (`brief.md` § Found), run it, e.g. `npm run build`, and list its output files.
 

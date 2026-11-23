@@ -567,8 +567,18 @@ try {
   else { writeFileSync(join(broken, 'shopify'), '#!/bin/sh\necho theme check crashed >&2\nexit 1\n'); chmodSync(join(broken, 'shopify'), 0o755); }
   const crashed = spawnSync(process.execPath, [join(repo, '.claude', 'kit', 'shopify.mjs'), 'check', KEY], { cwd: repo, env: { ...env, [pathKey]: `${broken}${delimiter}${process.env[pathKey]}` }, encoding: 'utf8' });
   ok('a crashing theme check is reported and recorded', crashed.status === 2 && /crashed/.test(crashed.stderr) && Boolean(state().check?.crashed), crashed.stdout + crashed.stderr);
+  // Ticket references in code: the key anywhere, an AC or Q number only in a comment (VET-33).
+  write('snippets/e2e-ref.liquid', '{% comment %} One-way (AC 7) {% endcomment %}\n<div>Q4 sale</div>\n<div data-x="abc-1"></div>\n');
+  write('assets/e2e-ref.js', 'const q = "Q4";\n// Q9: no stacking\n');
+  const beforeRefs = head();
+  commit('refs');
+  const refsBuild = kit('kit.mjs', 'done', KEY, 'build');
+  git('reset', '-q', '--hard', beforeRefs);
+  const named = /code comments name the ticket[^(]*\(([^)]*)\)/.exec(refsBuild.err)?.[1].split(', ').sort().join(' ');
+  ok('build refuses added code that names the ticket, or a comment with an AC or Q number; "Q4" outside a comment is fine',
+    refsBuild.code === 1 && named === 'assets/e2e-ref.js:2 snippets/e2e-ref.liquid:1 snippets/e2e-ref.liquid:3', refsBuild.all);
   edit(KEY, 'plan.md', '## Approach\n', '## Approach\n\nRewritten after approval.\n');
-  const build2 = kit('kit.mjs', 'done', KEY, 'build');
+  const build2 =kit('kit.mjs', 'done', KEY, 'build');
   ok('build passes, listing unplanned files, the plan\'s changes since approval, the shared files and the crashed check',
     build2.code === 0 && /doesn't name: .*sections\/header\.liquid/.test(build2.out) && /\+Rewritten after approval\./.test(build2.out)
     && /Shared files.*templates\/product\.json/.test(build2.out) && /theme check didn't run/.test(build2.out), build2.all);

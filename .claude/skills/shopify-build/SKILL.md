@@ -43,13 +43,14 @@ user-invocable: false
       - CSS is scoped to the feature prefix. No `!important` unless the neighbouring code uses it.
       - No edits to minified vendor files. Merchant JSON is touched only where the plan says so.
       - Nothing unrelated changed.
+      - Comments: short, and only the why. Cut ones that restate the code or tell the task's history. No ticket keys, AC or Q numbers (`done build` refuses those).
    3. Send real problems back to `theme-builder` in `mode: fix`, with the list. After two rounds, if problems remain, show them to the dev and ask how to proceed.
 5. **Commit** on the task branch:
    - Use the "Stage with:" line from `kit.mjs status <KEY>`. It lists only the theme folders this repo has; `git add` fails on a missing folder.
    - Commit with the repo's pattern from status, e.g. `git commit -m "abc-123__dev: add USP row block"`.
    - Never push here.
 
-`done build` refuses while the last theme check found errors the branch introduced, or ran on other theme files than the commit has. A theme check that crashes is recorded and doesn't block; say so in the report. On success `done build` lists the shared files the branch changes (QA's regression check covers what uses them), changed files that `plan.md` § Files doesn't name, and the plan's changes since approval. Gate 2 shows the dev the same list; if one of them reaches beyond the feature, tell the dev now.
+`done build` refuses while the last theme check found errors the branch introduced, or ran on other theme files than the commit has, and while added code names the ticket (or a comment an AC or Q number). A theme check that crashes is recorded and doesn't block; say so in the report. On success `done build` lists the shared files the branch changes (QA's regression check covers what uses them), changed files that `plan.md` § Files doesn't name, and the plan's changes since approval. Gate 2 shows the dev the same list; if one of them reaches beyond the feature, tell the dev now.
 
 **Done when:** the review list passes, the change is committed, and the builder's theme check shows no introduced errors. Then run `kit.mjs done <KEY> build`.
 

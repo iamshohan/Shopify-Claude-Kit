@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.13.5 — 2026-11-23
+
+**No ticket references in theme code.** VET-33's code carried 8 comments like `(VET-33)`, `(AC 7)` and `(Q9)`, which outlive the ticket and mean nothing to the next dev. The PR and plan.md hold those.
+- The builder writes comments that explain the code: one short line for a non-obvious why, no restating the code, no ticket keys, AC or Q numbers, or plan and review history. The build review checks the same.
+- `done build` refuses lines the branch adds to code files (not JSON) that name a ticket of the task's project, or an AC or Q number in a comment, and lists each as `file:line`. Run on VET-33's diff, it finds all 8 and nothing else.
+- This happens at build, not handoff: a change after QA would leave the draft different from what QA tested.
+
 ## 1.13.4 — 2026-11-21
 
 From VET-33's kit notes.
