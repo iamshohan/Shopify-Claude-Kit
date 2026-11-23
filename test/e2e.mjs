@@ -706,15 +706,30 @@ try {
   kit('kit.mjs', 'set', 'ABC-3', 'type=feasibility');
   fill('ABC-3', '## Question', question);
   const noReqs = kit('kit.mjs', 'done', 'ABC-3', 'gather');
-  fill('ABC-3', '| --- | --- | --- | --- |', '| 1 | "The merchant edits the chart per product" | clear | none |');
+  // A requirement without an owner, and no § Client gets row for it: GSD-80 answered "can it be built", not "what the client gets".
+  fill('ABC-3', '| --- | --- | --- | --- | --- |', '| R1 | "The merchant edits the chart per product" | clear | none |');
+  const noOwner = kit('kit.mjs', 'done', 'ABC-3', 'gather');
+  const invPath = join(repo, '.claude', 'logs', 'ABC-3', 'investigation.md');
+  writeFileSync(invPath, readFileSync(invPath, 'utf8').replace('| R1 | "The merchant edits the chart per product" | clear |', '| R1 | "The merchant edits the chart per product" | Client | clear |'));
+  fill('ABC-3', '## Client gets', '| R1 | Product page, mobile and desktop | The chart below the size picker, edited per product in the admin | Same place; edited in Custom data, not the customizer |');
   const withReqs = kit('kit.mjs', 'done', 'ABC-3', 'gather');
-  ok('feasibility gather waits for § Requirements', noReqs.code !== 0 && /Requirements/.test(noReqs.all) && !/Requirements/.test(withReqs.all), noReqs.all + withReqs.all);
+  ok('feasibility gather waits for § Requirements, an owner per requirement, and a § Client gets row per requirement',
+    noReqs.code !== 0 && /Requirements/.test(noReqs.all)
+      && /owner/.test(noOwner.all) && /Client gets has no row for R1/.test(noOwner.all)
+      && !/Requirements|owner|Client gets/.test(withReqs.all), noReqs.all + noOwner.all + withReqs.all);
   const invState = join(repo, '.claude', 'logs', 'ABC-3', 'state.json');
   writeFileSync(invState, JSON.stringify({ ...JSON.parse(readFileSync(invState, 'utf8')), stage: 'conclude' }));
   const noEstimate = kit('kit.mjs', 'done', 'ABC-3', 'conclude', '--answer', 'Accept');
-  fill('ABC-3', '## Estimate', '\nM: one new section with a metaobject definition and two templates; L if the chart must also show in the cart drawer. Confidence medium.');
+  fill('ABC-3', '## Estimate', '\n| Size chart | 0.25 h | 1 h | 0.5 h | 0.25 h | 2 h |');
+  fill('ABC-3', '## Jira comment', '\nFeasible. The chart is edited per product in the admin, not in the theme editor.');
+  fill('ABC-3', '## Review', '\nVerdict: holds. #1 verified.');
+  const noClientPass = kit('kit.mjs', 'done', 'ABC-3', 'conclude', '--answer', 'Accept');
+  fill('ABC-3', '## Review', '\nClient surprises: none (checked position, where it is edited).');
   const withEstimate = kit('kit.mjs', 'done', 'ABC-3', 'conclude', '--answer', 'Accept');
-  ok('feasibility conclude waits for § Estimate and the evidence-checker', /Estimate/.test(noEstimate.all) && /evidence-checker/.test(noEstimate.all) && !/Estimate/.test(withEstimate.all), noEstimate.all + withEstimate.all);
+  ok('feasibility conclude waits for § Estimate, § Jira comment and the evidence-checker with its client pass',
+    /Estimate/.test(noEstimate.all) && /evidence-checker/.test(noEstimate.all) && /Jira comment/.test(noEstimate.all)
+      && /Client surprises/.test(noClientPass.all) && !/§ Estimate:|§ Jira comment for/.test(noClientPass.all)
+      && !/§ Estimate:|§ Jira comment for|Client surprises|evidence-checker/.test(withEstimate.all), noEstimate.all + noClientPass.all + withEstimate.all);
   kit('kit.mjs', 'start', 'ABC-4', '--investigate');
   kit('kit.mjs', 'set', 'ABC-4', 'type=debug');
   fill('ABC-4', '## Question', question);

@@ -46,6 +46,8 @@ user-invocable: false
    - **each value you'd keep in code that an editability line reaches**: one question per value, never folded into another question. Name the AC: "AC 18 says the client manages the menu without a developer. Keep the six utility icons in code anyway?"
 
    Give each question 2–4 concrete options, with your recommendation first, marked "(Recommended)". An option that contradicts a quoted editability line is never the recommendation, and says so in its description ("conflicts with AC 18").
+
+   A question the tickets leave to the client (what customers see, content, what stays pinned, anything touching price or discounts) starts with "Client's call:", and one option is "Ask the client first". § Decided records the answer as "Dev, for the client" or "Client". If the dev chooses to ask first, write the question for the client in chat and wait for the answer.
 3. **Ask all of them before planning**, in as few AskUserQuestion calls as possible (up to 4 questions per call). Don't drip-feed them one at a time. Before the first call, write 3–6 lines in chat: what is settled, and what you're asking and why. Don't restate the tickets.
 4. **Confirm the control surface** with one more question. Its text lists the values that stay in code by name: "These stay in code: colours, spacing, separators. Everything else is editable as shown in brief.md. OK?" The options are "OK", "Make something editable" (they type which), and "Discuss".
 5. **Write § Decided:**
@@ -88,7 +90,9 @@ Aim for 300 lines or fewer. A small fix gets a short plan: write "none" under a 
     - Validate each one once with the `shopify-plugin:shopify` skill (topic `admin`, `--version <adminApiVersion from .claude/shopify-kit.json>`). The draft stage runs these same files.
     - Metaobject definitions that should render on the storefront need `access.storefront: PUBLIC_READ`. Don't set `access.admin` on merchant-owned definitions.
   - **Scopes:** the kit's default login covers product, variant, collection and metaobject definitions. Page, article, blog and customer definitions need one more scope: say so in the plan. If the draft stage's mutate fails on it, its error prints the login command with that scope added.
-  - **QA test data.** Which products. Ask the dev to name them; never pick live products yourself.
+  - **QA test data.** Which products, collections or pages QA uses, and why each one.
+    - **QA only looks at them** (layout, rendering, a sticky offset, a cart add on the draft): pick them yourself from the storefront (`/products.json`, `/collections/<handle>/products.json`, `/products/<handle>.js`). Choose ones that exercise the change: the most media for a gallery, variants and a single-variant product, a sale price, sold out, a long title. Take each product template the change touches (`template_suffix`), 2–3 products for each. Don't ask the dev.
+    - **Ask the dev only when** QA must write store data on them (metafield values, a test metaobject entry), or needs a state you can't find on the storefront (a tag, a customer-only price). Never write to a live product yourself.
   - **Merchant steps after merge:** placement, entries, Translate & Adapt.
 - **Conventions to follow,** from § Found. For example: "CSS via `stylesheet_tag` in the snippet, like `snippets/product-badges.liquid`".
 - **QA criteria.** Numbered, one table row each. Each has an expected value quoted from a ticket or from § Decided, plus the page or template, the viewports, and the data state or locale, and names the ACs it checks ("AC 2/15"). An AC no row checks goes under At a glance → Differs from the ticket with why. `done plan` refuses an AC that is in neither. Always include:

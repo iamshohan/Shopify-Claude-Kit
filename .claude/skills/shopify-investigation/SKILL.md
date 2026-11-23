@@ -44,7 +44,11 @@ An investigation ends in an answer backed by evidence, not in a code change. The
    - **Debug:** the URL, the steps, expected vs actual, and where it happens (devices, markets, languages, logged in or not).
 
    If something is missing, or the request reads two ways that would lead to different work, ask everything in as few AskUserQuestion calls as possible (up to 4 questions each). Otherwise don't ask.
-4. **Feasibility: check the requirements.** Write § Requirements: one row per acceptance criterion, quoted (for a request without a ticket, the requirements in the dev's words). Mark each one clear, unclear or conflicting. Ask every unclear or conflicting one together with step 3's questions, each with 2–4 concrete options and your recommendation first, and record the dev's answer verbatim. Don't ask about what the ticket already settles. If `/shopify-implement` follows, these answers count as decided and aren't asked again.
+4. **Feasibility: check the requirements.** Write § Requirements: one row per acceptance criterion (R1, R2…), quoted (for a request without a ticket, the requirements in the dev's words). Mark each one clear, unclear or conflicting, and give it an **owner**:
+   - **Dev:** how it's built (approach, files, setup, which app hosts it). Ask the dev.
+   - **Client:** what customers see or what the merchant gets: content, look, position, what stays pinned, static or live, trade-offs like screen space, anything touching price or discounts. **The client decides these, not the dev.** Don't ask the dev to pick one. Put it in the Jira comment as a question, with the options and their trade-off, and leave the row open. If the dev already knows the client's answer, record it as "Client (via dev): …". Proposing a default is fine: say it's a proposal.
+
+   Ask the dev every unclear or conflicting Dev row together with step 3's questions, each with 2–4 concrete options and your recommendation first, and record the answer verbatim. Don't ask about what the ticket already settles. If `/shopify-implement` follows, these answers count as decided and aren't asked again. Open Client rows don't: implement asks again unless the client has answered.
 
 ### Then: the evidence
 
@@ -66,6 +70,7 @@ An investigation ends in an answer backed by evidence, not in a code change. The
 **Without Admin API access** (`adminApi: false` in `.claude/shopify-kit.json`, and `query` refuses):
 - **Admin pages in Chrome, look only:** Content → Menus, Settings → Markets, Languages, Custom data, Products and Collections.
 - **Public storefront data:** `/products/<handle>.js`, `/collections/<handle>/products.json`, `/cart.js`, the page's `localization` form, and the rendered HTML (`shopify.mjs fetch <KEY> <path> --live`).
+- **Is the store on Plus?** Settings → Plan is often locked for staff, and an admin tab title ("… · Shopify Plus") is not evidence. Open Settings → Checkout → the active configuration's Customize (look only). An app block placed on, or "Add block" offered in, a checkout step (information, shipping, payment, or the one-page Checkout page) means Plus. Thank you and Order status pages don't count: every plan gets those. Save a screenshot that shows that block, scrolled to it.
 - **Otherwise ask the dev.**
 
 Label what you read this way as usual. A screenshot or page reading is Confirmed if you cite it.
@@ -100,6 +105,11 @@ For each requirement in the ticket, decide which of these it is:
 
 Back each one with docs, the store's plan, and the theme's code. Note the limitations as you go: what the platform, the store's plan, the theme or an installed app won't allow, and what would need the merchant or an app vendor.
 
+**"Can it be built" isn't the answer. "What will the client get" is.** Fill § Client gets: a row per requirement and **per surface** it touches (storefront per device and market, cart, checkout, emails, the theme editor). Each requirement has properties: position, look, width, behaviour (sticky, animation, timing), content, and where it's edited. Check every property on every surface, and say which ones carry over and which don't. A requirement that holds on the storefront can change, or fail, in checkout. The last column says how the result differs from what the ticket expects or the store shows today.
+- **Look up exactly where every extension target, app block or theme slot renders** (above or below what, which column on desktop, the order on mobile), with the docs sentence that says so, before you call it feasible. "At the top of checkout" isn't a position.
+- **Anything rendered by Shopify or an app** (checkout, the account pages, an app's widget) uses its own styling, not the theme's. Say so whenever the client expects the theme's look.
+- `done gather` refuses a feasibility check where § Client gets has no row for a requirement.
+
 Then write 2–3 approaches with their trade-offs: merchant control, effort, risk, page speed, and what it costs later (upkeep, app fees). Name the one you recommend and why. Size each with these bands:
 
 | Size | Typically |
@@ -127,7 +137,7 @@ Check the size against the theme's code, not the ticket's length: count the file
 - about 40 tool calls haven't moved you closer to the answer
 - the same attempt has failed twice
 
-**Done when:** the type is set and § Question is precise (feasibility: § Requirements has a row per requirement), and § Evidence has a labelled row for every claim the answer rests on, at least one of them Confirmed. For debug, § Hypotheses has at least two rows and § Reproduction is filled. Run `kit.mjs done <KEY> gather`.
+**Done when:** the type is set and § Question is precise (feasibility: § Requirements has a row per requirement with its owner, and § Client gets covers every requirement on every surface it touches), and § Evidence has a labelled row for every claim the answer rests on, at least one of them Confirmed. For debug, § Hypotheses has at least two rows and § Reproduction is filled. Run `kit.mjs done <KEY> gather`.
 
 ## Stage: conclude
 
@@ -135,18 +145,40 @@ Check the size against the theme's code, not the ticket's length: count the file
 
 1. **Write the answer.**
    - **§ Answer:** one or two sentences first, then your confidence and what it rests on. Feasibility: yes, yes with conditions, or no; the limitations; then the approaches table, the recommended one first.
-   - **§ Estimate** (feasibility): the recommended approach's size, the drivers behind it (files and templates touched, store setup, locales, QA effort), what could move it up a size, and your confidence. Give the drivers rather than hours, so the dev can put a number on it.
+   - **§ Estimate** (feasibility): **agentic development hours.** That's the dev's time to deliver it with this kit, not hand-coding time. Count development only: no client calls, design, someone else's manual QA, or go-live. Give a table per part with these columns:
+
+     | Part | Investigation and plan | Build | QA and fixes | Buffer | Total |
+     | --- | --- | --- | --- | --- | --- |
+
+     - **Investigation and plan:** what this report hasn't settled yet, plus `/shopify-implement`'s plan stage (about 0.25–0.5 h when this report is its starting context).
+     - **Build:** the agent writes the code and the dev reviews the diff.
+     - **QA and fixes:** the kit's measured QA on the draft, plus one round of fixing what it finds.
+     - **Buffer:** about 20%, at least 0.25 h, for what nobody expects.
+     - **Bands from the first measured kit runs** (November 2026, start to accept, dev review included; hand-coding estimates run two to four times these):
+       - a bug fix in 1–3 files: 0.5–1.5 h after its investigation;
+       - one new section or setting with QA on two viewports: 1–2 h;
+       - a feature over several files, templates or markets: 3–5 h.
+     - A part above its band needs a stated reason.
+     - **Work outside the theme** (an app extension in another repo, a deploy, a checkout editor placement) gets its own row, marked as not run by this kit.
+     - Also give the size (S, M or L, as above), what could add hours (each with its hours), and your confidence.
    - **§ Could not determine:** a report with nothing here usually stopped looking. Write "Nothing material" only if that's true.
    - **§ Next step**, one of:
      - A theme change → `/shopify-implement <KEY>`. The same key continues, with this file as its starting context. An `INV-…` key has no ticket, so say the dev starts `/shopify-implement` with the real ticket and names this log.
      - A store or app setting → exact steps for the dev or merchant. The kit doesn't change them.
      - Nothing to do → say why.
-   - **§ Jira comment:** text the dev can post. The kit doesn't write to Jira.
-2. **Independent check (feasibility only).** Spawn the `evidence-checker` agent with the path to `investigation.md`.
-   - It re-checks every Confirmed claim against its source and looks for an explanation that fits the evidence better.
-   - Apply what it finds: downgrade labels it couldn't confirm, and change the answer if it found a better one.
-   - Record its verdict and your changes in § Review.
-3. **Gate.** Show the dev the answer, what it rests on ("rests on 4 Confirmed, 2 Inferred: #3, #5"), the evidence-checker's verdict for a feasibility check, and the next step. Then ask with AskUserQuestion:
+   - **§ Jira comment:** text the dev can post, written for the client. The kit doesn't write to Jira. For a feasibility check, in this order and as short as it can be:
+     1. the verdict for each part, one line each;
+     2. **every row of § Client gets that differs** from what they expect or see today (position, look, behaviour, where it's edited), in their words;
+     3. the limitations;
+     4. the open Client questions, each with its options and trade-off.
+
+     Never restate the ticket's request or criteria back to the client. Leave out internal names (apps, configurations, files), sizes, hours and QA steps.
+2. **Independent check (feasibility only).** Spawn the `evidence-checker` agent with the path to `investigation.md` and the ticket key.
+   - **First, as the client:** it reads only the ticket, § Answer and § Jira comment, and lists what would surprise the client after delivery. It checks for any requirement and surface § Client gets skips, and any Client decision recorded as decided.
+   - **Then, as a reviewer:** it re-checks every Confirmed claim against its source and looks for an explanation that fits the evidence better.
+   - Apply what it finds: add the missing § Client gets rows, put the surprises in the Jira comment, downgrade labels it couldn't confirm, and change the answer if it found a better one.
+   - Record its verdict, its `Client surprises:` line and your changes in § Review. `done conclude` refuses a feasibility § Review without that line.
+3. **Gate.** Show the dev the answer, what it rests on ("rests on 4 Confirmed, 2 Inferred: #3, #5"), the evidence-checker's verdict for a feasibility check, and the next step. For a feasibility check, also show the § Client gets rows that differ and the open Client questions, so the dev reviews what the client will get, not only the verdict. Then ask with AskUserQuestion:
    - Accept
    - Dig further (what?)
    - Wrong question
@@ -154,4 +186,4 @@ Check the size against the theme's code, not the ticket's length: count the file
    Record their words: `kit.mjs done <KEY> conclude --answer "<their words>"`. For "dig further" or "wrong question", run `kit.mjs back <KEY> gather --reason "…"` instead; back at conclude, run the evidence checker again on the new evidence and replace § Review. If `done` prints a `retro`, follow its `ask` (a `kit.mjs note` per thing the kit caused, or `--none`).
 4. Tell the dev the next step in one line.
 
-**Done when:** § Answer, § Could not determine and § Next step are filled (feasibility: also § Estimate and § Review), theme files are unchanged, and the dev has accepted.
+**Done when:** § Answer, § Could not determine and § Next step are filled (feasibility: also § Estimate, § Review with its client pass, and § Jira comment), theme files are unchanged, and the dev has accepted.

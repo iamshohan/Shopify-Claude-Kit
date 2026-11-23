@@ -434,11 +434,19 @@ const EXIT_CHECKS = {
     const evidence = tableRows(key, 'investigation.md', '## Evidence').map(cells);
     const confirmed = evidence.filter((c) => /^Confirmed\b/i.test(c[2] || ''));
     const unsourced = confirmed.filter((c) => !c[3]).map((c) => `#${c[0]}`);
+    // Requirements: # | Requirement | Owner | Clear? | Asked → answer. Client gets: Req | Surface | What the client gets | Differs.
+    const reqs = st.type === 'feasibility' ? tableRows(key, 'investigation.md', '## Requirements').map(cells) : [];
+    const reqId = (s) => s.match(/^R?(\d+)$/i)?.[1];
+    const noOwner = reqs.filter((c) => !/^(Dev|Client)\b/i.test(c[2] || '')).map((c) => c[0] || '?');
+    const covered = new Set(tableRows(key, 'investigation.md', '## Client gets').flatMap((r) => [...(cells(r)[0] || '').matchAll(/R?(\d+)/gi)].map((m) => m[1])));
+    const uncovered = reqs.map((c) => c[0]).filter((id) => reqId(id) && !covered.has(reqId(id)));
     return [
       !st.type && 'record the kind of investigation: kit.mjs set <KEY> type=feasibility|debug|question',
       !filled(key, 'investigation.md', '## Question') && 'write the precise question and what counts as answered in investigation.md § Question',
-      st.type === 'feasibility' && !tableRows(key, 'investigation.md', '## Requirements').length
-        && 'list each requirement in investigation.md § Requirements (quoted, clear or not, and the dev\'s answer to each open one)',
+      st.type === 'feasibility' && !reqs.length
+        && 'list each requirement in investigation.md § Requirements (quoted, its owner, clear or not, and the answer to each open one)',
+      noOwner.length && `give each requirement an owner in investigation.md § Requirements' Owner column (${noOwner.join(', ')}): Dev for how it's built, Client for what customers see. Client rows the ticket doesn't settle go to the Jira comment as questions`,
+      uncovered.length && `investigation.md § Client gets has no row for ${uncovered.join(', ')}: say what the client will get on every surface the requirement touches (position, look, width, behaviour, where it's edited) and how that differs from what they expect`,
       !confirmed.length && 'no Confirmed evidence yet: read or observe something that settles a claim',
       unsourced.length && `Confirmed evidence without a Source (${unsourced.join(', ')}): cite the file:line, query, fetched page or docs URL with the quoted sentence`,
       st.type === 'debug' && tableRows(key, 'investigation.md', '## Hypotheses').length < 2
@@ -452,7 +460,11 @@ const EXIT_CHECKS = {
     return [
       !filled(key, 'investigation.md', '## Answer') && 'write investigation.md § Answer',
       st.type === 'feasibility' && !filled(key, 'investigation.md', '## Estimate')
-        && 'write investigation.md § Estimate: the size (S, M or L), what drives it, what could move it, and your confidence',
+        && 'write investigation.md § Estimate: agentic development hours per part (investigation and plan, build, QA and fixes, buffer), the size, what could add hours, and your confidence',
+      st.type === 'feasibility' && !filled(key, 'investigation.md', '## Jira comment')
+        && 'write investigation.md § Jira comment for the client: the verdict per part, every way the result differs from what they expect, the limitations, and the open Client questions',
+      st.type === 'feasibility' && filled(key, 'investigation.md', '## Review') && !added(key, 'investigation.md', '## Review').some((l) => /Client surprises\s*:/i.test(l))
+        && 'investigation.md § Review has no "Client surprises:" line: the evidence-checker\'s client pass is missing. Run it again (it reads the ticket, § Answer and § Jira comment as the client first) and record that line',
       !filled(key, 'investigation.md', '## Could not determine') && 'fill investigation.md § Could not determine ("Nothing material" only if that is true)',
       !filled(key, 'investigation.md', '## Next step') && 'write investigation.md § Next step',
       st.type === 'feasibility' && !filled(key, 'investigation.md', '## Review') && 'run the evidence-checker agent and record its result in investigation.md § Review',

@@ -1,5 +1,5 @@
 ---
-description: Feasibility check and estimate before anyone picks up a ticket. Reads the ticket, asks the dev about unclear requirements, and answers whether it can be built, the limitations, the approaches with their trade-offs, and a size. Read-only, with evidence. The same flow as /shopify-investigate with the type set to feasibility. Resumable.
+description: Feasibility check and estimate before anyone picks up a ticket. Reads the ticket, asks the dev about unclear requirements, and answers whether it can be built, the limitations, what the client will get, the approaches with their trade-offs, and an estimate in agentic development hours. Read-only, with evidence. The same flow as /shopify-investigate with the type set to feasibility. Resumable.
 argument-hint: <TICKET-KEY or a description of what's wanted>
 disable-model-invocation: true
 ---
@@ -10,4 +10,4 @@ This is `/shopify-investigate` with the type fixed to `feasibility`: one flow un
 
 1. **After starting** (`kit.mjs start <KEY> --investigate`), and whenever status shows the gather stage with no type yet, run `node .claude/kit/kit.mjs set <KEY> type=feasibility`.
 2. **An existing investigation of another type** (debug or question): tell the dev, and continue it as it is with `/shopify-investigate <KEY>` rather than changing its type midway.
-3. **At the end,** tell the dev in one line: the verdict, the recommended approach and its size, and that `/shopify-implement <KEY>` would start from this report.
+3. **At the end,** tell the dev in one line: the verdict, the recommended approach and its agentic hours, and that `/shopify-implement <KEY>` would start from this report.

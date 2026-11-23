@@ -12,9 +12,16 @@
 
 ## Requirements
 
-<!-- Feasibility only: one row per requirement, quoted from the ticket (or the dev's words). Clear, unclear or conflicting; for each open one, what you asked and the dev's answer verbatim. -->
+<!-- Feasibility only: one row per requirement (R1, R2…), quoted from the ticket (or the dev's words). Owner: Dev (how it's built) or Client (what customers see, content, UX trade-offs, money). Clear, unclear or conflicting; for each open one, what you asked and the answer verbatim. A Client row the ticket doesn't settle stays open for the Jira comment, whatever the dev proposed. -->
 
-| # | Requirement (quoted) | Clear? | Asked → the dev's answer |
+| # | Requirement (quoted) | Owner | Clear? | Asked → answer |
+| --- | --- | --- | --- | --- |
+
+## Client gets
+
+<!-- Feasibility only: what the client will actually see, per requirement, per surface it touches (storefront per device or market, checkout, cart, emails, the editor). Cover position, look, width, behaviour (sticky, animation, timing) and where it's edited. Last column: how that differs from what the ticket expects or the store shows today, or "same". -->
+
+| Req | Surface | What the client gets | Differs from what they expect or see today |
 | --- | --- | --- | --- |
 
 ## Answer
@@ -23,7 +30,7 @@
 
 ## Estimate
 
-<!-- Feasibility only: the recommended approach's size (S, M or L, as the skill defines them), what drives it, what could move it up a size, and the confidence. -->
+<!-- Feasibility only: agentic development hours for the recommended approach (investigation, build, QA and fix loops, buffer) in a table per part, the size (S, M or L), what could add hours, and the confidence. -->
 
 ## Evidence
 
@@ -53,4 +60,4 @@
 
 ## Jira comment
 
-<!-- Text for the dev to post. The kit doesn't write to Jira. -->
+<!-- Feasibility: for the client, in their words: 1) the verdict per part; 2) every "differs" row from § Client gets; 3) limitations; 4) the open Client questions, each with its trade-off. Never restate the ticket; no internal names, sizes, hours or QA steps. The kit doesn't write to Jira. -->
