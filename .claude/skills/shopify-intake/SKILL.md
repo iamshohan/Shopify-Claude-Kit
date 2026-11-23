@@ -14,7 +14,7 @@ user-invocable: false
 1. **Start from current code.** Run `git fetch origin`, then look for a local or remote branch matching the key, ignoring case (`git branch --list`, `git ls-remote --heads origin`).
    - One exists → tell the dev now, before analysis: a teammate may have started. If they'll reuse it, analyze reads that branch; build asks again when it creates the branch.
    - The checked-out commit isn't `origin/<baseBranch>` (status names the base) → say so, and ask whether to switch to it before analyze, so the plan is made against the code the build starts from. Never switch with uncommitted changes.
-2. **Read the ticket:** `node .claude/kit/jira.mjs <KEY>`. If the script reports missing credentials, ask the dev to fix `.claude/.env.local` or to paste the ticket text. Don't guess requirements.
+2. **Read the ticket:** `node .claude/kit/jira.mjs <KEY>`. If the script reports missing credentials, pass on its fix (create `~/.claude/.env` once per machine) or ask the dev to paste the ticket text. Don't guess requirements.
 3. **Related tickets.** Read up to three with `node .claude/kit/jira.mjs <KEY> --no-comments`, chosen from the summary, links, parent and `mentionedKeys`.
    - An A/B implementation ticket usually names or links the A/B test ticket ("Implement ABC-120"). That ticket holds the design, the variations and the targeting, so read it. Fetch its comments too if decisions seem to be in them.
    - Skip process tickets such as "Resolve a new Comment in …", "… is ready for Client Review" and "… is Ready to Launch".

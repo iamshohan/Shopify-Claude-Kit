@@ -175,6 +175,8 @@ export function onlyReadsText(segment) {
   // npm ls @shopify/cli, npm view @shopify/cli version: package metadata, nothing runs.
   const { w, i } = program(stripRedirects(segment));
   if (/^(npm|pnpm|yarn)(\.cmd)?$/i.test(w[i] || '') && ['ls', 'list', 'view', 'info', 'outdated', 'why'].includes(w[i + 1])) return true;
+  // The Shopify plugin's docs search and validator, which CLAUDE.md requires: their query ("theme push --only") is text.
+  if (/^node(\.exe)?$/i.test(w[i] || '') && /shopify[^\\/]*[\\/](.*[\\/])?scripts[\\/](search_docs|validate)\.mjs$/i.test(w[i + 1] || '')) return true;
   return READERS.has(progOf(segment));
 }
 
@@ -207,7 +209,7 @@ export function checkPush(args, prot, extra = null) {
   const flags = args.filter((a) => a.startsWith('-'));
   const pos = args.filter((a) => !a.startsWith('-'));
   const allowed = 'Allowed form: git push -u origin <task-branch>.';
-  const bad = flags.filter((f) => !['-u', '--set-upstream'].includes(f));
+  const bad = flags.filter((f) => !['-u', '--set-upstream', '-q', '--quiet'].includes(f));
   if (bad.length) return `git push ${bad.join(' ')} is blocked (no force, delete, mirror, all or tags). ${allowed}`;
   if (pos.length !== 2) return `Name the remote and the branch. ${allowed}`;
   if (/[$`(]/.test(pos.join(' '))) return `Push the branch by its literal name, not a variable or $(…). ${allowed}`;
@@ -239,14 +241,38 @@ function ghArgs(segment) {
   return /^gh(\.exe)?$/i.test(w[i] || '') ? w.slice(i + 1) : null;
 }
 
-/** gh pr merge, or a gh api call that merges a PR or moves a ref. */
+/**
+ * gh pr merge, gh repo sync, or a gh api call that merges a PR, moves a ref or commits a file (PUT/DELETE …/contents/…):
+ * each changes a branch without a git push the guard can check.
+ */
 export function ghMerges(segment) {
   const rest = ghArgs(segment);
   if (!rest) return false;
-  const at = rest.findIndex((x) => x === 'pr' || x === 'api');
+  const at = rest.findIndex((x) => x === 'pr' || x === 'api' || x === 'repo');
   if (at === -1 || at > 4) return false;
   if (rest[at] === 'pr') return rest[at + 1] === 'merge';
-  return rest.slice(at + 1).some((x) => /\/merges?\b|\/pulls\/\d+\/merge|git\/refs|mergePullRequest/.test(x));
+  if (rest[at] === 'repo') return rest[at + 1] === 'sync';
+  const args = rest.slice(at + 1);
+  if (args.some((x) => /\/merges?\b|\/pulls\/\d+\/merge|git\/refs|mergePullRequest/.test(x))) return true;
+  // gh api sends GET unless a method or a field says otherwise.
+  const writes = args.some((x, i) => (/^(-X|--method)$/.test(x) && !/^GET$/i.test(args[i + 1] || '')) || /^(-X|--method=)(?!GET$)\w+$/i.test(x) || /^(-f|-F|--field|--raw-field|--input)$/.test(x));
+  return writes && args.some((x) => /\/contents\/|\/git\/(commits|trees|blobs)\b/.test(x));
+}
+
+/** Pushes that bypass git push's own form: git subtree push, git send-pack. */
+export function pushesOtherwise(segment) {
+  const g = gitCommand(segment);
+  return Boolean(g && ((g.sub === 'subtree' && g.args.includes('push')) || g.sub === 'send-pack'));
+}
+
+/**
+ * A text command (commit, tag, gh pr/issue) whose text comes from a file: -F .claude/.env.local would publish the file.
+ * Those segments are scanned like any other instead of being skipped as text.
+ */
+export function textFromFile(segment) {
+  const g = gitCommand(segment);
+  if (g) return ['commit', 'tag'].includes(g.sub) && g.args.some((a) => /^-[a-zA-Z]*F$|^--file(=|$)|^(-t|--template(=|$))/.test(a));
+  return words(stripRedirects(segment)).some((a) => /^-F$|^--body-file(=|$)/.test(a));
 }
 
 /** gh calls that start or re-run a workflow (often a deploy pipeline): like merging, the dev's step. */
@@ -593,8 +619,9 @@ const ENV_NAME = /(^|[\s'"=\\/:])\.env(?!\.(example|sample|template|dist)(?=$|[\
 // in grep -n "done .*--answer" the .* is a regex.
 // The letters before the glob must start ".env": cat .eslintrc* can't reach one.
 const ENV_GLOB = /(^|\s)\.(en?|env[\w.-]*)?[*?[][^\s'"`;&|)]*|(^|[\s=\\/:])\.(en?|env[\w.-]*)[*?[]/i;
-// The Shopify CLI's login folders (shopify-cli-kit-nodejs and friends), with or without a path after them.
-export const CLI_LOGIN = /shopify-cli-[\w-]+/i;
+// The Shopify CLI's login folders (shopify-cli-kit-nodejs and friends), with or without a path after them, and a glob that
+// reaches them (~/AppData/Roaming/shopify*/Config).
+export const CLI_LOGIN = /shopify-cli-[\w-]+|[\\/]shopify[*?[]/i;
 // Loading .env into a process the agent runs prints it as surely as cat.
 export const DOTENV = /\brequire\(\s*['"]dotenv\b|\bdotenv\/config\b|--env-file\b|\bload_dotenv\b|\b(npx|bunx|dlx)\s+dotenv\b/i;
 // Environment variables that hold a token or secret.
@@ -661,6 +688,11 @@ export function dumpsEnv(segment) {
   const all = words(s);
   const w = all.slice(all.findIndex((x) => !assign(x)) >>> 0);
   const name = programName(w[0] || '').replace(/\.exe$/i, '').toLowerCase();
+  // GitHub and git credentials: gh auth token, gh auth status --show-token, git credential fill, ~/.git-credentials.
+  if (/^gh$/.test(name) && w[1] === 'auth' && (w[2] === 'token' || (w[2] === 'status' && w.some((a) => /^(-t|--show-token)$/.test(a))))) return true;
+  const g = gitCommand(s);
+  if (g?.sub === 'credential' && /^(fill|get)$/.test(g.args[0] || '')) return true;
+  if (/(^|[\s'"=\\/])\.git-credentials\b/.test(s)) return true;
   if (name === 'printenv') return w.slice(1).every((a) => a.startsWith('-')) || w.slice(1).some((a) => SECRET_NAME.test(a));
   if (name === 'env') return w.slice(1).filter((a) => !assign(a)).every((a) => a.startsWith('-'));
   if (name === 'set') return w.length === 1;
@@ -668,7 +700,7 @@ export function dumpsEnv(segment) {
   return false;
 }
 
-export const ENV_DUMP_WHY = 'That prints the environment, which holds tokens (Jira, Shopify, DATABASE_URL). To check that one variable is set without printing it: node -e "console.log(Boolean(process.env.NAME))". jira.mjs --check and shopify.mjs check the logins the kit needs.';
+export const ENV_DUMP_WHY = 'That prints the environment or a git/GitHub credential, which hold tokens (Jira, Shopify, GitHub, DATABASE_URL). For a failed push, git push\'s own error says what is wrong. To check that one variable is set without printing it: node -e "console.log(Boolean(process.env.NAME))". jira.mjs --check and shopify.mjs check the logins the kit needs.';
 
 /**
  * Text with tokens blanked, for the guard log: it reaches retro output and the kit-feedback file sent to the maintainer.

@@ -357,6 +357,21 @@ try {
   const codeDrift = kit('shopify.mjs', 'push', KEY);
   ok('push lists a Liquid file live changed, without refusing it', codeDrift.code === 0 && json(codeDrift).liveEditedSinceBase?.join() === 'sections/header.liquid'
     && state().draft.liveEdits?.join() === 'sections/header.liquid' && /Live edits since the base.*header\.liquid/.test(kit('kit.mjs', 'status', KEY).out), codeDrift.all);
+  // Reverted on the branch, the file is still pushed (so the draft drops the earlier version) but the merge changes nothing in it.
+  write('sections/header.liquid', '<header></header>\n');
+  commit('revert the header');
+  const reverted = kit('shopify.mjs', 'push', KEY);
+  ok('a file the branch reverted isn\'t listed as a live edit the merge overwrites', reverted.code === 0 && !(json(reverted).liveEditedSinceBase || []).length && !state().draft.liveEdits?.length, reverted.all);
+  write('sections/header.liquid', '<header class="hotfix"><nav></nav></header>\n');
+  commit('header nav again');
+  kit('shopify.mjs', 'push', KEY);
+  // preview reads CLI 5's nested { preview: { url } } and the documented flat { url }.
+  const ovr = join(repo, '.claude', 'logs', KEY, 'previews', 'e2e.json');
+  mkdirSync(dirname(ovr), { recursive: true });
+  writeFileSync(ovr, JSON.stringify({ theme_changes: { templates: {} } }));
+  const pv5 = kit('shopify.mjs', 'preview', KEY, `.claude/logs/${KEY}/previews/e2e.json`);
+  const pvOld = spawnSync(process.execPath, [join(repo, '.claude', 'kit', 'shopify.mjs'), 'preview', KEY, `.claude/logs/${KEY}/previews/e2e.json`], { cwd: repo, env: { ...env, FAKE_LEGACY_LIST: '1' }, encoding: 'utf8' });
+  ok('preview reads the URL from CLI 5\'s nested output and the flat one', pv5.code === 0 && /shopifypreview\.com/.test(json(pv5).url || '') && pvOld.status === 0 && /shopifypreview\.com/.test(pvOld.stdout), pv5.all + pvOld.stdout + pvOld.stderr);
 
   // ── The base branch ahead of live ──
   // A teammate's merged, undeployed edit to merchant JSON the branch also changes: live holds main's earlier version, not an admin edit.
@@ -429,6 +444,8 @@ try {
   // POP-1150: the branch changed after a GitHub-connected draft was adopted, so the draft showed the old branch.
   const moveBranch = kit('kit.mjs', 'set', KEY, 'branch=other-branch');
   ok('set refuses a new branch while a GitHub-connected draft follows the old one', moveBranch.code === 1 && /connected to ABC-1 on GitHub/.test(moveBranch.err) && state().branch === KEY, moveBranch.all);
+  const toMain = kit('kit.mjs', 'set', KEY, 'branch=Main');
+  ok('set refuses a protected branch as the task branch', toMain.code === 1 && /protected branch/.test(toMain.err) && state().branch === KEY, toMain.all);
   // The way out it offers (a new theme id) must not keep the old theme's verified commit and URLs.
   const draftBefore = state().draft;
   writeFileSync(statePath, JSON.stringify({ ...state(), draft: { ...draftBefore, verifiedCommit: 'abc1234', previewUrl: `https://x/?preview_theme_id=${draftBefore.themeId}` } }));

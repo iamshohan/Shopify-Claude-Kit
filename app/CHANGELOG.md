@@ -4,6 +4,7 @@
 
 The Shopify App Kit: Claude Code for Shopify apps (admin apps and extension-only apps), scenarios first. It lives in `app/` of the Shopify-Claude-Kit repo; devs install it with `node install.mjs <app-repo> --app` from that repo's root.
 
+- **Guard** (with theme kit 1.13.10): text read from a file (`git commit -F`, `gh pr create --body-file`) is scanned for secrets; `gh auth token`, `git credential fill` and `~/.git-credentials` are refused; `gh api` writes to `…/contents/`, `gh repo sync`, `git subtree push` and `send-pack` are refused; `git push -q` is allowed; the Shopify plugin's `search_docs` runs whatever its query says; edits to `core.mjs` and `repo.mjs` ask. New self-tests for the SQLite, fetcher, access-token and `create-app` rules.
 - **Playwright's output stays out of git** (with theme kit 1.13.8): the installer adds `.playwright-mcp/` to `.git/info/exclude`, and setup reports a repo that already tracks it.
 - **One Jira token file per machine** (with theme kit 1.13.7): setup, the README and `jira.mjs` point to `~/.claude/.env` (once per machine) instead of a `.claude/.env.local` in every repo. The per-repo file still wins, for a repo that needs another Jira account; `JIRA_BASE_URL` stays out of the global file.
 - **Shared with theme kit 1.13.1:** the guard checks `findstr /s` globs that reach `.env` files, and no longer blocks `Get-ChildItem env:PATH` or `cat .eslintrc*`. A moved kit clone shows a notice instead of silently ending update notices. On Windows, one repo spelled several ways is one entry in `update.mjs`'s list.

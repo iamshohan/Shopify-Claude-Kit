@@ -237,7 +237,10 @@ function failCli(store, r, what, extraScopes = []) {
   const hint = loginHint(store, r, extraScopes);
   // Exit 0 with an unexpected shape, or a silent failure, still needs something to act on.
   const detail = cliError(r) || `CLI exit code ${r.code}. Output: ${(r.stdout.trim() || r.stderr.trim() || '(none)').slice(-1500)}`;
-  fail(`${what} failed.\n${detail}${hint ? `\n\n${hint}` : ''}`);
+  // 423 Locked: the store is frozen, paused or unavailable (a billing or plan issue), not a login problem (CHE-865).
+  const locked = /\b423\b|\bLocked\b|store (is )?unavailable/i.test(`${r.stdout}\n${r.stderr}`)
+    ? `\n\nShopify answered "locked" (423): the store is frozen, paused or unavailable, often a billing or plan issue. Logging in again won't help; ask the dev or the store owner to check the store's status in the admin.` : '';
+  fail(`${what} failed.\n${detail}${locked}${hint && !locked ? `\n\n${hint}` : ''}`);
 }
 
 /**
@@ -401,7 +404,9 @@ function liveDrift(st, files, base) {
  * buildOutputs aren't in git at the base, so live always "differs" from it there: they're left out.
  */
 function driftCheck(key, st, files, base) {
-  const drift = liveDrift(st, files.filter((f) => !(st.buildOutputs || []).includes(f)), base);
+  // Only files the merge changes: one the branch touched and then reverted is pushed, but overwrites nothing on live.
+  const changed = new Set(git(['diff', '--name-only', '--no-renames', '--relative', base, 'HEAD', '--', ...THEME_DIRS], { allowFail: true }).split('\n').filter(Boolean));
+  const drift = liveDrift(st, files.filter((f) => changed.has(f) && !(st.buildOutputs || []).includes(f)), base);
   const edited = drift.filter((d) => !d.undeployed);
   const refused = openDrift(key, st, edited.filter((d) => MERCHANT_JSON.test(d.file)));
   st.draft.liveEdits = edited.filter((d) => !MERCHANT_JSON.test(d.file)).map((d) => d.file);
@@ -649,6 +654,15 @@ switch (verb) {
       break;
     }
     if (out.cliLastStore && out.cliLastStore !== store) out.note = `The CLI was last used with ${out.cliLastStore}; the kit passes --store ${store} on every call, so that doesn't matter here.`;
+    // The storefront names the store it belongs to: a store from another project's config shows up here (CHE-865).
+    if (cfg?.storefrontUrl && !flags.store) {
+      try {
+        const page = await storefrontGet(cfg.storefrontUrl.replace(/\/+$/, '') + '/');
+        const served = page.html.match(/Shopify\.shop\s*=\s*["']([\w.-]+\.myshopify\.com)["']/)?.[1] || null;
+        out.storefrontServes = served;
+        if (served && served.toLowerCase() !== store.toLowerCase()) out.storeMismatch = `${cfg.storefrontUrl} belongs to ${served}, but store in .claude/shopify-kit.json is ${store}. One of them is wrong: ask the dev which store this repo's theme lives on before anything else.`;
+      } catch { out.storefrontServes = null; }
+    }
     const themes = cli(['theme', 'list', '--store', store, '--json', '--role', 'live']);
     const live = cliFailed(themes) ? null : themeArray(themes.data);
     // A call that succeeded with an unreadable list is a shape change, not a login problem: logging in again wouldn't help.
@@ -677,9 +691,10 @@ switch (verb) {
       out.adminLoginNote = 'Optional. The login installs Shopify\'s CLI app on the store, so it needs someone allowed to install apps, once per store. Without it, set adminApi: false and the kit uses manual admin steps instead.';
       out.adminLoginFix = `! shopify store auth --store ${store} --scopes ${SCOPES}`;
     }
+    // The same path kit.mjs optout writes.
     const optOut = WIN
-      ? join(process.env.APPDATA || '', 'shopify-ai-toolkit', 'opt-out')
-      : join(process.env.HOME || '', '.config', 'shopify-ai-toolkit', 'opt-out');
+      ? join(process.env.APPDATA || join(homedir(), 'AppData', 'Roaming'), 'shopify-ai-toolkit', 'opt-out')
+      : join(homedir(), '.config', 'shopify-ai-toolkit', 'opt-out');
     out.pluginTelemetryOptOut = existsSync(optOut) || process.env.OPT_OUT_INSTRUMENTATION === 'true';
     out.pluginTelemetryOptOutFile = existsSync(optOut) ? optOut : 'missing (node .claude/kit/kit.mjs optout)';
     print(out);
@@ -807,11 +822,15 @@ switch (verb) {
       const wanted = typeof flags.theme === 'string' ? Number(flags.theme) : null;
       const candidates = themes.filter((t) => t.role === 'unpublished'
         && (wanted ? sameId(t.id, wanted) : namesKey(t.name, key) || namesKey(t.name, branch)));
-      if (candidates.length !== 1) {
+      // A theme named for removal is likely an old connection whose GitHub link is gone (POP-1065): adopt it only by id.
+      const retired = !wanted && candidates.length === 1 && /remove|delete|old\b|archiv|backup|unused|alt\b/i.test(candidates[0].name);
+      if (candidates.length !== 1 || retired) {
         const repo = git(['remote', 'get-url', 'origin'], { allowFail: true }).replace(/^.*[:/]([^/:]+\/[^/]+?)(\.git)?$/, '$1');
         print({
           connected: false,
           candidates,
+          ...(retired ? { why: `The only theme naming ${key} is "${candidates[0].name}", which reads like one marked for removal. If it is the task's draft, run this again with --theme ${candidates[0].id}; otherwise connect a new one.` } : {}),
+          ...(!candidates.length ? { unpublished: themes.filter((t) => t.role === 'unpublished').slice(0, 20).map((t) => ({ id: toThemeId(t.id), name: t.name })) } : {}),
           devSteps: [
             'Shopify admin → Online Store → Themes → Add theme → Connect from GitHub.',
             `Pick the repository ${repo || '(this repo)'} and the branch ${branch}.`,
@@ -1006,11 +1025,13 @@ switch (verb) {
     // Re-previewing the same overrides file updates its preview instead of creating another.
     const previous = [...st.previews].reverse().find((p) => p.file === file && p.id);
     const r = cli(['theme', 'preview', '--store', cfg.store, '--theme', String(st.draft.themeId), '--overrides', abs, '--json', ...(previous ? ['--preview-id', previous.id] : [])]);
-    // Documented output: { url, preview_identifier }.
-    if (r.code !== 0 || !r.data?.url) failCli(cfg.store, r, 'Creating the preview');
-    st.previews.push({ at: now(), file, url: r.data.url, id: r.data.preview_identifier || previous?.id || null });
+    // Documented output: { url, preview_identifier }; CLI 5 nests it: { status, preview: { url, … } }.
+    const p = r.data?.preview && typeof r.data.preview === 'object' ? r.data.preview : r.data;
+    const pid = p?.preview_identifier || p?.previewIdentifier || p?.id || null;
+    if (r.code !== 0 || !p?.url) failCli(cfg.store, r, 'Creating the preview');
+    st.previews.push({ at: now(), file, url: p.url, id: pid || previous?.id || null });
     writeState(key, st);
-    print({ url: r.data.url, previewId: r.data.preview_identifier || null });
+    print({ url: p.url, previewId: pid });
     break;
   }
 

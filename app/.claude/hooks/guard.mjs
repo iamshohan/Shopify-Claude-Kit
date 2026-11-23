@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 import {
   stripMessageBodies, segments, stripRedirects, program, gitCommand, cdArg, dirAfter, innerCommand, checkPush as checkPushCore, tagPush, ghMerges,
-  ghRunsWorkflow, ghReleases, enforceMode, emit, realPath, redirects, substitutes, onlyReadsText, WRITE_VERBS, scriptProblem, shellWrites, isGlob,
+  pushesOtherwise, textFromFile, ghRunsWorkflow, ghReleases, enforceMode, emit, realPath, redirects, substitutes, onlyReadsText, WRITE_VERBS, scriptProblem, shellWrites, isGlob,
   searchesSecrets, gitConfigRisk, pushRouting, discardsWork, runsShopifyCli, repoGit, WRAPPER_PATH, CLI_WORD, CLI_PATH, cliPackage, envFileIn,
   secretText, dumpsEnv, ENV_DUMP_WHY, CLI_LOGIN, DOTENV, SECRET_VAR, SECRET_READ, SECRET_PATH, forceAdd, redact, logPath, scriptDir, userSettings, pushIn,
 } from '../kit/guard-core.mjs';
@@ -84,7 +84,8 @@ const GENERATED = /^(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb?|\
 const TEST_FILE = /(^|\/)(tests?|__tests__|__mocks__|test-utils|testing|fixtures)\/|\.(test|spec)\.[cm]?[jt]sx?$|(^|\/)(vitest|jest)\.(config|setup|workspace)\.[cm]?[jt]s$|(^|\/)setupTests\.[cm]?[jt]sx?$/;
 const KIT_DIR = /^\.claude\/(hooks|kit|commands|agents|skills|rules)\/|^\.claude\/(settings\.json|claude\.md|readme\.md|version)$/i;
 // In the master repo only the guard's own wiring asks.
-const GUARD_WIRING = /^\.claude\/(settings\.json|hooks\/|kit\/guard-core\.mjs)/i;
+// core.mjs and repo.mjs hold checks the guard imports (GraphQL reading, protected branches).
+const GUARD_WIRING = /^\.claude\/(settings\.json|hooks\/|kit\/(guard-core|core|repo)\.mjs)/i;
 
 // ── Repo context ──
 // Read fresh on every call; the self-test swaps these for fakes through ctx.
@@ -290,7 +291,7 @@ function decideCommand(raw, ctx, depth = 0, cwd = null) {
   // Commit and tag messages, PR and issue text, and the text the kit's own app.mjs records (notes, gate answers) are
   // text; everything else is scanned. A $( or backtick runs something, and a redirect writes a file: those stay scanned.
   const isText = (s) => {
-    if (substitutes(s) || redirects(s)) return false;
+    if (substitutes(s) || redirects(s) || textFromFile(s)) return false;
     if (['commit', 'tag'].includes(gitCommand(s)?.sub)) return true;
     const { w, i } = program(stripRedirects(s));
     if (/^gh(\.exe)?$/i.test(w[i] || '') && /^(pr|issue)$/.test(w[i + 1] || '') && /^(create|edit|comment)$/.test(w[i + 2] || '')) return true;
@@ -402,7 +403,8 @@ function decideCommand(raw, ctx, depth = 0, cwd = null) {
       if (secret) return { decision: 'deny', reason: `${secret} is staged, and it holds secrets. Unstage it (git restore --staged ${secret}) before committing.` };
     }
   }
-  if (segs.some(ghMerges)) return { decision: 'deny', reason: 'Merging is the dev\'s step after review, not the agent\'s.' };
+  if (segs.some(ghMerges)) return { decision: 'deny', reason: 'Merging, syncing a branch or committing through the GitHub API is the dev\'s step after review, not the agent\'s.' };
+  if (segs.some(pushesOtherwise)) return { decision: 'deny', reason: 'Push the change branch with git push -u origin <branch>; git subtree push and send-pack get around that check.' };
   if (segs.some(ghRunsWorkflow)) return { decision: 'deny', reason: 'Starting a GitHub workflow (often the deploy pipeline) is the dev\'s step, not the agent\'s.' };
   if (segs.some(ghReleases)) return { decision: 'deny', reason: 'Releases and deployments often start the deploy pipeline: they are the dev\'s step, not the agent\'s.' };
 
@@ -669,6 +671,13 @@ function selftest() {
     // denied: the Admin API around the wrapper
     [bash('curl -H "X-Shopify-Access-Token: x" https://a.myshopify.com/admin/api/2026-07/graphql.json'), 'deny'],
     [ps('Invoke-RestMethod https://a.myshopify.com/admin/api/2026-07/graphql.json'), 'deny'],
+    // one case per rule, each hit by that rule alone: DB_FILE, FETCHERS (admin path), ADMIN_HTTP (token header, custom domain), CLI_PKG
+    [bash('cat prisma/dev.sqlite'), 'deny'], [bash('base64 prisma/dev.db'), 'deny'],
+    [bash('curl https://a.myshopify.com/admin/products.json'), 'deny'],
+    [bash('node x.js --header "X-Shopify-Access-Token: x" https://shop.example.com/api'), 'deny'],
+    [bash('pnpm dlx @shopify/create-app'), 'deny'],
+    // shared with the theme kit: text from a file, credentials, branch changes without git push
+    [bash('git commit -F .env'), 'deny'], [bash('gh auth token'), 'deny'], [bash('gh repo sync --branch main'), 'deny'], [bash('git subtree push --prefix=x origin main'), 'deny'],
     // denied: git
     [bash('git push origin main'), 'deny'], [bash('git push -u origin HEAD'), 'deny'], [bash(`git push -f origin ${ID}`), 'deny'],
     [bash(`git push -u origin ${ID}-kit-test`), 'deny'], [bash('git commit -m x'), 'deny', ctx({ branch: 'main' })],

@@ -15,7 +15,7 @@ import { parseArgs, mutationProblems, sealDigest, SEAL_FILE, TEST_SUFFIX, MERCHA
 import {
   stripMessageBodies, segments, stripRedirects, program, redirects, substitutes, realPath, gitCommand, cdArg, dirAfter, innerCommand, onlyReadsText,
   WRITE_VERBS, INLINE_WRITE, scriptProblem, shellWrites, isGlob, searchesSecrets, gitConfigRisk, pushRouting, discardsWork, checkPush as checkPushCore,
-  tagPush, ghMerges, ghRunsWorkflow, ghReleases, runsShopifyCli, repoGit, WRAPPER_PATH, CLI_WORD, CLI_PATH, cliPackage, envFileIn, secretText, dumpsEnv,
+  tagPush, ghMerges, pushesOtherwise, textFromFile, ghRunsWorkflow, ghReleases, runsShopifyCli, repoGit, WRAPPER_PATH, CLI_WORD, CLI_PATH, cliPackage, envFileIn, secretText, dumpsEnv,
   ENV_DUMP_WHY, CLI_LOGIN, DOTENV, SECRET_VAR, SECRET_READ, SECRET_PATH, forceAdd, redact, logPath, enforceMode, emit, scriptDir, userSettings, pushIn,
 } from '../kit/guard-core.mjs';
 
@@ -75,7 +75,8 @@ const FETCHERS = /^(curl|wget|Invoke-WebRequest|Invoke-RestMethod|iwr|irm)(\.exe
 // Kit files a theme repo gets from the installer; edits belong in the kit's own repo.
 const KIT_FILE = /^\.claude\/(settings\.json|CLAUDE\.md|VERSION|hooks\/|kit\/|commands\/|agents\/|skills\/|rules\/)/i;
 // In the master repo only the guard's own wiring asks.
-const GUARD_WIRING = /^(\.claude|app\/\.claude)\/(settings\.json|hooks\/|kit\/guard-core\.mjs)|^shared\/guard-core\.mjs$/i;
+// lib.mjs (theme) and core.mjs/repo.mjs (app) hold checks the guards import: mutation rules, protected branches.
+const GUARD_WIRING = /^(\.claude|app\/\.claude)\/(settings\.json|hooks\/|kit\/(guard-core|lib|core|repo)\.mjs)|^shared\/guard-core\.mjs$/i;
 
 // ── Repo context ──
 // Read fresh on every call; the self-test swaps these for fakes through ctx.
@@ -251,7 +252,7 @@ function decideCommand(raw, ctx, depth = 0, cwd = null) {
   // Commit and tag messages, PR and issue text, and the text a kit.mjs call records (notes, gate answers) are text;
   // everything else is scanned. A $( or a backtick in that text runs something, and a redirect writes a file: those stay scanned.
   const isText = (s) => {
-    if (substitutes(s) || redirects(s)) return false;
+    if (substitutes(s) || redirects(s) || textFromFile(s)) return false;
     if (['commit', 'tag'].includes(gitCommand(s)?.sub)) return true;
     const { w, i } = program(stripRedirects(s));
     if (/^gh(\.exe)?$/i.test(w[i] || '') && /^(pr|issue)$/.test(w[i + 1] || '') && /^(create|edit|comment)$/.test(w[i + 2] || '')) return true;
@@ -347,7 +348,8 @@ function decideCommand(raw, ctx, depth = 0, cwd = null) {
   }
 
   // gh takes global flags before the subcommand (gh -R owner/repo pr merge), and the API can merge or move a ref.
-  if (segs.some(ghMerges)) return { decision: 'deny', reason: 'Merging is the dev\'s step after handoff, not the agent\'s.' };
+  if (segs.some(ghMerges)) return { decision: 'deny', reason: 'Merging, syncing a branch or committing through the GitHub API is the dev\'s step after handoff, not the agent\'s.' };
+  if (segs.some(pushesOtherwise)) return { decision: 'deny', reason: 'Push the task branch with git push -u origin <task-branch>; git subtree push and send-pack get around that check.' };
   if (segs.some(ghRunsWorkflow)) return { decision: 'deny', reason: 'Starting a GitHub workflow (often a deploy pipeline) is the dev\'s step, not the agent\'s.' };
   if (segs.some(ghReleases)) return { decision: 'deny', reason: 'Releases and deployments often start a deploy pipeline: they are the dev\'s step, not the agent\'s.' };
 
@@ -482,10 +484,26 @@ const defaultCtx = {
   gitConfig: (key) => git.config(key), staged: () => git.staged(), isTag: (name) => git.isTag(name),
 };
 
+/**
+ * kit-browser's run_code runs in Playwright's Node process, not the page: it can read files and start programs. Files run
+ * only from the kit (the probe) or a task's design-audit file; inline code only without Node's file, process or module APIs.
+ */
+function decideRunCode(ti, cwd) {
+  const NODE_API = /\b(require|import)\s*\(|\bprocess\.|child_process|\bfs\b|readFile|writeFile|\.env\b|shopify-cli/;
+  if (typeof ti.filename === 'string' && ti.filename) {
+    const rel = relative(ROOT, resolve(cwd || ROOT, ti.filename)).replaceAll('\\', '/');
+    if (/^\.claude\/kit\/probe\.init\.js$|^\.claude\/logs\/[^/]+\/design-audit-[\w-]+\.js$/i.test(rel)) return null;
+    return { decision: 'deny', reason: `browser_run_code_unsafe runs files in Node, outside the browser. Only .claude/kit/probe.init.js and the design-audit files kit.mjs writes run here (got ${rel}). For page JavaScript, use browser_evaluate.` };
+  }
+  if (NODE_API.test(String(ti.code || ''))) return { decision: 'deny', reason: 'This code uses Node\'s file, process or module APIs, which run outside the browser with your access. For page JavaScript, use browser_evaluate or page.evaluate without them.' };
+  return null;
+}
+
 export function decide(input, ctx = defaultCtx) {
   const tool = input.tool_name;
   const ti = input.tool_input || {};
   if (['Edit', 'Write', 'MultiEdit', 'NotebookEdit'].includes(tool)) return decideFile(ti, input.cwd, ctx);
+  if (tool === 'mcp__kit-browser__browser_run_code_unsafe') return decideRunCode(ti, input.cwd);
   // Bash, PowerShell, Monitor, and any later tool that runs a command: all read the same way.
   if (typeof ti.command === 'string') return decideCommand(ti.command, ctx, 0, input.cwd || null);
   return null;
@@ -799,6 +817,40 @@ function selftest() {
     [file('Edit', '.claude/skills/shopify-qa/SKILL.md'), null, ctx(K, {}, true)],
     [file('Edit', '.claude/hooks/guard.mjs'), 'ask', ctx(K, {}, true)],
     [file('Edit', '.claude/settings.json'), 'ask', ctx(K, {}, true)],
+    // files the guards import ask in maintainer mode too
+    [file('Edit', '.claude/kit/lib.mjs'), 'ask', ctx(K, {}, true)],
+    [file('Edit', 'app/.claude/kit/core.mjs'), 'ask', ctx(K, {}, true)],
+    [file('Edit', 'app/.claude/kit/repo.mjs'), 'ask', ctx(K, {}, true)],
+    // text commands whose text comes from a file are scanned like any other command
+    [bash('git commit -F .claude/.env.local'), 'deny'],
+    [bash('git tag -a v1 -F .env'), 'deny'],
+    [bash('gh pr create --body-file .claude/.env.local'), 'deny'],
+    [bash('gh pr comment 5 --body-file ~/.claude/.env'), 'deny'],
+    [bash(`gh pr create --draft --title "${K}" --body-file .claude/logs/${K}/pr.md`), null],
+    [bash('git commit -m "Document the -F flag"'), null],
+    // git and GitHub credentials
+    [bash('gh auth token'), 'deny'],
+    [bash('gh auth status --show-token'), 'deny'],
+    [bash('gh auth status'), null],
+    [bash('printf "protocol=https\\nhost=github.com\\n" | git credential fill'), 'deny'],
+    [bash('cat ~/.git-credentials'), 'deny'],
+    [bash('cat ~/AppData/Roaming/shopify*/Config/config.json'), 'deny'],
+    // a branch changed without git push
+    [bash('gh api -X PUT repos/o/r/contents/a.txt -f branch=main -f message=x'), 'deny'],
+    [bash('gh api repos/o/r/contents/a.txt'), null],
+    [bash('gh repo sync --branch main'), 'deny'],
+    [bash('git subtree push --prefix=x origin main'), 'deny'],
+    [bash('git send-pack origin X:main'), 'deny'],
+    // a quiet push is still the one allowed form; the plugin's docs search is text, whatever its query says
+    [bash(`git push -q -u origin ${K}`), null],
+    [bash('node C:/Users/x/.claude/plugins/cache/claude-plugins-official/shopify-ai-toolkit/2.1.2/skills/shopify/scripts/search_docs.mjs "theme push --only flag"'), null],
+    [bash('node scripts/search_docs.mjs && shopify theme push'), 'deny'],
+    // kit-browser's run_code: only the kit's own files, and inline code without Node's APIs
+    [{ tool_name: 'mcp__kit-browser__browser_run_code_unsafe', tool_input: { filename: '.claude/kit/probe.init.js' }, cwd: ROOT }, null],
+    [{ tool_name: 'mcp__kit-browser__browser_run_code_unsafe', tool_input: { filename: `.claude/logs/${K}/design-audit-desktop.js` }, cwd: ROOT }, null],
+    [{ tool_name: 'mcp__kit-browser__browser_run_code_unsafe', tool_input: { filename: 'tmp/read-secrets.js' }, cwd: ROOT }, 'deny'],
+    [{ tool_name: 'mcp__kit-browser__browser_run_code_unsafe', tool_input: { code: 'async (page) => require("fs").readFileSync(".claude/.env.local", "utf8")' } }, 'deny'],
+    [{ tool_name: 'mcp__kit-browser__browser_run_code_unsafe', tool_input: { code: 'async (page) => page.evaluate(() => document.title)' } }, null],
     [file('Write', `.claude/logs/${K}/state.json`), 'deny', ctx(K, {}, true)],
     [bash('cp x .claude/kit/kit.mjs'), null, ctx(K, {}, true)], [bash('cp x .claude/hooks/guard.mjs'), 'ask', ctx(K, {}, true)],
     // another repository: this repo's protected branch doesn't apply; pushes are checked wherever they run
@@ -956,6 +1008,7 @@ function selftest() {
     [mutationProblems('mutation { metaobjectDelete(id: "gid:\\/\\/shopify\\/Metaobject\\/999") { deletedId } }', '', ['gid://shopify/Metaobject/7']).some((p) => /Metaobject\/999/.test(p)), 'an id escaped in the file is read as Shopify reads it'],
     [mutationProblems('mutation { metafieldsDelete(metafields: [{ownerId: "gid://shopify/Shop/1", namespace: "custom", key: "announcement"}]) { deletedMetafields { key } } }', '', []).length > 0, 'metafieldsDelete on an owner this task didn\'t create is refused'],
     [mutationProblems('mutation { metafieldsDelete(metafields: [{ownerId: "gid://shopify/Metaobject/7", namespace: "custom", key: "k"}]) { deletedMetafields { key } } }', '', ['gid://shopify/Metaobject/7']).length === 0, 'metafieldsDelete on an owner this task created runs'],
+    [mutationProblems('mutation D($o: ID!) { metafieldsDelete(metafields: [{ownerId: "gid://shopify/Metaobject/7", namespace: "c", key: "k"}, {ownerId: $o, namespace: "c", key: "k"}]) { deletedMetafields { key } } }', '{"o":"gid://shopify/Shop/1"}', ['gid://shopify/Metaobject/7']).some((p) => /ownerId: \$variable/.test(p)), 'metafieldsDelete refuses ownerId: $variable beside an owned literal'],
     [branchesFrom({ protectedBranches: 'release' }).includes('release'), 'protectedBranches as a string still protects that branch'],
     [decide(file('Edit', '.env.example'), ctx()) === null && decide(bash('cat .env.example'), ctx()) === null, '.env.example holds no secrets and stays open'],
     [!/ATATT3x|abc123|p4ss/.test(redact('curl -u me@x.com:ATATT3xF https://x; X_TOKEN=abc123 y; git clone https://u:p4ss@h/x')) && redact('git push origin main') === 'git push origin main', 'the guard log blanks tokens and keeps ordinary commands'],
@@ -991,9 +1044,10 @@ else {
       // "log": allowed without a prompt, and recorded above for the retro.
       emit(result?.decision === 'log' ? null : result);
     } catch (e) {
-      // Fail closed only where a wrong allow could reach the store or a protected branch.
+      // Fail closed where a wrong allow could reach the store, a protected branch, a secret, or the kit and its state.
       const text = JSON.stringify(input.tool_input || {});
-      if (/shopify|git\s+push|\btheme\s/i.test(text)) emit({ decision: 'deny', reason: `Kit guard error (${e.message}); blocked to be safe.` });
+      const guardedFile = /\.claude|\.git[\\/]|\.mcp\.json/i.test(String(input.tool_input?.file_path || ''));
+      if (/shopify|git\s+push|\btheme\s|\.env|credential/i.test(text) || guardedFile) emit({ decision: 'deny', reason: `Kit guard error (${e.message}); blocked to be safe.` });
       process.exit(0);
     }
   });

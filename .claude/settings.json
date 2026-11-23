@@ -116,6 +116,7 @@
       "Read(**/.envrc)",
       "Read(./config.yml)",
       "Read(~/.claude/.env)",
+      "Read(~/.git-credentials)",
       "Read(~/AppData/Roaming/shopify-cli-*/**)",
       "Read(~/.config/shopify-cli-*/**)",
       "Read(~/Library/Preferences/shopify-cli-*/**)",
@@ -143,7 +144,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash|PowerShell|Monitor|Edit|Write|MultiEdit|NotebookEdit",
+        "matcher": "Bash|PowerShell|Monitor|Edit|Write|MultiEdit|NotebookEdit|mcp__kit-browser__browser_run_code_unsafe",
         "hooks": [
           {
             "type": "command",

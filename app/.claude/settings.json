@@ -93,6 +93,7 @@
       "Read(**/*.sqlite-shm)",
       "Read(**/.envrc)",
       "Read(~/.claude/.env)",
+      "Read(~/.git-credentials)",
       "Read(~/AppData/Roaming/shopify-cli-*/**)",
       "Read(~/.config/shopify-cli-*/**)",
       "Read(~/Library/Preferences/shopify-cli-*/**)",

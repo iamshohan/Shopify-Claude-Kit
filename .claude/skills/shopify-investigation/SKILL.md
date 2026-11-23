@@ -10,7 +10,7 @@ An investigation ends in an answer backed by evidence, not in a code change. The
 
 **Read-only means:**
 - **Theme files:** never edit them. `done … conclude` refuses if theme files changed since the start.
-- **Store:** never change store data. The wrapper refuses `draft`, `push`, `preview`, `mutate` and `delete-draft` for investigations.
+- **Store:** never change store data. The wrapper refuses `draft`, `push`, `verify`, `preview`, `mutate` and `delete-draft` for investigations.
 - **Storefront** (the `kit-browser` tools, an isolated browser; Chrome if they're missing):
   - Allowed: browsing, choosing variants, adding to and changing the cart.
   - Never: checkout, submitting forms (contact, newsletter, reviews, account), or logging in as a customer.
@@ -70,7 +70,7 @@ An investigation ends in an answer backed by evidence, not in a code change. The
 **Without Admin API access** (`adminApi: false` in `.claude/shopify-kit.json`, and `query` refuses):
 - **Admin pages in Chrome, look only:** Content → Menus, Settings → Markets, Languages, Custom data, Products and Collections.
 - **Public storefront data:** `/products/<handle>.js`, `/collections/<handle>/products.json`, `/cart.js`, the page's `localization` form, and the rendered HTML (`shopify.mjs fetch <KEY> <path> --live`).
-- **Is the store on Plus?** Settings → Plan is often locked for staff, and an admin tab title ("… · Shopify Plus") is not evidence. Open Settings → Checkout → the active configuration's Customize (look only). An app block placed on, or "Add block" offered in, a checkout step (information, shipping, payment, or the one-page Checkout page) means Plus. Thank you and Order status pages don't count: every plan gets those. Save a screenshot that shows that block, scrolled to it.
+- **Is the store on Plus?** Settings → Plan is often locked for staff, and an admin tab title ("… · Shopify Plus") is not evidence. Open Settings → Checkout → the active configuration's Customize (look only). An app block placed on, or "Add block" offered in, a checkout step (information, shipping, payment, or the one-page Checkout page) means Plus. Thank you and Order status pages don't count: every plan gets those. Save a screenshot that shows that block, scrolled to it. The checkout editor takes about 30 seconds to open: open `settings/checkout/editor/profiles/<id>` directly and wait for it, rather than clicking Customize again.
 - **Otherwise ask the dev.**
 
 Label what you read this way as usual. A screenshot or page reading is Confirmed if you cite it.

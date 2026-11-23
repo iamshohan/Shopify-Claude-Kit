@@ -94,6 +94,12 @@ switch (cmd) {
     break;
   }
   case 'theme pull': copyFiles(themeDir(target().id), flags.path, flags.only); break;
+  // CLI 5 nests the result under preview; FAKE_LEGACY_LIST gives the documented flat shape.
+  case 'theme preview': {
+    const p = { url: `https://abc.shopifypreview.com/?t=${target().id}`, preview_identifier: flags['preview-id'] || 'pv1' };
+    out(process.env.FAKE_LEGACY_LIST ? p : { status: 'success', preview: p });
+    break;
+  }
   case 'theme delete': {
     const t = target();
     refuseLive(t, 'delete');

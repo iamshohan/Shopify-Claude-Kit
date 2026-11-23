@@ -271,7 +271,8 @@ function reach(key, given) {
 
 /** At a glance opens with what can affect what already exists. */
 function glanceProblems(key) {
-  const rows = tableRows(key, 'plan.md', '## At a glance');
+  // Only § What changes: a row under Not proven yet doesn't list the files.
+  const rows = tableRows(key, 'plan.md', '### What changes', '## At a glance');
   const attention = added(key, 'plan.md', '### Needs your attention', '## At a glance');
   const said = attention.join('\n').toLowerCase();
   const unnamed = reach(key).filter((x) => !said.includes(x.file.toLowerCase()) && !said.includes(x.file.split('/').pop().toLowerCase()));
@@ -283,7 +284,7 @@ function glanceProblems(key) {
     !attention.length && 'fill plan.md § At a glance → ### Needs your attention: what this change can affect beyond the new feature, most impact first, or "none: only new files the feature owns"',
     unnamed.length && `Needs your attention doesn't name ${unnamed.map((x) => `${x.file} (${x.reach})`).join('; ')}. For each, say what could change for what already uses it, and how the plan contains it`,
     storeWrites && !/\bstore\b|definition|metaobject|metafield/.test(said) && 'Needs your attention: name the store writes (definitions, QA values) and whether they show on live before the merge',
-    !rows.length && 'fill plan.md § At a glance: one row per file (or file group), "What happens" in 15 words at most',
+    !rows.length && 'fill plan.md § At a glance → ### What changes: one row per file (or file group), "What happens" in 15 words at most',
   ];
 }
 
@@ -382,8 +383,8 @@ const EXIT_CHECKS = {
     const head = ref(`refs/heads/${st.branch}`);
     if (st.draft.route === 'github') {
       return [
-        !branchPushed(st) && 'a GitHub-connected draft updates from the branch: git push -u origin <branch>',
-        branchPushed(st) && st.draft.verifiedCommit !== head && 'check that Shopify synced the branch: shopify.mjs verify <KEY>',
+        !branchPushed(st) && `a GitHub-connected draft updates from the branch: run git push -u origin ${st.branch}, then node .claude/kit/shopify.mjs verify <KEY>`,
+        branchPushed(st) && st.draft.verifiedCommit !== head && 'check that Shopify synced the branch: run node .claude/kit/shopify.mjs verify <KEY> (done draft passes only after verify has matched this commit)',
       ];
     }
     return [st.draft.verifiedCommit !== head && st.draft.lastPushedCommit !== head && 'push the current commit: shopify.mjs push <KEY>'];
@@ -1034,6 +1035,9 @@ switch (verb) {
       if (eq === -1 || !SETTABLE[name]) fail(`Can't set "${pair}". Allowed: ${Object.keys(SETTABLE).join(', ')}`);
       const value = SETTABLE[name](unMsys(pair.slice(eq + 1).trim()));
       if (name === 'type' && !TYPES[kindOf(st)].includes(value)) fail(`The type of ${kindOf(st) === 'investigation' ? 'an investigation' : 'an implementation'} is one of: ${TYPES[kindOf(st)].join(', ')}`);
+      if (name === 'branch' && protectedBranches(readConfig({ required: false }) || {}).some((p) => p.toLowerCase() === value.toLowerCase())) {
+        fail(`${value} is a protected branch: a task works on its own branch, never on ${value}.`);
+      }
       // A GitHub-connected draft follows the branch it was connected to; switching the task's branch would leave QA
       // measuring a draft without the new work (POP-1150).
       if (name === 'branch' && st.branch && value !== st.branch && st.draft?.route === 'github' && !st.draft.deletedAt

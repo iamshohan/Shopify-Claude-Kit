@@ -1,5 +1,33 @@
 # Changelog
 
+## 1.13.10 — 2026-11-23
+
+From a six-perspective review of the whole kit (safety, developer experience, delivered quality, client outcome, maintainability, real-run logs). Nothing reached the live theme or a protected branch in 70+ adversarial commands; these close the gaps it found.
+
+**Safety (guard, both kits; each with self-tests):**
+- **A secret file can't leave as commit or PR text.** `git commit -F .claude/.env.local`, `git tag -F`, `gh pr create --body-file …` were skipped as "text" and allowed. Text read from a file is now scanned like any command.
+- **Git and GitHub tokens aren't printed:** `gh auth token`, `gh auth status --show-token`, `git credential fill` and `~/.git-credentials` are refused (and denied to the Read tool).
+- **No branch changes around `git push`:** `gh api` writes to `…/contents/`, `gh repo sync`, `git subtree push` and `git send-pack` are refused. GitHub branch protection was the only stop before.
+- **`browser_run_code_unsafe` is guarded.** It runs in Playwright's Node process, outside the browser, and wasn't in the hook's matcher. Now only the kit's probe and design-audit files run there, and inline code without Node's file, process or module APIs.
+- **Maintainer mode asks before edits to `lib.mjs`** (theme) and `core.mjs`/`repo.mjs` (app), which the guards import: mutation rules and protected branches.
+- **A crashing theme guard fails closed** for `.env` and credential commands and for edits to `.claude/`, `.git/` and `.mcp.json`, as the app guard already did.
+- **A glob reaching the CLI's login folder** (`~/AppData/Roaming/shopify*/…`) is refused.
+- **`kit.mjs set branch=` refuses a protected branch.**
+- **Tests for rules that had none:** `metafieldsDelete` with `ownerId: $variable`, and four app-guard rules (SQLite files, fetchers on admin paths, the access-token header, `pnpm dlx @shopify/create-app`). The reviewer had disabled each one and no test failed.
+
+**Bugs from real runs:**
+- **The plugin's `search_docs` is no longer blocked** when its query says "theme push" (CHE-865, 3 denies). `CLAUDE.md` requires that tool.
+- **`git push -q` is allowed** (POP-1065), so a `commit && push -q` chain runs.
+- **`preview` reads CLI 5's nested `preview.url`**: it reported failure on success (VET-689, VSD-327). The fake CLI covers both shapes.
+- **A file the branch reverted isn't listed as a live edit the merge overwrites** (CHE-865).
+- **`draft --github` won't adopt a theme named for removal** without `--theme <id>` (POP-1065 adopted a dead "(to be removed)" theme). With no match, it lists the unpublished themes.
+- **`auth-check` compares the store with the storefront:** `storefrontServes` and a `storeMismatch` that stops setup (CHE-865 ran on another client's store).
+- **423 "store locked"** is explained as a frozen or paused store, not a login problem.
+- **`done draft` names the exact next command** (CHE-865 retried it three times without running verify).
+- **Telemetry opt-out:** `auth-check` looks where `kit.mjs optout` writes.
+
+**Stale text:** intake pointed to `.env.local` (now `~/.claude/.env`); QA pointed to a "§ Details" heading that doesn't exist; the plan's "one row per file" check counted rows of every At a glance subsection; the investigation skill's read-only list missed `verify`; the checkout editor's 30-second load is noted. The three kit-browser 1.7.0 migration lines share one removal tag, for kit 1.15.0.
+
 ## 1.13.9 — 2026-11-23
 
 **Feasibility checks answer what the client will get, not only whether it can be built.** GSD-80 reported a checkout banner as feasible "at the top of checkout". It never said the banner uses Shopify's checkout styling, sits below the logo, may span only the left column, and can't be sticky like the site bar. Two evidence-checker rounds passed it: they checked that each claim was true, not that the needed claims were there. Client decisions were also asked to the dev and recorded as settled.
