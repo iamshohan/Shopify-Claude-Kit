@@ -18,8 +18,13 @@
 
 - **Merchant can change:**
 - **Stays in code:**
+- **Merchant-facing text:**
 - **Differs from the ticket or the A/B test:**
 - **QA:**
+
+### Independent check
+
+<!-- The outcome-checker agent's plan pass: its Surprises:, Unlisted assumptions: and Convention: lines, and what you changed because of them. -->
 
 ---
 

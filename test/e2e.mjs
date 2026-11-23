@@ -560,6 +560,9 @@ try {
   edit(KEY, 'brief.md', '| # | Question | The dev\'s choice (verbatim) | Applied as | Date |\n| --- | --- | --- | --- | --- |\n',
     '| # | Question | The dev\'s choice (verbatim) | Applied as | Date |\n| --- | --- | --- | --- | --- |\n| Q1 | Control surface OK? | OK (Recommended) | as listed | 2026-11-01 |\n');
   edit(KEY, 'plan.md', '| File | What happens |\n| --- | --- |\n', '| File | What happens |\n| --- | --- |\n| `sections/feature.liquid` | the new feature section |\n');
+  const noIndependent = kit('kit.mjs', 'done', KEY, 'approve', '--answer', 'Approve');
+  edit(KEY, 'plan.md', '### Independent check\n', '### Independent check\n\nSurprises: none (checked AC 1 on product, mobile). Unlisted assumptions: none.\n');
+  ok('plan needs the outcome-checker\'s independent check recorded', /Independent check/.test(noIndependent.err), noIndependent.all);
   ok('approve runs the plan checks, and keeps a copy of the plan it approved', unchecked.code === 1 && /Control surface/.test(unchecked.err)
     && kit('kit.mjs', 'done', KEY, 'approve', '--answer', 'Approve').code === 0 && existsSync(logFile(KEY, 'plan.approved.md')), unchecked.all);
 
@@ -623,6 +626,8 @@ try {
     && r1.criterion === 'Feature renders | present | product | 390 | —', row1.all + JSON.stringify(r1));
   ok('qa-row undoes Git Bash\'s rewrite of a leading "/"', r1.measured === '/products/x: 1 match', JSON.stringify(r1));
   ok('qa-row refuses NOT TESTED without a reason', kit('kit.mjs', 'qa-row', KEY, '2', '--verdict', 'NOT TESTED').code === 1);
+  const hedged = kit('kit.mjs', 'qa-row', KEY, '2', '--measured', 'A2 on 390; desktop not measured', '--how', 'fetch --find A2', '--verdict', 'PASS');
+  ok('qa-row refuses a PASS whose measurement says part of it wasn\'t shown (VET-689)', hedged.code === 1 && /not measured/.test(hedged.err), hedged.all);
   kit('kit.mjs', 'qa-row', KEY, '2', '--measured', 'A', '--how', 'fetch --find A', '--verdict', 'FAIL');
   kit('kit.mjs', 'qa-row', KEY, '2', '--measured', '--gap: 16px', '--how', "__qa.css('.t', ['--gap'])", '--verdict', 'PASS');
   const r2 = state().qa.rows[2];
@@ -677,6 +682,21 @@ try {
   // Handoff: the pushed branch is the commit QA measured. The refused handoff below is a signal, so done shows the
   // retro, without making it a condition.
   edit(KEY, 'report.md', '### PR\n', '### PR\n\nABC-1: add the e2e feature section and the product title; QA 3 PASS; preview on draft 2; merge after AC review.\n');
+  // The client-facing text: every deviation in the Jira comment, nothing they can't open, the client check recorded.
+  // These refusals are reset, so the retro below counts only the late handoff.
+  const historyBefore = state().history;
+  edit(KEY, 'plan.md', '- **Differs from the ticket or the A/B test:**', '- **Differs from the ticket or the A/B test:** AC 2: the title stays plain text, no link (dev, Q1).');
+  const noText = kit('kit.mjs', 'done', KEY, 'handoff');
+  edit(KEY, 'report.md', '| Ref (AC n or Qn) | What the client gets instead, in their words | Who decided |\n| --- | --- | --- |\n',
+    '| Ref (AC n or Qn) | What the client gets instead, in their words | Who decided |\n| --- | --- | --- |\n| AC 2 | The product title is plain text, not a link. | the dev |\n');
+  edit(KEY, 'report.md', '### Jira comment (for the dev to post)\n', '### Jira comment (for the dev to post)\n\nThe feature section is ready to review on the preview. Checks: .claude/logs/ABC-1/report.md.\n');
+  const notTold = kit('kit.mjs', 'done', KEY, 'handoff');
+  edit(KEY, 'report.md', 'Checks: .claude/logs/ABC-1/report.md.', 'AC 2: the product title is plain text, not a link. Checks: the section shows on product pages.');
+  edit(KEY, 'report.md', '### Client check\n', '### Client check\n\nClient surprises: AC 2, the plain title; the Jira comment says it.\n');
+  writeFileSync(statePath, JSON.stringify({ ...state(), history: historyBefore }));
+  ok('handoff needs each deviation in its table and the Jira comment, no .claude/logs paths, and the client check',
+    /no row for AC 2/.test(noText.err) && /Jira comment/.test(noText.err) && /Client check/.test(noText.err)
+      && /doesn't tell the client about AC 2/.test(notTold.err) && /\.claude\/logs/.test(notTold.err) && !/no row for/.test(notTold.err), noText.all + notTold.all);
   git('push', '-q', '-u', 'origin', KEY);
   write('sections/feature.liquid', '<div class="e2e-feature" data-v="3"></div>\n');
   commit('after QA');
@@ -687,6 +707,17 @@ try {
   ok('handoff passes on the QA\'d commit and shows the retro for the refused handoff',
     handoff.code === 0 && state().stage === 'done' && /handoff ×1/.test(handoff.out) && /kit\.mjs note/.test(handoff.out) && state().history.some((e) => e.event === 'retro'), handoff.all);
 
+  // premerge: commits on the remote branch after QA, such as editor saves on a GitHub-connected draft (CHE-865).
+  const cleanMerge = kit('kit.mjs', 'premerge', KEY);
+  write('templates/product.json', product('A2', 'QA test'));
+  commit('Update from Shopify for theme e2e/ABC-1');
+  git('push', '-q', 'origin', KEY);
+  git('reset', '-q', '--hard', 'HEAD~1');
+  const dirtyMerge = kit('kit.mjs', 'premerge', KEY);
+  git('push', '-q', '-f', 'origin', KEY);
+  ok('premerge passes on the QA\'d branch and stops on a Shopify commit made after QA',
+    cleanMerge.code === 0 && /OK/.test(json(cleanMerge).verdict) && dirtyMerge.code === 1 && json(dirtyMerge).afterQa?.[0]?.fromShopify === true
+      && json(dirtyMerge).files?.includes('templates/product.json'), cleanMerge.all + dirtyMerge.all);
   // The branch merged on GitHub: it meets origin/main at its own tip. Only the remote-tracking ref moves, then goes back.
   const mainWas = git('rev-parse', 'origin/main');
   const unmerged = json(kit('shopify.mjs', 'check', KEY));
@@ -734,6 +765,14 @@ try {
     noReqs.code !== 0 && /Requirements/.test(noReqs.all)
       && /owner/.test(noOwner.all) && /Client gets has no row for R1/.test(noOwner.all)
       && !/Requirements|owner|Client gets/.test(withReqs.all), noReqs.all + noOwner.all + withReqs.all);
+  // A requirement that names a surface needs a row for that surface: one storefront row passed GSD-80's checkout banner.
+  fill('ABC-3', '| R1 | "The merchant edits the chart per product" | Client | clear | none |', '| R2 | "Show the size chart in checkout too" | Client | clear | none |');
+  fill('ABC-3', '## Client gets', '| R2 | Product page | The chart as on the product page | same |');
+  const noCheckoutRow = kit('kit.mjs', 'done', 'ABC-3', 'gather');
+  fill('ABC-3', '## Client gets', '| R2 | Checkout | Not possible: checkout can\'t render theme sections | the chart is missing in checkout |');
+  const withCheckoutRow = kit('kit.mjs', 'done', 'ABC-3', 'gather');
+  ok('feasibility gather wants a § Client gets row for each surface a requirement names',
+    /R2 on checkout/.test(noCheckoutRow.err) && !/R2 on checkout/.test(withCheckoutRow.all), noCheckoutRow.all + withCheckoutRow.all);
   const invState = join(repo, '.claude', 'logs', 'ABC-3', 'state.json');
   writeFileSync(invState, JSON.stringify({ ...JSON.parse(readFileSync(invState, 'utf8')), stage: 'conclude' }));
   const noEstimate = kit('kit.mjs', 'done', 'ABC-3', 'conclude', '--answer', 'Accept');

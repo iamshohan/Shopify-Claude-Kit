@@ -19,9 +19,9 @@ You get the path to `.claude/logs/<KEY>/investigation.md` and the ticket key.
 
 ## 1. As the client (do this first, before reading § Evidence)
 
-Read the ticket, then only § Answer, § Client gets and § Jira comment. You're the client who asked for this. Imagine the result is delivered exactly as the report describes.
+Read the ticket first and write your own grid before you read the report: each requirement × every surface it touches (storefront per device and market, cart, checkout, emails, the editor) × the properties the client will notice (position, look, width, behaviour, where it's edited). Then read only § Answer, § Client gets and § Jira comment, as the client who asked for this. Imagine the result is delivered exactly as the report describes.
 - **What would surprise you?** A different position, look, width or behaviour from what you asked for or see today. Something you expected that only works on some surfaces (storefront but not checkout, desktop but not mobile, one market). Text you now edit in two places. Check that each of these is stated in the Jira comment, not only in the report.
-- **Coverage.** Does § Client gets have a row for every requirement on every surface it touches, and does each row cover position, look, width, behaviour and where it's edited? Name each requirement–surface pair or property that's missing.
+- **Coverage.** Compare your grid with § Client gets. Name each requirement–surface pair or property in your grid that § Client gets leaves out or marks "same" without saying why. One row per requirement isn't coverage when the requirement touches several surfaces.
 - **Who decided.** A choice about what customers see (content, look, what stays pinned, static or live, screen space, prices or discounts) that § Requirements records as decided from the dev's answer, not the client's or the ticket's. These belong in the Jira comment as questions.
 - **The Jira comment.** Does it restate the ticket back? Does it hold internal names, sizes, hours or QA steps?
 
@@ -46,6 +46,7 @@ Then check the positions you can: for every extension target, app block or slot 
 ```
 Verdict: HOLDS | HOLDS WITH CHANGES | DOES NOT HOLD
 Client surprises: <each thing the client would not expect, and whether the Jira comment says it> | none (what you checked)
+Independent surfaces: <your grid, one line per requirement>
 Coverage: <missing requirement–surface pairs or properties> | complete
 Client decisions taken from the dev: <R#: what> | none
 Claims:

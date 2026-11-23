@@ -79,21 +79,25 @@ Never write "QA passed" while any row is FAIL, NOT TESTED or BLOCKED.
       - Section groups work the same way: header and footer settings live in `sections/header-group.json` (or `footer-group.json`), so override that file, not a template.
    2. Run `node .claude/kit/shopify.mjs preview <KEY> <file>`, open the URL it returns, pass the gates above, and measure.
    3. After two failed previews for one case, mark those rows NOT TESTED, quote the CLI error, and move on.
-3. **Customizer.** Skip this step when `contract.mjs` reports no changed section, block or theme settings files (a CSS-only or Liquid-only fix): nothing in the editor changed. Otherwise: the theme editor is one cross-origin iframe, so `read_page`, `find`, `get_page_text` and `javascript_tool` can't see inside it. Split the check in three.
+3. **Customizer.** Skip this step when `contract.mjs` reports no changed section, block or theme settings files (a CSS-only or Liquid-only fix): nothing in the editor changed. Otherwise: the theme editor is one cross-origin iframe, so `read_page`, `find`, `get_page_text` and `javascript_tool` can't see inside it: work from screenshots and clicks. Split the check in four.
    1. **Contract (script).** Run `node .claude/kit/contract.mjs <KEY>`. It writes `.claude/logs/<KEY>/contract.md` from the changed schemas, locales and templates: names, presets, where each section can be added, and every setting's label, type, default, options/range, info and `visible_if`.
       - Compare it row by row with `plan.md` § Schema details. Each mismatch is a FAIL.
       - Each entry in its "Problems" list is a FAIL: missing `t:` keys, a default that isn't an option, an off-range default, unknown preset blocks.
-   2. **Loads in the editor (one screenshot per task).** Navigate to `<editorUrl>?previewPath=<a target page>`, wait about 30 seconds (the editor took 8–40 s to load in tests), and take one screenshot. It must show the draft's name with the **Draft** badge, a greyed-out **Save** button, and the feature in the preview. A login or 2FA page means BLOCKED; stop. Cite the screenshot in the How column of the customizer row. Never click in the editor.
-   3. **By hand (dev checklist).** Add a BLOCKED row with "dev checks by hand" only for the items this change touches; leave out the rest:
-      - each setting's label and value in the editor panel, and each section's entry (or its absence) in "Add section": contract.md lists them, with a "Seen in editor" column for the dev (always, when the contract lists anything)
-      - the dynamic-source picker shows the metafield (a new metafield setting or source)
-      - a value change re-renders live in the preview (settings the plan says update without a reload)
-      - image, colour and url pickers open (new settings of those types)
-      - blocks can be added, removed and reordered (new or changed blocks)
+   2. **Loads in the editor.** Navigate to `<editorUrl>?previewPath=<a target page>`, wait about 30 seconds (the editor took 8–40 s to load in tests), and take a screenshot. It must show the draft's name with the **Draft** badge, a greyed-out **Save** button, and the feature in the preview. A login or 2FA page means BLOCKED; stop. Cite the screenshot in the How column of the customizer row.
+   3. **In the editor, on the draft (Claude in Chrome).** Check what this change touches yourself, the way `/shopify-video` works in the editor, and fill contract.md's "Seen in editor" column as you go:
+      - each changed section and block: select it in the sidebar and take a screenshot of the settings panel; every label, default and option must match contract.md
+      - "Add section" (and "Add block"): the new section or block is listed where the plan allows it, and absent where it doesn't
+      - a setting the plan says updates the preview: change it, wait 2 s, and see the preview follow
+      - each new image, colour, url or dynamic-source picker: open it, check it shows what it should (the metafield, for a dynamic source), close it
+      - blocks: add one with the "Add block" button and remove it again; reorder only with the panel's own controls, never by drag
+
+      **Then leave the editor as it was:** set every changed value back and check that **Save** is grey; if it isn't, use the editor's undo until it is. Never click Save, Publish, Remove section, delete, or anything that changes the store. On a GitHub-connected draft a Save becomes a commit on the PR branch; `kit.mjs premerge <KEY>` would catch one, but don't make it. Claude in Chrome missing, or a login page: these become BLOCKED rows for the dev, as below.
+   4. **By hand (dev checklist).** Add a BLOCKED row with "dev checks by hand" only for what you can't do in step 3, and only for what this change touches:
       - placing a section or block by drag in the theme or checkout editor (synthetic drag events there aren't reliable)
-      - app blocks still work (the changed section accepts `@app` blocks)
+      - touch-only behaviour on a real phone
       - Translate & Adapt texts (new merchant-facing text in a translated store)
-      - anything else judged by eye
+      - app blocks still work (the changed section accepts `@app` blocks), when the store has an app that adds one
+      - anything else judged by eye that the plan names
 4. **Regression.** Run `node .claude/kit/compare.mjs <KEY>`. It compares live with the draft on the untouched paths: the section lists and the feature prefix decide its verdict. `htmlDiffers` lists sections whose HTML differs, often per-request content (stock, recommendations): look at the ones the branch touches.
    - DIFFERS: rule out live edits made after the draft was copied (`draftCreatedAt`) before calling it a regression.
    - BLOCKED (password page, bot protection, wrong theme): report it as BLOCKED.
@@ -101,7 +105,7 @@ Never write "QA passed" while any row is FAIL, NOT TESTED or BLOCKED.
 
 ### The report
 
-- **§ You must still do** (top of the report): one numbered line per BLOCKED or NOT TESTED row, saying where and how the dev checks it: "#22 Replace the FAQ icon in Content → Metaobjects → Mobile menu image, reload the draft, restore it." Add any ticket AC that isn't delivered, and each file status lists under "Live edits since the base": live's own edit there is replaced at merge unless the branch carries it.
+- **§ You must still do** (top of the report): one numbered line per BLOCKED or NOT TESTED row, saying where and how the dev checks it: "#22 Open the draft on a phone and swipe the gallery: it must snap to each image." A check that needs store data changed uses a test entry the task created, or a preview, never a value the live store shows. Add any ticket AC that isn't delivered, and each file status lists under "Live edits since the base": live's own edit there is replaced at merge unless the branch carries it.
 - **§ Criteria:** one row per criterion, with the columns `#`, criterion, expected, measured, how, and verdict. Keep Measured and How to about 15 words each: the probe call or command and the number that decided it. Longer evidence goes in a file under `.claude/logs/<KEY>/` that the cell names.
 - **§ Summary:**
   - "N criteria: x PASS, y FAIL, z NOT TESTED, w BLOCKED."

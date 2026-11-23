@@ -1,4 +1,4 @@
-# Shopify Implementation Kit · v1.13.10
+# Shopify Implementation Kit · v1.14.0
 
 A Claude Code setup for Shopify theme repos.
 
@@ -82,13 +82,13 @@ shopify store auth --store <store>.myshopify.com --scopes read_products,write_pr
 | --- | --- | --- | --- |
 | 1 | intake | Reads the ticket and linked tickets; decides A/B port, feature or bug fix. | answer; for A/B ports, put the code in `.claude/logs/<KEY>/abtest/` |
 | 2 | analyze | One agent reads the theme fresh; another turns the A/B code into a list of behaviours. For a feature with a Figma design, a third reads the frames' values into `design.md`, and QA measures the draft against them. | — |
-| 3 | plan | First decides what merchants control and where, and asks every open question at once (a value kept in code that the ticket says the client must be able to change gets its own question). Then writes the plan: At a glance (about 25 lines) on top, first what **needs your attention** (anything that can affect what already exists: store writes, merchant JSON, shared code, changed behaviour), then file by file. Below it the builder detail, store setup and QA criteria. | answer the questions |
+| 3 | plan | First decides what merchants control and where, and asks every open question at once (a value kept in code that the ticket says the client must be able to change gets its own question). Then writes the plan: At a glance (about 25 lines) on top, first what **needs your attention** (anything that can affect what already exists: store writes, merchant JSON, shared code, changed behaviour), then file by file, and the exact text merchants will read. Below it the builder detail, store setup and QA criteria. Last, a second agent reads the ticket and the theme on its own and lists what the plan would surprise you or the client with. | answer the questions |
 | 4 | approve | Shows At a glance and the plan's path, then waits for you. | **Gate 1:** review it, then approve, ask for changes or reject, in your own words |
 | 5 | build | Creates the task branch from a fresh base. The builder agent implements and runs theme check; `/code-review` and a Shopify checklist review; then it commits. | — |
-| 6 | draft | Creates the planned definitions. Pushes to an unpublished theme named `<KEY>`, or adopts the theme you connect to the branch (`draftRoute: "github"`), and proves the draft matches the commit. | approve mutations; connect the branch (GitHub route) |
-| 7 | qa | Measures every criterion on the draft: storefront, settings previews, customizer, regression against live. | do the "by hand" checks |
+| 6 | draft | Creates the planned definitions. Pushes to an unpublished theme named `<KEY>`, or adopts the theme you connect to the branch (`draftRoute: "github"`), and proves the draft matches the commit. | approve mutations; connect the branch (GitHub route), or let the agent do it in your Chrome |
+| 7 | qa | Measures every criterion on the draft: storefront, settings previews, regression against live, and the customizer, where it selects sections, opens pickers and changes settings, then undoes them (never Save). | the few "by hand" checks left: drag placement, a real phone, Translate & Adapt |
 | 8 | accept | Shows the result, and what changed since you approved the plan (plan edits, files it didn't name). Failures go back to the builder. | **Gate 2:** accept or send back |
-| 9 | handoff | Pushes the branch. Writes the PR text, admin steps, go-live order and a Jira comment. | create the PR, merge, go live |
+| 9 | handoff | Pushes the branch. Writes the PR text, admin steps (before launch, the launch moment, after), go-live order, and a Jira comment for the client that lists every way the result differs from the ticket; a second agent reads it as the client first. Offers to create the PR as a draft. | say yes or no to the PR; `kit.mjs premerge <KEY>` right before merging a GitHub-connected draft; merge, go live |
 
 ### Investigation stages
 
@@ -175,4 +175,4 @@ The logs are history, not a knowledge base: every task reads the code fresh.
 
 ## Not in the kit
 
-Fetching A/B code from shadow-drip, posting to Jira or creating PRs, unattended runs, and shared task state between devs. Shopify apps have their own kit (`node install.mjs <app-repo> --app`).
+Fetching A/B code from shadow-drip, posting to Jira, merging PRs, unattended runs, and shared task state between devs. Shopify apps have their own kit (`node install.mjs <app-repo> --app`).

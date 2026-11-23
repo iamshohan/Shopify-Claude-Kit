@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.14.0 — 2026-11-23
+
+**What the client receives, checked from the outside.** Three of the six reviews found the same gap: in all four real handoffs (CHE-865, POP-1065, VSD-327, VET-33), the plan's differences from the ticket never reached the client's Jira comment. GSD-80 added three loops back after handoff that the plan could have settled at Gate 1.
+
+- **A second agent checks the plan and the handoff: `outcome-checker`.** At plan, it reads the ticket and the theme first, writes its own expectations, then compares them with the plan: surprises, unlisted assumptions, shared-file edits that could stay in the feature's files, merchant text in developer words, ACs and surfaces no criterion checks, criteria on existing components with no live baseline, client decisions taken from the dev. Its lines go under At a glance → Independent check, which the dev reads at Gate 1; `done plan` refuses without them. At handoff it reads the Jira comment as the client; `done handoff` refuses without its `Client surprises:` line.
+- **The handoff tells the client what differs.** A new table, What differs from what was asked, has one row per AC under Differs and per "Client's call" question. `done handoff` refuses a missing row, and a Jira comment that leaves out one of its ACs or points to `.claude/logs/…` (git ignores it). The Jira comment is written for the client, in plain words: when shoppers first see it, every difference, a preview that shows the feature, and the QA checklist inline.
+- **GitHub-connected drafts: editor saves can't ship unnoticed.** CHE-865's QA team saved 36 test edits in the draft's editor, and each became a commit on the PR. The Jira comment must ask reviewers not to press Save there, and the new **`kit.mjs premerge <KEY>`** lists commits on the remote branch after QA ("Update from Shopify" ones marked) and exits 1 when there are any.
+- **QA works in the theme editor itself.** It selects each changed section and block, compares the panel with the contract, checks "Add section", opens pickers, changes a live-updating setting, adds and removes a block, then undoes until Save is grey. Only drag placement, a real phone and Translate & Adapt remain hand checks.
+- **The kit offers to create the PR** as a draft (`gh pr create --draft --body-file`), when `gh` is logged in. The dev can decline; the kit never marks it ready or merges.
+- **Admin steps the agent can offer to do in your Chrome** (`rules/kit-runs.md`): connecting the GitHub draft, creating the plan's definitions when there's no Admin API login, duplicating a checkout configuration for QA. Each one is followed by the kit's read-only check. Never offered: the live theme, publishing, discounts and prices, apps and access, logins, Jira.
+- **`qa-row` refuses a hedged PASS** ("not provable", "not measured", "Limit:"): VET-689 passed rows that said part of them wasn't shown. Split the row instead.
+- **Feasibility coverage isn't form only.** A requirement that names checkout, cart, mobile, desktop, email, the thank-you page or the account needs a § Client gets row for that surface (one "storefront" row passed GSD-80's checkout requirement). The evidence-checker builds its own requirement × surface grid from the ticket before reading the author's, and records it.
+- **Plan rules from GSD-80:**
+  - criteria about existing components are measured on live first, and Expected is relative to it (the mega menu already overflowed on live);
+  - info text only when the label alone would mislead, and every merchant-facing string is shown at Gate 1 (the dev had the info text removed after handoff);
+  - a feature's override stays in the feature's own files, behind its toggle, instead of shared CSS (the dev had the offsets moved after handoff).
+- **A/B ports don't make campaign content a default.** Dates, discount codes, campaign names and sale prices go into the QA preview; the schema leaves them empty. VSD-327's blocks all started with "HALLOWEEN".
+- **Go-live order for every deploy,** not only A/B ports: admin steps are split into before launch, the launch moment and after, with the steps whose Save is public marked. With an on/off setting, an A/B port merges with it off, stops the test, then switches it on, so no visitor sees both.
+- **Smaller:** cleanup asks about the draft only when there's something to decide; after connecting a GitHub draft the agent waits for it instead of asking the dev to come back; the QA example no longer has the dev change a live metaobject.
+
 ## 1.13.10 — 2026-11-23
 
 From a six-perspective review of the whole kit (safety, developer experience, delivered quality, client outcome, maintainability, real-run logs). Nothing reached the live theme or a protected branch in 70+ adversarial commands; these close the gaps it found.

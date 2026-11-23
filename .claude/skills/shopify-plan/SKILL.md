@@ -26,11 +26,12 @@ user-invocable: false
    | was A/B targeting: device, page, market | a setting, a template assignment, or a `.context.*` file |
 
    **How much control:**
-   - For A/B ports, defaults reproduce the winning variant exactly. Turning the feature on ships the winner.
+   - For A/B ports, defaults reproduce the winning variant's look and behaviour. Turning the feature on ships the winner. **Time-bound content isn't a default:** the test's dates, discount codes, campaign names and sale prices go into the QA preview, not the schema, which leaves those fields empty (the element hides when empty). Otherwise a Black Week banner that misses one field shows a Halloween code.
    - Every input defines its empty state: hide, fall back, or render nothing.
    - Finite options use a select or radio. Numbers use a range with min, max and step.
    - A value nobody will change soon stays in code, unless an editability line reaches it (step 0). How the A/B test built something (inline SVGs, CDN images, hard-coded copy) says nothing about whether the merchant must be able to change it. A block with more than about 8 settings gets split.
    - Never put per-product data in section settings, or per-template layout in metafields.
+   - **Keep the feature's changes in the feature's own files.** When the feature needs a shared file to behave differently (an offset in `base.css`, a z-index in another section's CSS), put the override in the feature's own section, snippet or stylesheet, behind its toggle (a scoped selector or `:has()`), not in the shared file. Edit the shared file only when the feature can't reach it from its own code, and then list it under Needs your attention as a choice, with the contained alternative and its cost (specificity, load order).
    - **Placement.** Prefer a section or block with presets that the merchant adds in the customizer over editing `templates/*.json`. Count how many templates would need it (e.g. 60 product templates). If that's a lot of manual work, offer an always-on render point with a theme-setting toggle as the alternative, and let the dev choose. If recon shows JSON templates aren't in git, placement can only be an admin step after merge.
    - **Definitions.** Reuse an existing one if it fits. Check with `node .claude/kit/shopify.mjs query definitions --owner PRODUCT` (or COLLECTION, PAGE…). With `adminApi: false`, read the admin's Settings → Custom data page for that owner in Chrome (look only: no clicks on Add, Save or Delete), or ask the dev. Never propose changing or deleting an existing definition. Use the store's own namespace, often `custom`. App-owned namespaces are off limits.
    - **Translations.** Which locales need copy (recon lists the locale files)? Metaobjects that hold copy need the translatable capability, and the merchant translates them in Translate & Adapt.
@@ -72,7 +73,8 @@ Aim for 300 lines or fewer. A small fix gets a short plan: write "none" under a 
     Example: "`snippets/icon.liquid` (rendered from 14 files): three icons added, the existing ones untouched → regression check on home, product and cart." When nothing qualifies, write "none: only new files the feature owns".
   - **Not proven yet** comes next: every assumption the approach relies on that you couldn't verify in this theme or store. Examples: a product's option layout you couldn't read (rate-limited, no access), an app's JS API used in a way its docs or this theme don't show, a Liquid object or setting type the theme doesn't use yet. One row each: what it relies on, why it isn't proven, the fallback if it doesn't hold, and the QA criterion that tests it. The fallback is a real alternative the dev could pick at Gate 1, not a silent degradation. Write "none" when everything was verified. A risk you already verified belongs in § Risks, not here.
   - **What changes:** one row per file, or per group of files ("locales/*.schema.json ×5"), with the files from Needs your attention first. "What happens" is at most 15 words and describes the effect, not the anchor: "Winner layout when the mobile menu is set; old markup unchanged otherwise."
-  - **Merchant can change** and **Stays in code:** one line each, from § Decided. Put "(vs AC n)" after any value in code that an editability line reaches.
+  - **Merchant can change** and **Stays in code:** one line each, from § Decided. Put "(vs AC n)" after any value in code that an editability line reaches. Write them as the merchant sees them ("the bar stays pinned; its height can't be set"), not as code ("z-index, offsets").
+  - **Merchant-facing text:** every new label, info text, preset name and option label, exactly as the merchant will read it in the editor. The dev approves the wording here, not after handoff.
   - **Differs from the ticket or the A/B test:** each deviation and who decided it ("no description field, AC 17: dev, Q3"), including an "Applied as" that does something other than a quoted AC or the winner does, and each AC no QA row checks, with why. Or "none".
   - **QA:** number of criteria, viewports, and how many checks the dev will have to do by hand.
 - **Approach.** 3–5 lines: what gets built, and the one or two key decisions.
@@ -82,7 +84,7 @@ Aim for 300 lines or fewer. A small fix gets a short plan: write "none" under a 
   - the **anchor**: the symbol it attaches to, e.g. a `case block.type` branch, a `render` call, a schema `blocks` array or a function name. Never a line number; Shopify sync commits move lines.
   - the data flow: where the value comes from and how it reaches the markup
   - for styling with a Figma design: "values from design.md", or the theme token the dev chose instead (§ Decided)
-- **Schema details.** Every setting: id, type, label (or `t:` key), default, options or range, info, `visible_if`. For each section, say whether it has presets and where it may be added (`enabled_on` / `disabled_on`).
+- **Schema details.** Every setting: id, type, label (or `t:` key), default, options or range, info, `visible_if`. **Info text only when the label alone would mislead** (a unit, a side effect, a dependency on another setting); none by default. An info that restates the label ("Turn off after the campaign") is noise the merchant reads on every visit. For each section, say whether it has presets and where it may be added (`enabled_on` / `disabled_on`).
 - **Store setup.**
   - **Definitions to create.** For each: owner, namespace.key, type, validations, translatable, not pinned, and "reuse: none fits because …".
     - **`adminApi: false`:** write numbered admin steps instead of mutations: Settings → Custom data → owner → Add definition, then every field (name, namespace and key, type, validations, storefront access, "translatable" for metaobjects). The dev creates them at the draft stage. Skip the mutation and scope points below.
@@ -102,6 +104,7 @@ Aim for 300 lines or fewer. A small fix gets a short plan: write "none" under a 
   - mobile and desktop, e.g. 390×844 and 1440×900
   - the customizer contract: name, presets, where it can be added, labels and defaults (checked by `contract.mjs`)
   - untouched pages for the regression check
+  - **existing components the change affects** (a menu, a drawer, the header, a sticky gallery): measure each on live first and write Expected relative to that ("same as live: 43 px overflow; plus the bar height"). An Expected written from reading the code fails on behaviour live already has (GSD-80's mega menu).
   - **bug fixes:** one row that reproduces the bug, its Criterion starting "Repro:", and Expected saying what live shows today (the failure) and what the draft must show. `done plan` refuses a bug fix without it.
   - **the design** (when `design.md` exists), by the mode in status:
     - **exact:** fill every empty selector in `design-checks.json` with the class the plan creates (Files and Markup). Where the dev chose the theme's value over Figma (§ Decided), or a value is a setting, put the theme value or the setting's default in `fixed`: the audit checks the default state. Then add one QA row per viewport: "Design matches Figma (kit.mjs design-audit <KEY> <viewport>)", default state. `done plan` refuses an empty selector or a missing audit row.
@@ -112,11 +115,18 @@ Aim for 300 lines or fewer. A small fix gets a short plan: write "none" under a 
   - Untouched paths, without leading slashes, because Git Bash rewrites arguments that start with "/": `kit.mjs set <KEY> qa.paths=home,collections/x,products/y,cart`.
 - **Risks,** and how the plan handles each one.
 
-**Done when:** § Decided records the answers and every plan heading is filled. Then run `kit.mjs done <KEY> plan`.
+### Last: the independent check
+
+Spawn the `outcome-checker` agent with the key and mode `plan`. It reads the ticket and the theme first, writes its own expectations, then compares them with the plan, so it doesn't inherit the plan's blind spots.
+- Fix what it finds: add Differs rows, Not proven yet rows, QA criteria with live baselines; move shared-file overrides into the feature's files; rewrite merchant text.
+- A finding you disagree with stays, with one line on why.
+- Record its lines (`Surprises:`, `Unlisted assumptions:`, `Convention:` and the rest) and your changes under At a glance → **Independent check**. The dev reads them at Gate 1. `done plan` refuses without the `Surprises:` and `Unlisted assumptions:` lines.
+
+**Done when:** § Decided records the answers, every plan heading is filled, and the independent check is recorded. Then run `kit.mjs done <KEY> plan`.
 
 ## Stage: approve (Gate 1)
 
-1. **Hand the plan over, don't ask yet.** Say the plan is ready and where it is (`.claude/logs/<KEY>/plan.md`), show § At a glance as it is (no file anchors, no restated criteria, no method notes), and name what approving it covers when there is any: "It includes 4 store writes, 3 values kept in code, and 2 approaches not proven yet (each with a fallback)." End with: "Review it and tell me: approve, what to change, or any question." Then stop and wait. No AskUserQuestion: the dev reads first and answers in their own words.
+1. **Hand the plan over, don't ask yet.** Say the plan is ready and where it is (`.claude/logs/<KEY>/plan.md`), show § At a glance as it is (no file anchors, no restated criteria, no method notes), and name what approving it covers when there is any: "It includes 4 store writes, 3 values kept in code, and 2 approaches not proven yet (each with a fallback)." Include what the independent check found and what you did about it. End with: "Review it and tell me: approve, what to change, or any question." Then stop and wait. No AskUserQuestion: the dev reads first and answers in their own words.
 2. Then, by their reply:
    - **Questions** → answer them, and wait again.
    - **Changes** (such as "use the fallback for the waitlist") → edit `plan.md`, say what changed, and wait again.

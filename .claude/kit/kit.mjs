@@ -36,6 +36,8 @@ const HELP = `Usage: node .claude/kit/kit.mjs <verb> ...
                                          snippets, sections and assets used elsewhere, files .shopifyignore excludes);
                                          each goes in Needs your attention
   summary <KEY>                          time per stage, loops, gate answers, QA verdicts, store changes (for the PR)
+  premerge <KEY>                         right before merging: commits on the remote branch after QA (editor saves on a
+                                         GitHub-connected draft); exit 1 when there are any
   abandon <KEY> --reason "TEXT"          stop a task and list what to clean up (draft theme, store changes)
 Kit feedback (problems with the kit itself, not the ticket)
   note <KEY> "TEXT" [--kind K]           record one; K: friction, mistake, kit-bug, missing, idea. Creates kit-notes.md on first use
@@ -137,6 +139,8 @@ function stalePasses(rows = {}, head) {
 const saysNone = (key, file, heading, within) => /^((none|n\/a)\b|—)/i.test(added(key, file, heading, within).join(' ').replace(/^[-*]\s*/, ''));
 const hasDesign = (st) => Boolean(st.design?.figma) && st.design.figma !== 'none';
 const VERDICTS = ['PASS', 'FAIL', 'NOT TESTED', 'BLOCKED'];
+/** Words that say a PASS isn't whole: what couldn't be shown belongs in its own NOT TESTED or BLOCKED row. */
+const HEDGE = /\b(?:not provable|can(?:no|')t (?:be )?prove[nd]?|not (?:yet )?(?:verified|measured|tested|checked|shown)|unverified|untested|assumed|only partly|partially)\b|\blimit(?:ation)?s?\s*:/i;
 /** A report row's verdict: the last verdict word in a cell, since Verdict is the last column. */
 const rowVerdict = (row) => [...row.matchAll(/\|\s*\**(PASS|FAIL|NOT TESTED|BLOCKED)\b/g)].pop()?.[1] || null;
 const short = (sha) => (sha ? sha.slice(0, 7) : 'none');
@@ -275,6 +279,7 @@ function glanceProblems(key) {
   const rows = tableRows(key, 'plan.md', '### What changes', '## At a glance');
   const attention = added(key, 'plan.md', '### Needs your attention', '## At a glance');
   const said = attention.join('\n').toLowerCase();
+  const indep = added(key, 'plan.md', '### Independent check', '## At a glance').join('\n');
   const unnamed = reach(key).filter((x) => !said.includes(x.file.toLowerCase()) && !said.includes(x.file.split('/').pop().toLowerCase()));
   // Definitions and the mutation files the plan wrote; QA data that only names existing products writes nothing.
   const mutations = join(LOGS, key, 'mutations');
@@ -285,6 +290,45 @@ function glanceProblems(key) {
     unnamed.length && `Needs your attention doesn't name ${unnamed.map((x) => `${x.file} (${x.reach})`).join('; ')}. For each, say what could change for what already uses it, and how the plan contains it`,
     storeWrites && !/\bstore\b|definition|metaobject|metafield/.test(said) && 'Needs your attention: name the store writes (definitions, QA values) and whether they show on live before the merge',
     !rows.length && 'fill plan.md § At a glance → ### What changes: one row per file (or file group), "What happens" in 15 words at most',
+    !/Surprises\s*:/i.test(indep) || !/Unlisted assumptions\s*:/i.test(indep)
+      ? 'plan.md § At a glance → ### Independent check needs the outcome-checker agent\'s plan pass: run it (mode plan), fix what it finds, and record its "Surprises:" and "Unlisted assumptions:" lines there'
+      : false,
+  ];
+}
+
+/** The "Differs from the ticket" bullet under plan.md § At a glance, as lines. */
+function differsLines(plan) {
+  const glance = sectionLines(plan, '## At a glance');
+  const from = glance.findIndex((l) => /^- \*\*Differs/.test(l));
+  const to = from === -1 ? -1 : glance.findIndex((l, i) => i > from && /^- \*\*/.test(l));
+  return from === -1 ? [] : glance.slice(from, to === -1 ? undefined : to);
+}
+
+/**
+ * The handoff tells the client what differs from what they asked (all four real handoffs before 1.14 left it out),
+ * in text they can open, and warns QA off saving in a GitHub-connected draft's editor (CHE-865).
+ */
+function handoffTextProblems(key, st) {
+  const plan = read(join(LOGS, key, 'plan.md'));
+  const differACs = [...acRefs(differsLines(plan).join('\n'))];
+  // brief.md § Decided → Questions and answers: # | Question | … ; a client's call starts its Question that way.
+  const clientQs = tableRows(key, 'brief.md', '### Questions and answers', '## Decided').map(cells)
+    .filter((c) => /^client'?s call/i.test(c[1] || '')).map((c) => c[0].replace(/^Q?/i, 'Q'));
+  const table = tableRows(key, 'report.md', '### What differs from what was asked', '## Handoff').map((r) => cells(r)[0] || '').join(' ');
+  const tableACs = acRefs(table);
+  const missing = [...differACs.filter((n) => !tableACs.has(n)).map((n) => `AC ${n}`), ...clientQs.filter((q) => !new RegExp(`\\b${q}\\b`, 'i').test(table))];
+  const jira = added(key, 'report.md', '### Jira comment', '## Handoff').join('\n');
+  const jiraACs = acRefs(jira);
+  const notTold = [...tableACs].filter((n) => !jiraACs.has(n)).map((n) => `AC ${n}`);
+  const pr = added(key, 'report.md', '### PR', '## Handoff').join('\n');
+  const check = added(key, 'report.md', '### Client check', '## Handoff').join('\n');
+  return [
+    missing.length && `report.md § Handoff → What differs from what was asked has no row for ${missing.join(', ')} (from plan.md → Differs and brief.md's "Client's call" questions): say what the client gets instead, in their words`,
+    filled(key, 'report.md', '## Handoff') && !jira.trim() && 'write report.md § Handoff → Jira comment',
+    jira.trim() && notTold.length && `the Jira comment doesn't tell the client about ${notTold.join(', ')}: add each row of What differs from what was asked, in their words, with its AC`,
+    /\.claude[\\/]logs/i.test(`${pr}\n${jira}`) && 'the PR or the Jira comment points to .claude/logs/…, which git ignores: paste what reviewers need inline',
+    st.draft?.route === 'github' && jira.trim() && !/\bsav(e|ing)\b/i.test(jira) && 'the draft is GitHub-connected: the Jira comment must ask reviewers not to press Save in its theme editor (each save becomes a commit on the branch under review)',
+    filled(key, 'report.md', '## Handoff') && !/Client surprises\s*:/i.test(check) && 'report.md § Handoff → Client check needs the outcome-checker agent\'s handoff pass: run it (mode handoff), fix the Jira comment by it, and record its "Client surprises:" line',
   ];
 }
 
@@ -422,6 +466,7 @@ const EXIT_CHECKS = {
     const head = ref(`refs/heads/${st.branch}`);
     return [
       !filled(key, 'report.md', '## Handoff') && 'write report.md § Handoff',
+      ...handoffTextProblems(key, st),
       !st.test && !branchPushed(st) && `push the task branch: git push -u origin ${st.branch}`,
       draftBehind(st),
       // With branchPushed, this makes the pushed head the commit QA measured.
@@ -439,8 +484,15 @@ const EXIT_CHECKS = {
     const reqs = st.type === 'feasibility' ? tableRows(key, 'investigation.md', '## Requirements').map(cells) : [];
     const reqId = (s) => s.match(/^R?(\d+)$/i)?.[1];
     const noOwner = reqs.filter((c) => !/^(Dev|Client)\b/i.test(c[2] || '')).map((c) => c[0] || '?');
-    const covered = new Set(tableRows(key, 'investigation.md', '## Client gets').flatMap((r) => [...(cells(r)[0] || '').matchAll(/R?(\d+)/gi)].map((m) => m[1])));
+    const gets = tableRows(key, 'investigation.md', '## Client gets').map(cells);
+    const covered = new Set(gets.flatMap((c) => [...(c[0] || '').matchAll(/R?(\d+)/gi)].map((m) => m[1])));
     const uncovered = reqs.map((c) => c[0]).filter((id) => reqId(id) && !covered.has(reqId(id)));
+    // A surface the requirement names needs its own row: one "storefront" row passed GSD-80's checkout requirement.
+    const SURFACES = ['checkout', 'cart', 'mobile', 'desktop', 'email', 'thank you', 'account'];
+    const surfaceGaps = reqs.filter((c) => reqId(c[0])).flatMap((c) => SURFACES
+      .filter((s) => new RegExp(`\\b${s}`, 'i').test(c[1] || ''))
+      .filter((s) => !gets.some((g) => [...(g[0] || '').matchAll(/R?(\d+)/gi)].some((m) => m[1] === reqId(c[0])) && new RegExp(`\\b${s}`, 'i').test(g[1] || '')))
+      .map((s) => `${c[0]} on ${s}`));
     return [
       !st.type && 'record the kind of investigation: kit.mjs set <KEY> type=feasibility|debug|question',
       !filled(key, 'investigation.md', '## Question') && 'write the precise question and what counts as answered in investigation.md § Question',
@@ -448,6 +500,7 @@ const EXIT_CHECKS = {
         && 'list each requirement in investigation.md § Requirements (quoted, its owner, clear or not, and the answer to each open one)',
       noOwner.length && `give each requirement an owner in investigation.md § Requirements' Owner column (${noOwner.join(', ')}): Dev for how it's built, Client for what customers see. Client rows the ticket doesn't settle go to the Jira comment as questions`,
       uncovered.length && `investigation.md § Client gets has no row for ${uncovered.join(', ')}: say what the client will get on every surface the requirement touches (position, look, width, behaviour, where it's edited) and how that differs from what they expect`,
+      surfaceGaps.length && `the requirement names a surface § Client gets has no row for: ${surfaceGaps.join(', ')}. Add a row per surface, with its Surface cell naming it`,
       !confirmed.length && 'no Confirmed evidence yet: read or observe something that settles a claim',
       unsourced.length && `Confirmed evidence without a Source (${unsourced.join(', ')}): cite the file:line, query, fetched page or docs URL with the quoted sentence`,
       st.type === 'debug' && tableRows(key, 'investigation.md', '## Hypotheses').length < 2
@@ -605,10 +658,7 @@ function acCoverageProblems(key) {
   }
   const plan = read(join(LOGS, key, 'plan.md'));
   // Covered = checked by a QA row, or set aside under Differs. A mention elsewhere ("Merchant can change … AC 4") is neither.
-  const glance = sectionLines(plan, '## At a glance');
-  const from = glance.findIndex((l) => /^- \*\*Differs/.test(l));
-  const to = from === -1 ? -1 : glance.findIndex((l, i) => i > from && /^- \*\*/.test(l));
-  const differs = from === -1 ? [] : glance.slice(from, to === -1 ? undefined : to);
+  const differs = differsLines(plan);
   const cited = acRefs([...sectionLines(plan, '## QA criteria'), ...differs].join('\n'));
   const open = [...new Set(acs)].filter((n) => !cited.has(n));
   return [open.length && `acceptance criteria ${open.map((n) => `AC ${n}`).join(', ')} aren't covered: cite each in a QA criterion ("AC n"), or list it under At a glance → Differs from the ticket with why ("AC 14, the implementation video: a handoff step, not theme code")`];
@@ -1099,6 +1149,31 @@ switch (verb) {
     break;
   }
 
+  case 'premerge': {
+    // Right before the merge: commits on the remote branch QA never saw. On a GitHub-connected draft, every Save in its
+    // theme editor is one ("Update from Shopify"); CHE-865's QA team saved 36 test edits that way.
+    const key = normKey(rawKey);
+    const st = readState(key);
+    if (!st.branch) fail(`${key} has no branch yet.`);
+    if (!st.qa?.commit) fail(`${key} has no QA'd commit recorded: QA hasn't run, so there is nothing to compare with.`);
+    run('git', ['fetch', '--quiet', 'origin', st.branch]);
+    const remote = ref(`refs/remotes/origin/${st.branch}`) || fail(`origin/${st.branch} doesn't exist: push the branch first.`);
+    const log = git(['log', '--format=%H%x09%an%x09%s', `${st.qa.commit}..${remote}`], { allowFail: true }).split('\n').filter(Boolean)
+      .map((l) => { const [sha, author, subject] = l.split('\t'); return { sha: sha.slice(0, 7), author, subject, fromShopify: /update from shopify/i.test(subject) }; });
+    const files = log.length ? git(['diff', '--name-only', '--relative', st.qa.commit, remote], { allowFail: true }).split('\n').filter(Boolean) : [];
+    print({
+      branch: st.branch,
+      qaCommit: short(st.qa.commit),
+      remoteHead: short(remote),
+      afterQa: log,
+      files,
+      verdict: !log.length ? 'OK: the branch is what QA measured. Merge when ready.'
+        : log.some((c) => c.fromShopify) ? 'STOP: Shopify committed editor saves after QA (often test edits). Review the files; revert what isn\'t meant to ship, or re-run QA on what is (/shopify-implement <KEY>), before merging.'
+          : 'STOP: the branch has commits QA didn\'t measure. Re-run QA on them (/shopify-implement <KEY>) before merging.',
+    });
+    process.exit(log.length ? 1 : 0);
+  }
+
   case 'qa-row': {
     const key = normKey(rawKey);
     const st = readState(key);
@@ -1112,6 +1187,9 @@ switch (verb) {
     // A PASS or FAIL is a measurement: without the value and the call that produced it, it is an opinion.
     const measures = flags.verdict === 'PASS' || flags.verdict === 'FAIL';
     if (measures && (!given('measured') || !given('how'))) fail(`A ${flags.verdict} needs what was measured and how, in the same call: --measured "<value>" --how "<probe call or command>".`);
+    // A PASS that says it couldn't prove part of the row (VET-689: "0 € price is not provable") is a partial result.
+    const hedge = flags.verdict === 'PASS' && given('measured').match(HEDGE);
+    if (hedge) fail(`--measured says "${hedge[0]}", so part of row ${rest[0]} wasn't shown. Record what was measured as PASS in its own row and the rest as NOT TESTED or BLOCKED with the reason, or measure it.`);
     // Gate 2 tells "the agent didn't check it" from "only the dev can check it" by this reason.
     if ((flags.verdict === 'NOT TESTED' || flags.verdict === 'BLOCKED') && !given('measured')) fail(`A ${flags.verdict} needs the reason in --measured: ${flags.verdict === 'BLOCKED' ? '"dev checks by hand: …" or what is missing' : 'why it wasn\'t checked here'}.`);
     if (carry !== null && (!carry || ['measured', 'how', 'verdict'].some((f) => flags[f] !== undefined))) fail('--carry takes only the reason: --carry "<why the new commits can\'t affect these rows>"');

@@ -74,7 +74,7 @@ user-invocable: false
 
    **`draftRoute: "github"`** (the store's themes are connected to this repo). The draft is a theme connected to the task branch, so it always equals the branch, and customizer saves on it come back as commits.
    1. `git push -u origin <branch>`.
-   2. Ask the dev to connect it, with the steps `shopify.mjs draft <KEY> --github` prints: Online Store → Themes → Add theme → Connect from GitHub → this repo → the task branch. Connecting is admin-only; the CLI can't do it. Then run the command again to adopt the theme.
+   2. Ask the dev to connect it, with the steps `shopify.mjs draft <KEY> --github` prints: Online Store → Themes → Add theme → Connect from GitHub → this repo → the task branch. Connecting is admin-only; the CLI can't do it. Offer to do it in their Chrome (`.claude/rules/kit-runs.md` → admin steps you can offer). Then run the command again to adopt the theme; on the dev's "done", or after your own connect, wait up to two minutes for the theme to appear (run it again every 30 seconds) instead of asking the dev to come back.
    3. `node .claude/kit/shopify.mjs verify <KEY>` waits for Shopify's sync and checks that every file the branch touched matches HEAD. If it refuses, follow its message.
    4. **Every later commit:** `git push -u origin <branch>`, then `verify`. A rejected push means Shopify committed a save from the admin: `git pull --no-rebase origin <branch>`, then push. Never save in this theme's editor yourself. If the dev saves there, tell them the change lands on the branch and in the PR.
    5. Skip steps 3–4 below; `push` refuses a connected draft.
