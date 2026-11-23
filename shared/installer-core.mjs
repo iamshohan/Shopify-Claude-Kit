@@ -1,8 +1,8 @@
 // Install-time rules both installers share (install.mjs for the theme kit, app/install.mjs for the app kit). Installers run
 // from the kit repo itself, so both import this file directly; it is never copied into a theme or app repo.
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
-import { isAbsolute, join, resolve, sep } from 'node:path';
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
 
 const git = (cwd, args) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
 
@@ -41,6 +41,27 @@ export function olderBuild(kitDir, installedCommit) {
   try { git(kitDir, ['merge-base', '--is-ancestor', installedCommit, 'HEAD']); return null; } catch {
     return `it was installed from kit commit ${installedCommit.slice(0, 7)}, which this checkout's HEAD (${head.slice(0, 7)}) doesn't include (git pull, or check out that branch)`;
   }
+}
+
+// ── Tool output at the repo root ──
+// Playwright MCP (kit-browser, or the dev's own server) writes .playwright-mcp/ into the folder Claude runs in: page text,
+// console logs and draft preview URLs. .claude/.gitignore can't reach the root, and the repo's own .gitignore is the
+// client's, so the line goes into .git/info/exclude: this clone only, never committed.
+const TOOL_OUTPUT = ['.playwright-mcp/'];
+
+/** The exclude file and the lines it still needs, or null (not a git repo, or git already ignores them). */
+export function missingExcludes(repo) {
+  const ignored = (p) => spawnSync('git', ['check-ignore', '-q', `${p}x`], { cwd: repo, stdio: 'ignore' }).status === 0;
+  let file;
+  try { file = resolve(repo, git(repo, ['rev-parse', '--git-path', 'info/exclude']).trim()); } catch { return null; }
+  const add = TOOL_OUTPUT.filter((p) => !ignored(p));
+  return add.length ? { file, add } : null;
+}
+
+export function addExcludes({ file, add }) {
+  mkdirSync(dirname(file), { recursive: true });
+  const text = existsSync(file) ? readFileSync(file, 'utf8') : '';
+  writeFileSync(file, `${text}${text && !text.endsWith('\n') ? '\n' : ''}# Shopify-Claude-Kit: tool output\n${add.join('\n')}\n`);
 }
 
 // ── Installed repos (update.mjs) ──

@@ -12,7 +12,7 @@ import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { kitFiles, kitCommit, compareVersions, staleFiles, olderBuild, register, installAll } from './shared/installer-core.mjs';
+import { kitFiles, kitCommit, compareVersions, staleFiles, olderBuild, register, installAll, missingExcludes, addExcludes } from './shared/installer-core.mjs';
 
 // The app kit is a separate product in app/ with its own installer. Without --app, everything below runs as before.
 {
@@ -194,6 +194,8 @@ for (const f of files) {
 }
 for (const f of stale) actions.push([`remove ${f} (no longer in the kit)`, () => rmSync(join(dest, f), { force: true })]);
 if (!existsSync(join(dest, '.gitignore'))) actions.push(['write .gitignore (keeps the kit out of git)', () => writeFileSync(join(dest, '.gitignore'), GITIGNORE)]);
+const excludes = missingExcludes(repo);
+if (excludes) actions.push([`add ${excludes.add.join(', ')} to .git/info/exclude (Playwright's output stays out of git; this clone only)`, () => addExcludes(excludes)]);
 actions.push(['write .kit-manifest.json', () => writeFileSync(manifestPath, JSON.stringify({ version, commit: kitCommit(KIT), source: resolve(KIT, '..'), uncommitted: source.dirty.length > 0, installedAt: new Date().toISOString(), files, settingsSha: sha(kitSettings) }, null, 2))]);
 
 console.log(`${installed === version ? `Reinstalling kit ${version}` : installed ? `Updating kit ${installed} → ${version}` : `Installing kit ${version}`} in ${dest}`);

@@ -85,6 +85,14 @@ try {
   const local = () => (existsSync(localPath) ? readFileSync(localPath, 'utf8') : '');
   const again = reinstall();
   ok('an update leaves no settings.local.json while settings.json is the kit\'s own', again.status === 0 && !existsSync(localPath), again.stdout);
+  // Playwright MCP's output folder at the repo root: excluded locally, once, without touching the repo's .gitignore.
+  write('.playwright-mcp/console.log', 'x\n');
+  const excludeText = readFileSync(join(repo, '.git', 'info', 'exclude'), 'utf8');
+  const porcelain = spawnSync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: repo, encoding: 'utf8' }).stdout;
+  ok('install excludes .playwright-mcp/ in .git/info/exclude, once, and git status doesn\'t show it',
+    excludeText.split('\n').filter((l) => l === '.playwright-mcp/').length === 1 && !/playwright/.test(porcelain) && /info\/exclude/.test(install.stdout) && !/info\/exclude/.test(again.stdout),
+    excludeText + porcelain + install.stdout);
+  rmSync(join(repo, '.playwright-mcp'), { recursive: true });
   writeFileSync(settingsPath, kitSettings.replace('"allow": [', '"allow": [\n      "Bash(npm run dev:*)",'));
   const update = reinstall();
   ok('an update moves the dev\'s added permission to settings.local.json and restores the kit\'s settings.json',

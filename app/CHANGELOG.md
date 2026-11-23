@@ -4,6 +4,7 @@
 
 The Shopify App Kit: Claude Code for Shopify apps (admin apps and extension-only apps), scenarios first. It lives in `app/` of the Shopify-Claude-Kit repo; devs install it with `node install.mjs <app-repo> --app` from that repo's root.
 
+- **Playwright's output stays out of git** (with theme kit 1.13.8): the installer adds `.playwright-mcp/` to `.git/info/exclude`, and setup reports a repo that already tracks it.
 - **One Jira token file per machine** (with theme kit 1.13.7): setup, the README and `jira.mjs` point to `~/.claude/.env` (once per machine) instead of a `.claude/.env.local` in every repo. The per-repo file still wins, for a repo that needs another Jira account; `JIRA_BASE_URL` stays out of the global file.
 - **Shared with theme kit 1.13.1:** the guard checks `findstr /s` globs that reach `.env` files, and no longer blocks `Get-ChildItem env:PATH` or `cat .eslintrc*`. A moved kit clone shows a notice instead of silently ending update notices. On Windows, one repo spelled several ways is one entry in `update.mjs`'s list.
 - **The repo moved** (2026-11-17) from `DripDevelopment/Shopify-Claude-Kit` to `github.com/iamshohan/Shopify-Claude-Kit`. A clone of the old repo gets no more updates: run `git remote set-url origin https://github.com/iamshohan/Shopify-Claude-Kit.git` in it.

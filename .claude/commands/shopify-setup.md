@@ -19,7 +19,7 @@ Run these and keep the results for later steps:
    - `node .claude/hooks/guard.mjs --mode-probe` must print "ok". If it's blocked, this session's permission mode hides the kit's confirmation prompts: the dev presses Shift+Tab until the mode is auto (recommended), default or accept edits, and you run it again.
 2. **Tools.** `node --version` (20 or newer) and `git --version`. Then `node .claude/kit/shopify.mjs cli-check` (about a minute the first time). It confirms the installed Shopify CLI and plugin still offer everything the kit uses. A missing Shopify plugin is installed in step 3; any other problem it lists means `/shopify-update` before going on.
 3. **Logins.** `node .claude/kit/shopify.mjs auth-check`. No store set yet → it can't check; the store is asked in step 2 and auth-check runs again with `--store <it>`.
-4. **Repo facts.** `node .claude/kit/recon.mjs`, for the config proposal.
+4. **Repo facts.** `node .claude/kit/recon.mjs`, for the config proposal. Also `git ls-files .playwright-mcp`: any output means Playwright's output folder (page text, console logs, preview URLs) is already in git. The installer only keeps new files out (`.git/info/exclude`), so that's a ✗ for the summary.
 5. **Jira.** `node .claude/kit/jira.mjs --check`. **`envLocalIgnoredByGit` false (exit 2):** a token written into `.claude/.env.local` could be committed. That's a ✗ to fix before the dev creates the file: re-run the kit installer (it writes `.claude/.gitignore`), or add `.claude/` to the repo's `.gitignore`.
 6. **This machine** (each is shared by every theme repo on it):
    - **Shopify plugin:** is the `shopify-plugin:shopify` skill in your skill list? Listing it in `.claude/settings.json` doesn't install it.
@@ -97,5 +97,6 @@ One compact block:
     ```
     `.claude/.env.local` holds the same lines when this repo needs another Jira account; it wins over `~/.claude/.env`. Leave `JIRA_BASE_URL` out of `~/.claude/.env`: there it would override `jiraBaseUrl` in every repo.
   - **Claude in Chrome** missing → install the extension; the dev logs into the store admin in that Chrome profile and gives it site access to the storefront domain and `admin.shopify.com`. Without it, customizer checks are BLOCKED.
+  - **`.playwright-mcp/` in git** → `! git rm -r --cached .playwright-mcp`, then commit that on a branch and merge it the usual way (the files stay on disk).
   - A protected branch GitHub doesn't protect, an install that failed, anything else that's ✗.
 - End with: "Ready. Start a task with /shopify-implement <KEY>, or investigate with /shopify-investigate <KEY or question>. If anything above looks wrong, or you don't want something I set up, tell me." When something under Needs you blocks tasks (the theme login, a restart), say "Ready once you've done the steps above".

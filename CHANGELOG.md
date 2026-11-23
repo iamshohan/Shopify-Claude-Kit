@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.13.8 — 2026-11-23
+
+**Playwright's output folder stays out of git.** Playwright MCP (`kit-browser`, or the dev's own server) writes `.playwright-mcp/` (page text, console logs, draft preview URLs) into the repo root, where a dev's `git add -A` could commit it. Each repo handled it differently: a committed `.gitignore` line, a local exclude, an uncommitted edit, or nothing. The installer now adds `.playwright-mcp/` to `.git/info/exclude` in every repo it installs into or updates (both kits), unless git already ignores it. That file belongs to the clone and is never committed, so the client's `.gitignore` stays as it is. Setup reports a repo that already tracks the folder and gives the `git rm -r --cached` command.
+
 ## 1.13.7 — 2026-11-23
 
 **One Jira token file per machine.** `jira.mjs` has always read `~/.claude/.env` after `.claude/.env.local`, but setup, the READMEs and its own messages only named the per-repo file, so teammates made one in every repo. Now they point to `~/.claude/.env`, created once, which covers every theme and app repo on the machine. `.claude/.env.local` is for a repo that needs another Jira account, and wins when both exist. `JIRA_BASE_URL` stays out of the global file: there it would override `jiraBaseUrl` in every repo. Claude can read neither file. Tests cover the order of the two files and the base-URL override.
