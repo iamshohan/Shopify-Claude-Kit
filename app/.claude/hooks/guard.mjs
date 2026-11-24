@@ -314,7 +314,7 @@ function decideCommand(raw, ctx, depth = 0, cwd = null) {
   }
   // The CLI by name or as the program itself: npx shopify app info, a full path to shopify.cmd.
   if (CLI_WORD.test(runnable) || CLI_PATH.test(runnable) || CLI_PKG.test(runnable) || CLI_ENV.test(runnable) || segs.some(runsShopifyCli)) {
-    if (DEV_RUNS.test(runnable)) return { decision: 'deny', reason: `That needs the dev's login or a running session. Ask the dev to run it with the ! prefix; for app dev, the appDev command node .claude/kit/shopify.mjs info prints (it names the dev app and store). (${cmd.slice(0, 200)})` };
+    if (DEV_RUNS.test(runnable)) return { decision: 'deny', reason: `That needs the dev's login or a running session. Ask the dev to run it with the ! prefix; app dev keeps running, so the dev starts it in a separate terminal with the appDev command node .claude/kit/shopify.mjs info prints (it names the dev app and store). (${cmd.slice(0, 200)})` };
     return { decision: 'deny', reason: USE_WRAPPER };
   }
   const SECRETS_WHY = '.env files (API secret, DATABASE_URL), SQLite databases (session tokens), Jira and Shopify tokens and the Shopify CLI\'s login folders are never read or written by Claude. Ask the dev for a value you need, without the secret.';

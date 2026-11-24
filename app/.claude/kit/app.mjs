@@ -468,8 +468,12 @@ function runVerify(cfg, id, st, { skipTests }) {
  * The deploy steps a change implies, in deploy order. keys: the surface changes ("+ scope:x"); ext: { handle: { type, targets } }
  * for the extensions the change touched; server: the app server's code changed; configs: the repo's shopify.app*.toml files.
  */
-export function deploySteps({ keys, ext, server, configs, appConfig }) {
+export function deploySteps({ keys, ext, server, serverGone = false, configs, appConfig }) {
   const has = (re) => keys.some((k) => re.test(k));
+  // A change that removes the backend (asmc first run) has nothing to migrate or host: the old ones are retired instead.
+  const dbKeys = keys.filter((k) => /^[+~-] (model|enum|db|view|type):/.test(k));
+  const dbGone = serverGone || (dbKeys.length > 0 && dbKeys.every((k) => k.startsWith('- ')));
+  const prodConfigs = configs.filter((c) => c !== appConfig);
   const removed = keys.filter((k) => /^- (extension|target):/.test(k)).map((k) => k.slice(2));
   // Activation and placement are once per store: only for a new extension or target, not an API bump of a live one.
   const isNew = (h, t) => keys.includes(`+ extension:${h}`) || (t ? keys.includes(`+ target:${h}/${t}`) : keys.some((k) => k.startsWith(`+ target:${h}/`)));
@@ -482,8 +486,11 @@ export function deploySteps({ keys, ext, server, configs, appConfig }) {
   const pos = targets(/^pos\./);
   const configNote = configs.length > 1 ? ` This repo has ${configs.join(', ')}; the kit works on ${appConfig}, the dev app.` : ` This repo has only ${configs[0] || appConfig}, which the kit uses for the dev app: check which app it is linked to before deploying.`;
   return [
-    has(/^[+~-] (model|enum|db|view|type):/) && 'Migrate the production database first, in a form the code running now still works with (add, don\'t rename or drop yet): the new code needs it, and the old code serves traffic until the release.',
-    server && 'Deploy the app server (hosting), so new routes and webhooks answer before Shopify starts calling them.',
+    // The kit only validates the dev app's config; the production one is first checked here, by the dev.
+    prodConfigs.length > 0 && `Validate the production config before deploying: shopify app config validate --config ${prodConfigs.join(' (and --config ')}${prodConfigs.length > 1 ? ')' : ''}. The kit validated only ${appConfig}.`,
+    dbKeys.length > 0 && !dbGone && 'Migrate the production database first, in a form the code running now still works with (add, don\'t rename or drop yet): the new code needs it, and the old code serves traffic until the release.',
+    server && !serverGone && 'Deploy the app server (hosting), so new routes and webhooks answer before Shopify starts calling them.',
+    (serverGone || dbGone) && `After the release, retire what the app no longer uses: ${[serverGone && 'the app server\'s hosting', dbGone && 'the production database (take a backup first)'].filter(Boolean).join(' and ')}. Nothing to migrate or deploy there.`,
     pcd.length && `Request protected customer data access for ${pcd.join(', ')} in the Partner Dashboard (API access) before releasing.`,
     `Run shopify app deploy --config <the production app's config>.${configNote} Deploy creates a new app version and releases it to every installed store at once; with --no-release it only creates the version, which you release from the Partner Dashboard when ready.${removed.length ? ` This change removes ${removed.join(', ')}: deploy asks you to confirm the removal (--allow-deletes in CI), and merchants lose what they placed.` : ''} Rollback: release the previous version.`,
     has(/^\+ scope:/) && 'New scopes: each store approves them when a merchant next opens the app. Until then the app runs with its old scopes, so the new code has to cope without them.',
@@ -504,6 +511,9 @@ export const serverChanged = (keys, changed) => keys.some((k) => /^. (webhook:|c
   || changed.some((p) => /^(app|web|server|prisma|public)\/|^(package\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|shopify\.web\.toml|dockerfile)$/.test(p));
 
 /** The deploy steps for this change, from verify's surface changes and the extensions it touched. */
+/** What the repo is now: an app server (routes or a database) is admin; without one, extensions only. */
+const appKindNow = () => (existsSync(join(ROOT, 'app', 'routes')) || existsSync(join(ROOT, 'prisma')) ? 'admin' : 'extensions');
+
 function stepsFor(cfg, st) {
   const keys = (st.verify?.checks.find((c) => c.name === 'surfaces')?.attention || []).map((s) => s.change);
   const items = readItems(treeReader(ROOT), { configName: cfg.appConfig }).items;
@@ -513,8 +523,11 @@ function stepsFor(cfg, st) {
     targets: Object.keys(items).filter((k) => k.startsWith(`target:${h}/`)).map((k) => k.slice(`target:${h}/`.length)),
   }]));
   const configs = readdirSync(ROOT).filter((f) => /^shopify\.app(\.[\w-]+)?\.toml$/.test(f));
-  const server = cfg.kind === 'admin' && serverChanged(keys, changedFiles(effectiveBase(st, cfg)));
-  return deploySteps({ keys, ext, server, configs, appConfig: cfg.appConfig });
+  // The kind setup recorded can go stale: a change that removes the backend leaves kind admin behind (asmc first run).
+  const removedServer = git(['diff', '--name-only', '--diff-filter=D', `${effectiveBase(st, cfg)}...HEAD`, '--', 'app/routes', 'prisma', 'shopify.web.toml'], { allowFail: true });
+  const serverGone = cfg.kind === 'admin' && appKindNow() !== 'admin' && Boolean(removedServer);
+  const server = cfg.kind === 'admin' && !serverGone && serverChanged(keys, changedFiles(effectiveBase(st, cfg)));
+  return deploySteps({ keys, ext, server, serverGone, configs, appConfig: cfg.appConfig });
 }
 
 function handoff(cfg, id, st) {
@@ -726,6 +739,7 @@ function summaryLines(cfg, id, st) {
   const done = STAGES.slice(0, i === -1 ? STAGES.length : i).map((s) => (st.gates?.[s.name] ? `${s.name} ✓ ("${st.gates[s.name].answer.slice(0, 60)}")` : `${s.name} ✓`));
   if (done.length && !finished(st)) lines.push(`Done: ${done.join(' · ')}`);
   if (st.test) lines.push(`TEST RUN: the branch is ${st.branch} and is never pushed (the guard blocks it).`);
+  if (cfg.kind && cfg.kind !== appKindNow()) lines.push(`${CONFIG_REL} says kind "${cfg.kind}", but the app is now "${appKindNow()}" (${appKindNow() === 'admin' ? 'it has app/routes or prisma' : 'no app/routes or prisma'}): set kind to "${appKindNow()}" there (the guard shows the dev the change).`);
   const base = effectiveBase(st, cfg);
   lines.push(`Branch: ${st.branch} · diff base: ${base ? base.slice(0, 7) : '—'} · protected: ${protectedBranches(cfg).join(', ')} · dev store: ${devStore(cfg) || '(not set)'}`);
   if (st.verify) lines.push(`Last verify: ${st.verify.ok ? 'PASS' : 'FAIL'} at ${st.verify.at.slice(0, 16)} (code ${st.verify.digest}${st.verify.digest === codeDigest(cfg) ? ', current' : ', outdated'})`);
@@ -750,7 +764,7 @@ function detect() {
   // The repo's whole test suite is the regression; vitest runs once (not watching) because the kit sets CI=1.
   if (usable('test')) verify.push({ name: 'test', run: 'npm test' });
   const configs = readdirSync(ROOT).filter((f) => /^shopify\.app(\.[\w-]+)?\.toml$/.test(f));
-  const admin = existsSync(join(ROOT, 'app', 'routes')) || existsSync(join(ROOT, 'prisma'));
+  const admin = appKindNow() === 'admin';
   return {
     suggestion: {
       devStore: 'drip-dev-eho-store.myshopify.com', baseBranch: git(['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], { allowFail: true }).replace(/^origin\//, '') || 'main',
@@ -895,6 +909,11 @@ function selftest() {
   const steps = (keys, ext = {}, server = false) => deploySteps({ keys, ext, server, configs: ['shopify.app.toml', 'shopify.app.prod.toml'], appConfig: 'shopify.app.toml' }).join('\n');
   eq('checklist: a PCD scope asks for protected customer data access', [/Request protected customer data access for read_customers/.test(steps(['+ scope:read_customers'])), /protected customer data/.test(steps(['+ scope:read_products']))], [true, false]);
   eq('checklist: deploy names --config and the repo\'s configs', /--config <the production app's config>.*shopify\.app\.prod\.toml/.test(steps([])), true);
+  eq('checklist: the production config is validated by the dev first', /Validate the production config.*--config shopify\.app\.prod\.toml/.test(steps([])), true);
+  // asmc first run: a change that removed the backend got "migrate the database" and "deploy the app server".
+  const gone = deploySteps({ keys: ['- model:Session'], ext: {}, server: false, serverGone: true, configs: ['shopify.app.toml'], appConfig: 'shopify.app.toml' }).filter(Boolean).join('\n');
+  eq('checklist: a removed backend retires hosting and the database instead of migrating and deploying them',
+    [/Migrate the production database|Deploy the app server/.test(gone), /retire.*hosting.*database/.test(gone), /Migrate the production database/.test(steps(['+ model:GiftRule']))], [false, true, true]);
   eq('checklist: block targets are placed, static and admin targets aren\'t', [
     /Place the block.*banner \(purchase\.checkout\.block\.render\)/.test(steps(['+ extension:banner'], { banner: { type: 'ui_extension', targets: ['purchase.checkout.block.render'] } })),
     /Place the block/.test(steps(['+ extension:note'], { note: { type: 'ui_extension', targets: ['purchase.checkout.cart-line-item.render-after'] } })),

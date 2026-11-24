@@ -184,7 +184,9 @@ function info(cfg) {
   return {
     app: app.name, clientId: app.client_id, embedded: app.embedded, account: d.account?.email || null,
     cliCachedStore: cached,
-    appDev: `! shopify app dev ${[...configFlag(cfg), '--store', store].join(' ')}`,
+    // A server that keeps running: with the ! prefix it would hold the Claude Code session, so it goes in its own terminal.
+    appDev: `shopify app dev ${[...configFlag(cfg), '--store', store].join(' ')}`,
+    appDevWhere: 'in a separate terminal in this folder, not with ! in Claude Code: it keeps running until stopped with Ctrl+C',
     ...(cached && store && cached !== store ? { devStoreWarning: `The CLI's cached dev store is ${cached}, not ${store}: have the dev run the appDev command above, which names the store.` } : {}),
     extensions: (d.project.extensionConfigFiles || []).flatMap((f) => (f.content?.extensions || [f.content]).map((e) => ({ handle: e.handle, type: e.type || f.content.type, apiVersion: f.content.api_version }))),
     scopes: { local, granted, onlyLocal: local.filter((s) => !granted.includes(s)), onlyGranted: granted.filter((s) => !local.includes(s)) },

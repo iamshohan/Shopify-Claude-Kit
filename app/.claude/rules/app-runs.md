@@ -21,6 +21,7 @@ paths:
 - **Long kit verbs** (`verify`, `drift --regression`, `onboard`) can take minutes: the settings give Bash a long default timeout, so don't pass a shorter one.
 - **Write files with the Write or Edit tool,** never `printf`, `echo`, a heredoc or `node -e`. The guard reads a shell command's text as something it could run, so a `package.json` holding a deploy script, or a `.gitignore` listing `.env`, gets refused when written through the shell.
 - **One direct `node .claude/kit/app.mjs note <ID> "…"` per note,** never inside a shell function or a loop: only a direct call's text is read as text.
+- **A refused chained command** (`a && b; c`): run its parts on their own to see which one the guard means, before blaming the rule. In the first app run, three "false positives" came from another part of the same command (a trailing CLI call, a `node -e` that wrote `.env` lines).
 - **Two failed attempts at the same thing → stop**, say what you tried and what you saw, and ask the dev.
 - **How you talk to the dev.** The documents hold the detail; chat carries what the dev has to act on.
   - Open with what needs the dev, or "Nothing needed from you".

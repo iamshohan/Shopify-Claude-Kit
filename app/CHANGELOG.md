@@ -12,6 +12,10 @@ After the first real run (an extension-only A/B app: setup, onboard and a first 
 - **A kit update no longer fails a change in flight:** `gate` asks for § Decided for you only when the proposal has that heading.
 - **Run rules:** files are written with the Write or Edit tool (a `package.json` with a deploy script or a `.gitignore` listing `.env`, written through the shell, read as commands to the guard), and each kit note is one direct `app.mjs note` call.
 - **Guard:** reading the installed CLI's source (`cd` into its folder, then grep) is allowed when every part of the command only reads; running anything from there is still refused.
+- **The deploy checklist follows what the change did.** A change that removed the backend no longer gets "migrate the production database" and "deploy the app server": it gets "retire the hosting and the database after the release". The checklist starts with validating the production config (the kit validates only the dev app's).
+- **The app type is read from the repo, not only from setup:** status says when `kind` in app-kit.json no longer matches (setup's "admin" stayed after the backend was removed).
+- **`app dev` runs in a separate terminal:** `shopify.mjs info` prints the appDev command without `!` and says where to run it. With `!` the dev server held the Claude Code session.
+- **A refused chained command:** the rules say to run its parts on their own before blaming the guard. Three of the run's "false positives" came from another part of the same command.
 - **Handoff keeps `appspec/project.md` true** when a change adds or removes what it describes. The README says the commands are typed, not pasted.
 
 ## 0.1.0 (not trialled on a real app change)

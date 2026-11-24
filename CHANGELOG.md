@@ -4,6 +4,7 @@
 
 With app kit 0.2.0, from the app kit's first real run.
 - **A kit update no longer fails a task in flight.** The sections 1.14.0 and 1.15.0 added (plan → Decided for you and Independent check, report → What differs from what was asked and Client check) are required only where the task's document has the heading. A task started on an older template finishes under the rules it started with.
+- **A refused chained command:** the run rules say to run its parts on their own before blaming the guard; in the app run, three "false positives" came from another part of the same command.
 - **Guard:** reading the installed Shopify CLI's own files (`cd` into its folder, then `grep`, `head`, `cat`) is allowed when every part of the command only reads; running anything from there is still a CLI call. The safety review and the app run both hit this.
 
 ## 1.15.0 — 2026-11-24

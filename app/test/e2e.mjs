@@ -209,7 +209,7 @@ writeFileSync(outFile, JSON.stringify({ testResults: files.map((file) => ({ name
   ok('info shows local vs granted scopes and never the .env or web env', info.code === 0 && json(info).scopes?.onlyLocal?.includes('write_cart_transforms') && !/PLANTED-SECRET/.test(info.all), info.all);
   // A bare `shopify app dev` uses the CLI's cached app and store; info gives the command that names both.
   ok('info gives the app dev command with the dev store, and warns when the CLI caches another store',
-    json(info).appDev === `! shopify app dev --store ${STORE}`
+    json(info).appDev === `shopify app dev --store ${STORE}` && /separate terminal/.test(json(info).appDevWhere)
       && (STORE === 'kit-dev.myshopify.com' ? !json(info).devStoreWarning : /kit-dev\.myshopify\.com/.test(json(info).devStoreWarning || '')), info.out);
   const infoCall = calls().find((c) => c.cmd === 'app info');
   ok('the default app config passes no --config (shopify.app.toml)', infoCall && !('config' in infoCall.flags), JSON.stringify(infoCall));
