@@ -150,7 +150,6 @@ const rowVerdict = (row) => [...row.matchAll(/\|\s*\**(PASS|FAIL|NOT TESTED|BLOC
 const short = (sha) => (sha ? sha.slice(0, 7) : 'none');
 /** A bug fix's QA criterion that reproduces the bug: named as a repro, and says what live shows. */
 const reproRows = (rows) => rows.filter((r) => /\brepro(duc\w*)?\b/i.test(r) && /\blive\b/i.test(r));
-/** A repro measurement shows both sides, in either order: it fails on live and passes on the draft. */
 /**
  * A repro row's two halves, "live: … ; draft: …": live shows the bug and the draft something else. Checking only that
  * both words appear let "live: not reproduced; draft: ok" pass.
@@ -404,7 +403,8 @@ function handoffTextProblems(key, st) {
 
 /**
  * What the record shows went wrong in a run. The guard log has no task key: it is matched by time, and an entry made on
- * another task's branch is dropped (the base branch is kept: intake and plan run there). Gate answers aren't blocks.
+ * another task's branch is dropped (the base branch is kept: intake and plan run there). Logs from before 1.16 also hold
+ * gate answers (gate: true), which aren't blocks.
  */
 function retroSignals(key, st) {
   const events = st.history || [];
@@ -417,7 +417,7 @@ function retroSignals(key, st) {
   const guardBlocks = read(join(LOGS, '_guard.jsonl')).split(/\r?\n/).filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } })
     // kind: deny (a block worth checking for a false positive), ask (a prompt the dev answered), log (allowed, noted).
     .filter((g) => g && !g.gate && g.at >= from && g.at <= to && ours(g.branch)).map((g) => `${g.at.slice(0, 16)} [${g.kind || 'deny'}] ${g.reason.slice(0, 110)} ← ${g.command.slice(0, 90)}`);
-  const verdicts = tableRows(key, 'report.md', '## Criteria').map((l) => (l.match(/\|\s*\**(FAIL|NOT TESTED|BLOCKED)\b/) || [])[1]).filter(Boolean);
+  const verdicts = tableRows(key, 'report.md', '## Criteria').map(rowVerdict).filter((v) => v && v !== 'PASS');
   return {
     loopsBack: events.filter((e) => e.event === 'back').map((e) => `${e.from} → ${e.to}: ${e.reason}`),
     refusedStages: Object.entries(refused).map(([s, m]) => `${s} ×${events.filter((e) => e.event === 'refused' && e.stage === s).length}: ${[...new Set(m)].slice(0, 3).join(' / ')}`),
@@ -507,7 +507,8 @@ const EXIT_CHECKS = {
     const head = st.draft?.verifiedCommit || st.draft?.lastPushedCommit;
     const rec = st.qa?.rows || {};
     const rows = tableRows(key, 'report.md', '## Criteria');
-    const open = rows.filter((l) => /\|\s*\**(BLOCKED|NOT TESTED)\b/.test(l)).length;
+    // The Verdict cell, not the first verdict word: a criterion like "BLOCKED state shows" is no open row.
+    const open = rows.filter((l) => ['BLOCKED', 'NOT TESTED'].includes(rowVerdict(l))).length;
     // Every criterion the plan numbers, not a count: extra by-hand rows mustn't stand in for a missing one.
     const plan = planCriteria(key);
     const missing = [...plan.keys()].filter((n) => !rec[n]?.verdict);
@@ -523,7 +524,7 @@ const EXIT_CHECKS = {
     return [
       missing.length && `plan criteria ${missing.join(', ')} have no verdict recorded with kit.mjs qa-row`,
       draftBehind(st),
-      changed.length && `plan criteria ${changed.join(', ')} changed in plan.md after they were measured: copy the new text into report.md and measure them again with kit.mjs qa-row`,
+      changed.length && `plan criteria ${changed.join(', ')} changed in plan.md after they were measured: measure them again with kit.mjs qa-row (it takes the new text from the plan)`,
       handWritten.length && `rows ${handWritten.join(', ')} in report.md don't show the verdict kit.mjs qa-row recorded (typed in, edited or blanked by hand). Record each with kit.mjs qa-row <KEY> <#> --measured "…" --how "…" --verdict …`,
       stale.length && `rows ${stale.join(', ')} failed on an earlier commit and weren't measured again on the current draft: re-measure them and record each with kit.mjs qa-row`,
       carried.length && `rows ${carried.join(', ')} passed on an earlier commit, and theme files changed since. Re-measure them, or for rows the change can't affect: kit.mjs qa-row <KEY> ${carried.join(',')} --carry "<why not>"`,
@@ -602,7 +603,8 @@ EXIT_CHECKS.approve = EXIT_CHECKS.plan;
 // ── Git and theme state ──
 
 // Raw output: git() trims, which would cut the leading space of the first " M path" line.
-const themeStatus = () => run('git', ['status', '--porcelain', '--', ...existingThemeDirs()]).stdout.split(/\r?\n/).filter(Boolean);
+// quotePath off: a non-ASCII name would come back octal-escaped ("caf\303\251") and miss the read-only check.
+const themeStatus = () => run('git', ['-c', 'core.quotePath=false', 'status', '--porcelain', '--', ...existingThemeDirs()]).stdout.split(/\r?\n/).filter(Boolean);
 
 const statusPath = (l) => l.slice(3).replace(/^.* -> /, '').replace(/^"|"$/g, '');
 // Files the dev already had changes in keep the same status line when edited again, so their content is compared too.
@@ -858,10 +860,7 @@ function runSummary(key, st) {
     if (e.event === 'back') last = e.at;
   }
   const verdicts = { PASS: 0, FAIL: 0, 'NOT TESTED': 0, BLOCKED: 0 };
-  for (const l of tableRows(key, 'report.md', '## Criteria')) {
-    const m = l.match(/\|\s*\**(PASS|FAIL|NOT TESTED|BLOCKED)\b/);
-    if (m) verdicts[m[1]]++;
-  }
+  for (const v of tableRows(key, 'report.md', '## Criteria').map(rowVerdict)) if (v) verdicts[v]++;
   return {
     key, kind: kindOf(st), type: st.type, stage: st.stage, owner: st.owner?.name, kitVersion: st.kitVersion,
     startedAt: st.createdAt, lastUpdate: st.updatedAt, elapsedMinutes: minutes(st.createdAt, st.updatedAt),

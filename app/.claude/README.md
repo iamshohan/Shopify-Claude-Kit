@@ -33,7 +33,7 @@ Checks: `test:` a vitest test (new or changed on the branch, or its fixture), `q
 
 - **Asks** (hard to undo): store mutations, database migrations, the kit's settings, files that turn the guard or git's safety off, git commands that discard work.
 - **Refuses with the reason:** deploys and releases, the CLI outside `shopify.mjs`, any store but `devStore`, secrets (`.env*`, SQLite, the Session table), pushes to main, code edits outside build.
-- **Logs** (`.claude/logs/_guard.jsonl`): gate answers, new dependencies, code edits with no change open.
+- **Logs** (`.claude/logs/_guard.jsonl`): new dependencies, code edits with no change open. Gate answers pass without a second prompt (you answered in the skill) and are recorded in the change's `change.json`.
 
 It catches a well-meaning agent's mistakes; branch protection, Partner Dashboard roles and code review are the real limits.
 

@@ -3,7 +3,7 @@
 This repo is the kit itself, not a Shopify theme. `.claude/` is the product that `install.mjs` copies into theme repos. `.claude/CLAUDE.md` describes those theme repos; here it only tells you what the kit promises its users.
 
 - **The guard runs here too.** It protects `main`, so work on a branch, or leave committing to the maintainer. Its "maintainer mode" (install.mjs present, no `.claude/.kit-manifest.json`) lets kit files be edited without a prompt; changes to `.claude/hooks/` and `.claude/settings.json` still ask.
-- **Before calling a change done:** `node test/all.mjs` (both kits' suites and the shared-code check, about 4 minutes). After editing `kit/probe.js`: `node .claude/kit/kit.mjs build-probe`.
+- **Before calling a change done:** `node test/all.mjs` (both kits' suites and the shared-code check, about 3 minutes). After editing `kit/probe.js`: `node .claude/kit/kit.mjs build-probe`.
 - **Safety code** (`hooks/guard.mjs`, `kit/shopify.mjs`, the mutation checks in `kit/lib.mjs`): every new rule or bypass gets a self-test or e2e case.
 - **Release:** bump `.claude/VERSION`, add a `CHANGELOG.md` entry, and update the version in the title of `.claude/README.md`. The root `README.md` holds only install, setup and the command list.
 - **After a Shopify CLI or plugin update,** run `/shopify-update` in a theme repo and fix here what it reports. `test/all.mjs` also compares the e2e fake CLI (`test/fake-shopify.mjs`) with the output structure `cli-check` recorded in this machine's theme repos. When that fails, update the fake and check whether the kit still reads the old shape. The Admin API scopes live only in `kit/shopify.mjs`; `auth-check` builds the login command from them.

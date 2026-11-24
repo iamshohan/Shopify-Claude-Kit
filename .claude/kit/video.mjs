@@ -606,8 +606,10 @@ async function main() {
   if (cmd === 'start') {
     if (!has('playwright-core') || !has('msedge-tts') || !ffmpegBin()) fail('The video tools aren\'t installed on this machine. Ask the dev to run, once:\n  ! node .claude/kit/video.mjs setup');
     if (!existsSync(t.storyboard)) writeFileSync(t.storyboard, readFileSync(join(KIT_DIR, 'templates', 'storyboard.md'), 'utf8').replaceAll('{{KEY}}', key));
-    const warn = t.st.qa?.commit && t.st.draft.lastPushedCommit && t.st.qa.commit !== t.st.draft.lastPushedCommit
-      ? `The draft is at ${t.st.draft.lastPushedCommit.slice(0, 7)}, QA accepted ${t.st.qa.commit.slice(0, 7)}: the video may show unaccepted code.` : null;
+    // A GitHub-connected draft is never pushed by the kit: only verify records its commit.
+    const drafted = t.st.draft.lastPushedCommit || t.st.draft.verifiedCommit;
+    const warn = t.st.qa?.commit && drafted && t.st.qa.commit !== drafted
+      ? `The draft is at ${drafted.slice(0, 7)}, QA accepted ${t.st.qa.commit.slice(0, 7)}: the video may show unaccepted code.` : null;
     return print({
       storyboard: t.storyboard, previewUrl: t.st.draft.previewUrl, editorUrl: t.st.draft.editorUrl, draftName: t.st.draft.name || key,
       featurePrefix: t.st.featurePrefix, read: ['brief.md', 'plan.md', 'contract.md', 'report.md'].filter((f) => existsSync(join(t.dir, f))).map((f) => join(t.dir, f)),

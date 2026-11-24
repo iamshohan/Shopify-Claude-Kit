@@ -6,7 +6,7 @@
 // Three tiers: ask only for what's hard to undo, deny with a pointer where there's an alternative, log the rest.
 // Flow: Claude Code sends the tool call as JSON on stdin → decide() → enforceMode() → emit() allow, ask or deny.
 // Self-test: node .claude/hooks/guard.mjs --selftest · Mode check: node .claude/hooks/guard.mjs --mode-probe
-import { readFileSync, existsSync, readdirSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { basename, dirname, join, resolve, relative, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
@@ -15,10 +15,11 @@ import {
   pushesOtherwise, textFromFile, ghRunsWorkflow, ghReleases, enforceMode, emit, realPath, redirects, substitutes, onlyReadsText, WRITE_VERBS, scriptProblem, shellWrites, isGlob,
   searchesSecrets, gitConfigRisk, pushRouting, discardsWork, runsShopifyCli, repoGit, WRAPPER_PATH, CLI_WORD, CLI_PATH, cliPackage, envFileIn,
   secretText, dumpsEnv, ENV_DUMP_WHY, CLI_LOGIN, DOTENV, SECRET_VAR, SECRET_READ, SECRET_PATH, forceAdd, redact, logPath, scriptDir, userSettings, pushIn, runGuard,
+  scriptRun,
 } from '../kit/guard-core.mjs';
 import { gqlOperations, sealDigest, SEAL_FILE } from '../kit/core.mjs';
 // The wrapper's own argv parser: the guard must read a command exactly as the wrapper will run it.
-import { parseArgs, protectedBranches as branchesFrom, devStore, specPaths, DEFAULTS, TEST_SUFFIX } from '../kit/repo.mjs';
+import { parseArgs, protectedBranches as branchesFrom, devStore, specPaths, listChanges, DEFAULTS, TEST_SUFFIX } from '../kit/repo.mjs';
 
 // ── Rules: patterns, verb lists and messages ──
 
@@ -52,7 +53,7 @@ const SESSION_READ = /\b(db|prisma)\.session\.|\bFROM\s+["'`]?Session\b/i;
 const SEAL = /guard-seal/i;
 const MANIFEST = /kit-manifest/i;
 // Direct Admin API calls with a token skip the dev store check and the seal.
-const ADMIN_HTTP = /X-Shopify-Access-Token|\/admin\/api\/\d{4}-\d{2}\//i;
+const ADMIN_HTTP = /X-Shopify-Access-Token|\/admin\/api\/(\d{4}-\d{2}|unstable)\//i;
 const FETCHERS = /^(curl|wget|Invoke-WebRequest|Invoke-RestMethod|iwr|irm|http|httpie)(\.exe)?$/i;
 /** True if the command writes to a path matching pathRe: a redirect into it, or a write command that names it. */
 const writesTo = (text, pathRe) => new RegExp(`>{1,2}\\s*["']?[^\\s;&|]*(${pathRe.source})`, 'i').test(text) || (WRITE_VERBS.test(text) && pathRe.test(text));
@@ -66,8 +67,6 @@ const CONFIG_KEYS = {
 // Wrapper verbs that run without asking: local, or read-only on the dev store. Anything else, including verbs added later, asks.
 // generate-extension scaffolds local files from Shopify's template: nothing changes on Shopify until the dev deploys.
 const SAFE_VERBS = new Set(['cli-check', 'info', 'validate', 'generate-extension', 'build', 'function-build', 'function-typegen', 'function-run', 'security', 'query', 'help', '--help']);
-// The gates: Gate 1 approves the proposal, Gate 2 accepts the result. Each answer is logged for the retro (the skill
-// already asked the dev; the guard doesn't ask a second time).
 // Source, config and data the app runs on; other files (logs, notes) are free to write.
 const APP_CODE = /^(app|extensions|prisma|web|src|server|lib|shared|public)\/|\.(m?[jt]sx?|cjs|liquid|graphql|gql|prisma|toml|json|ya?ml|html|css|scss)$/i;
 // Files that can switch the guard or git's safety off: settings.local.json can disable hooks, .mcp.json adds servers,
@@ -78,7 +77,7 @@ const RUNS_LATER = /^(\.github\/|\.husky\/|\.githooks\/|\.npmrc$|\.yarnrc(\.yml)
 // Files the agent might run later, or that run on their own: the guard reads what they will do when they're written.
 const SCRIPT_FILE = /\.(sh|bash|ps1|psm1|bat|cmd|[cm]?[jt]sx?|py|rb|ya?ml)$|(^|[\\/])(\.husky|\.githooks)[\\/]|(^|[\\/])Makefile$/i;
 // Files tools write on their own; editing them is never "app code before the spec".
-const GENERATED = /^(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb?|\.shopify\/|\.react-router\/|build\/|dist\/|node_modules\/|\.playwright-mcp\/|\.claude\/logs\/|extensions\/[^/]+\/(dist|generated|node_modules)\/|extensions\/[^/]+\/schema\.graphql$)|\.generated\.[jt]sx?$|\.d\.ts$/;
+const GENERATED = /^(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb?|\.shopify\/|\.react-router\/|build\/|dist\/|node_modules\/|\.playwright-mcp\/|\.claude\/logs\/|[^/]+\/[^/]+\/(dist|generated|node_modules)\/|extensions\/[^/]+\/schema\.graphql$)|\.generated\.[jt]sx?$|\.d\.ts$/;
 // Tests and what they run on (mocks, helpers, fixtures, the runner's config): a fix starts with a failing test, before Gate 1.
 const TEST_FILE = /(^|\/)(tests?|__tests__|__mocks__|test-utils|testing|fixtures)\/|\.(test|spec)\.[cm]?[jt]sx?$|(^|\/)(vitest|jest)\.(config|setup|workspace)\.[cm]?[jt]s$|(^|\/)setupTests\.[cm]?[jt]sx?$/;
 const KIT_DIR = /^\.claude\/(hooks|kit|commands|agents|skills|rules)\/|^\.claude\/(settings\.json|claude\.md|readme\.md|version)$/i;
@@ -90,13 +89,6 @@ const GUARD_WIRING = /^\.claude\/(settings\.json|hooks\/|kit\/(guard-core|core|r
 // Read fresh on every call; the self-test swaps these for fakes through ctx.
 
 function readJson(rel) { try { return JSON.parse(readFileSync(join(ROOT, rel), 'utf8')); } catch { return null; } }
-function listChanges(cfg) {
-  const dir = join(ROOT, specPaths(cfg).changes);
-  try {
-    return readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory())
-      .map((e) => ({ id: e.name, st: readJson(`${specPaths(cfg).changes}/${e.name}/change.json`) })).filter((c) => c.st);
-  } catch { return []; }
-}
 
 /** The kit-only files: written by app.mjs (handoff, start) and the installer, read freely. */
 function kitOnly(P) {
@@ -218,18 +210,23 @@ function wrapperDecision(segs, ctx) {
     return {
       decision: 'ask',
       reason: `Run this mutation on the dev store ${store}, with the app's own token (${parsed.ops[0].fields.join(', ')})?\n${file}\n---\n${shown}`,
-      seal: { id, verb: 'mutate', sha: sealDigest(text, varsText), store },
+      // Under the id the wrapper reads it by (normId): asm-924 and ASM-924 are different folders on Linux.
+      seal: { id: key, verb: 'mutate', sha: sealDigest(text, varsText), store },
     };
   }
   return null;
 }
 
-/** The prompt for a change to app-kit.json: which settings change, and what each controls. */
+/** A change to app-kit.json asks, naming which settings change and what each controls. */
 function configChange(ti, ctx) {
   const before = ctx.read(CONFIG_REL);
   let after = null;
   if (typeof ti.content === 'string') after = ti.content;
   else if (before !== null && typeof ti.old_string === 'string') after = ti.replace_all ? before.split(ti.old_string).join(ti.new_string) : before.replace(ti.old_string, () => ti.new_string);
+  // Unreadable settings leave the guard on its defaults: the dev store unknown, only main and master protected.
+  if (typeof after === 'string') {
+    try { JSON.parse(after); } catch { return { decision: 'deny', reason: `That would leave ${CONFIG_REL} unreadable (not valid JSON), and the guard would fall back to its defaults. Write valid JSON.` }; }
+  }
   let lines = null;
   try {
     const a = JSON.parse(before ?? '{}');
@@ -238,7 +235,7 @@ function configChange(ti, ctx) {
     lines = [...new Set([...Object.keys(a), ...Object.keys(b)])].filter((k) => JSON.stringify(a[k]) !== JSON.stringify(b[k]))
       .map((k) => `- ${k}: ${short(a[k])} → ${short(b[k])}${CONFIG_KEYS[k] ? ` (${CONFIG_KEYS[k]})` : ''}`);
   } catch { /* unreadable: say so */ }
-  return `This changes the app kit's settings for this repo (${CONFIG_REL}):\n${lines ? lines.join('\n') || '- no setting changes' : '- the guard couldn\'t tell which settings change'}\nAllow it?`;
+  return { decision: 'ask', reason: `This changes the app kit's settings for this repo (${CONFIG_REL}):\n${lines ? lines.join('\n') || '- no setting changes' : '- the guard couldn\'t tell which settings change'}\nAllow it?` };
 }
 
 /**
@@ -354,6 +351,12 @@ function decideCommand(raw, ctx, depth = 0, cwd = null) {
     const p = scriptProblem(seg, ctx.scripts(scriptDir(seg, dir)), scriptWhy);
     if (p && DEV_RUNS.test(p.body)) return { decision: 'deny', reason: `The package script "${p.name}" needs the dev's login or a running session ("${p.body}"). Ask the dev to run it: ! npm run ${p.name}` };
     if (p) return { decision: 'deny', reason: `The package script "${p.name}" ${p.why} ("${p.body}"). Use node .claude/kit/shopify.mjs, or ask the dev to run the script with the ! prefix.` };
+    // bash deploy.sh, node scripts/ship.mjs: a script file is read when it runs (writing one is only logged). Not the kit's own.
+    const ran = !ctx.master() && scriptRun(seg);
+    const ranAt = ran && dirAfter(ran, dir ?? ROOT);
+    const ranRel = ranAt && relative(ROOT, ranAt).replaceAll('\\', '/');
+    const ranWhy = ranRel && !/^\.claude\/(kit|hooks)\//i.test(ranRel) && scriptWhy(ctx.read(ranRel) ?? '');
+    if (ranWhy) return { decision: 'deny', reason: `${ranRel} ${ranWhy}. Use node .claude/kit/shopify.mjs, or ask the dev to run it with the ! prefix.` };
     // A deny, not a prompt: the Grep tool does the same search without .env.
     const { w, i } = program(stripRedirects(seg));
     if (searchesSecrets(w, i, ROOT, dir, segs)) {
@@ -367,7 +370,9 @@ function decideCommand(raw, ctx, depth = 0, cwd = null) {
     if (here && (g.sub === 'switch' || g.sub === 'checkout') && !g.args.includes('--')) {
       const create = g.args.findIndex((a) => ['-c', '-C', '-b', '-B', '--create', '--force-create'].includes(a));
       const target = create !== -1 ? g.args[create + 1] : g.args.find((a) => !a.startsWith('-'));
-      if (target && !(g.sub === 'checkout' && ctx.isPath(target))) branch = target.replace(/^origin\//, '');
+      // git switch - (or @{-1}) returns to a branch the guard can't see: unknown, so a commit or merge after it asks.
+      if (g.args.some((a) => a === '-' || /^@\{-\d+\}$/.test(a))) branch = null;
+      else if (target && !(g.sub === 'checkout' && ctx.isPath(target))) branch = target.replace(/^origin\//, '');
     }
     // An alias, a push refspec, push.default or a branch's upstream can send "git push -u origin X" somewhere else.
     if ((g.sub === 'config' && gitConfigRisk(g.args) === 'push') || (g.sub === 'branch' && g.args.some((a) => /^(-u|--set-upstream-to(=.*)?|--track)$/.test(a)))) {
@@ -492,7 +497,7 @@ function decideFile(ti, cwd, ctx) {
   // .env.example and friends document the variables and hold no secrets: agents keep them current.
   if (/(^|\/)\.env(?!\.(example|sample|template|dist)$)(rc|[._-][^/]*)?$/i.test(rel) || /\.(sqlite3?|db)(-journal|-wal|-shm)?$/i.test(rel)) return { decision: 'deny', reason: 'Secrets and databases are written by the dev or the app, never by Claude.' };
   if (lower === '.claude/.kit-manifest.json') return { decision: 'deny', reason: 'Only the kit installer writes .claude/.kit-manifest.json.' };
-  if (lower === CONFIG_REL) return { decision: 'ask', reason: configChange(ti, ctx) };
+  if (lower === CONFIG_REL) return configChange(ti, ctx);
   if (KIT_DIR.test(rel)) {
     // In the kit's master repo, editing the kit is the work; only the hook's own wiring still asks.
     if (!ctx.master()) return { decision: 'ask', reason: `This edits the kit itself (${rel}). Kit changes belong in the kit's own repo so every app gets them.` };
@@ -565,6 +570,7 @@ function selftest() {
     [CONFIG_REL]: '{"devStore":"dev.myshopify.com","baseBranch":"main"}',
     // real files the wrapper still refuses: outside the change's log folder, or of a change that doesn't exist
     'm2.graphql': DEF, 'vars.json': '{}', '.claude/logs/NEW-9/ok.graphql': DEF,
+    'deploy.sh': 'shopify app deploy --force', 'scripts/migrate.mjs': "execSync('npx prisma migrate deploy')", 'scripts/seed.mjs': 'console.log(1)',
   };
   const cfg = { ...DEFAULTS, devStore: 'dev.myshopify.com', baseBranch: 'main' };
   const change = (stage, id = ID, branch = ID) => ({ id, st: { stage, branch, type: 'change' } });
@@ -657,7 +663,7 @@ function selftest() {
     [bash(kit('future-verb')), 'ask'],
     // an ask is held: a deny later in the same command still wins
     [bash(`${kit('querry x')} && npx prisma migrate deploy`), 'deny'], [bash('npx prisma migrate dev --name x && git push origin main'), 'deny'],
-    // gates and waivers: the skill asks the dev; the guard logs the answer instead of asking a second time
+    // gates and waivers: the skill asks the dev; the guard doesn't ask a second time
     [bash(`node .claude/kit/app.mjs done ${ID} propose --answer "Approved"`), null], [bash(`node .claude/kit/app.mjs done ${ID} accept --answer "ok"`), null],
     [bash(`node .claude/kit/app.mjs waive ${ID} 2 --reason "needs a real card"`), null],
     [bash(`node .claude/kit/app.mjs done ${ID} propose --answer "Approved: gift at $50, after the dev's app deploy"`), null],
@@ -726,7 +732,7 @@ function selftest() {
     [bash(`node -e "new (require('@prisma/client').PrismaClient)().session.findMany().then(console.log)"`), 'deny'],
     [bash(`npx tsx -e "import db from './app/db.server'; db.session.findMany().then(console.log)"`), 'deny'],
     [bash('npx prisma db execute --stdin <<< "SELECT * FROM Session"'), 'deny'], [bash(`npx tsx -e "import db from './app/db.server'; db.gift.findMany().then(console.log)"`), null],
-    // gates the guard can't read as a plain call are logged
+    // gates in a form the guard can't read as a plain call pass too
     [bash(`node --no-warnings .claude/kit/app.mjs done ${ID} propose --answer "Approved"`), null], [bash(`env node .claude/kit/app.mjs done ${ID} propose --answer "Approved"`), null],
     // files that change what git, Claude Code or the kit allow; the security baseline; spellings of change.json
     [file('Write', '.claude/settings.local.json'), 'ask'], [file('Write', '.mcp.json'), 'ask'], [file('Edit', '.git/config'), 'ask'],
@@ -824,6 +830,13 @@ function selftest() {
       'grep -rn "dotenv/config" app/', 'npm ls @shopify/cli', 'cat src/.environment.ts', 'grep -n guard-seal .claude/kit/shopify.mjs', 'grep -n kit-manifest install.mjs'].map((c) => [bash(c), null, at('propose')]),
     [bash(`node -e "require('./appspec/security-baseline.json'); require('fs').writeFileSync('${L}/x', 'y')"`), 'deny'],
     [write(`${C}/proposal.md`, 'the guard-seal shows the dev the mutation'), null, at('propose')], [file('Write', 'src/.environment.ts'), null], [file('Write', 'app/.env.production'), 'deny'],
+    // a script file is read when it runs: written earlier, it would otherwise deploy or migrate unseen
+    ...['bash deploy.sh', './deploy.sh', 'node scripts/migrate.mjs'].map((c) => [bash(c), 'deny']), ...['node scripts/seed.mjs', 'bash missing.sh'].map((c) => [bash(c), null]),
+    [bash('bash deploy.sh'), null, ctx({ master: true })],
+    // GitHub's GraphQL API, the whole environment printed, the unversioned Admin API, the previous branch, unreadable settings
+    [bash(`gh api graphql -f query='mutation { createCommitOnBranch(input: {branch: {branchName: "main"}}) { commit { oid } } }'`), 'deny'],
+    [bash('node -e "console.log(Object.entries(process.env))"'), 'deny'], [bash('curl -s https://dev.myshopify.com/admin/api/unstable/graphql.json'), 'deny'],
+    [bash('git checkout - && git merge feature/x'), 'ask'], [write(CONFIG_REL, '{"devStore":'), 'deny'],
   ];
   if (process.platform === 'win32') {
     const msys = (p) => `/${ROOT[0].toLowerCase()}${ROOT.slice(2).replaceAll('\\', '/')}/${p}`;
@@ -838,6 +851,7 @@ function selftest() {
   const checks = [
     [sealed.seal?.sha === sealDigest(FILES[`${L}/ok.graphql`], FILES[`${L}/ok.vars.json`]) && sealed.seal.store === 'dev.myshopify.com', 'mutate seal holds the digest and the dev store'],
     [/dev\.myshopify\.com/.test(sealed.reason) && /cartTransformCreate/.test(sealed.reason), 'mutate prompt names the store and the mutation'],
+    [decide(bash(kit(`mutate abc-123 ${L}/ok.graphql`)), ctx()).seal?.id === ID, 'the seal goes under the id the wrapper reads it by (ABC-123, not abc-123)'],
     [/devStore: "dev\.myshopify\.com" → "x\.myshopify\.com" \(the only store the kit acts on\)/.test(decide(write(CONFIG_REL, '{"devStore":"x.myshopify.com","baseBranch":"main"}'), ctx()).reason), 'config prompt names the setting and what it controls'],
     [/jiraBaseUrl: .*→ "https:\/\/evil\.example" \(where jira\.mjs sends the Jira token\)/.test(decide(write(CONFIG_REL, '{"devStore":"dev.myshopify.com","baseBranch":"main","jiraBaseUrl":"https://evil.example"}'), ctx()).reason), 'config prompt names a changed Jira URL as where the token goes'],
     [/echo hi/.test(decide(bash(`${kit('future-verb')} && echo hi`), ctx()).reason), 'an unknown-verb prompt shows the whole command'],

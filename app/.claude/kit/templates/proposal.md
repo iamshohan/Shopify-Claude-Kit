@@ -37,7 +37,7 @@ Scenario: the ID of the scenario that needs each new scope and webhook. Write "n
 
 ## Design
 
-<!-- Required when § Surfaces adds or changes a data model, a webhook, an extension, an app proxy or the app config:
+<!-- Required when § Surfaces adds or changes a data model, a webhook, an app proxy or the app config (not a new extension):
 the decisions (options weighed, why this one), the data model and migration (what happens to existing rows), which
 authenticate.* each new route uses, and the deploy order with how each step rolls back. Otherwise "none". -->
 

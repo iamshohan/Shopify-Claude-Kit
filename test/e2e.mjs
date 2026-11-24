@@ -667,6 +667,12 @@ try {
   ok('rows carried with a reason, a re-measured row and an older record pass done qa, which records the QA\'d commit and shows what changed since approval',
     carried.code === 0 && /carried to .*: title and header/.test(readFileSync(logFile(KEY, 'report.md'), 'utf8')) && Boolean(criterion)
     && qaDone.code === 0 && state().qa.commit === head() && /Since the plan was approved/.test(qaDone.out), carried.all + qaDone.all);
+  // Counts read the Verdict cell: a measurement that starts with a verdict word is a value.
+  const report = readFileSync(logFile(KEY, 'report.md'), 'utf8');
+  writeFileSync(logFile(KEY, 'report.md'), report.replace(/^(\| 2 \| [^|]*\| [^|]*\| )/m, '$1FAIL banner hidden; '));
+  const counted = JSON.parse(kit('kit.mjs', 'summary', KEY).out || '{}').qaVerdicts;
+  writeFileSync(logFile(KEY, 'report.md'), report);
+  ok('summary counts each row\'s Verdict cell, not the first verdict word in it', counted?.PASS === 3 && counted?.FAIL === 0, JSON.stringify(counted));
   // Gate 2's list is the task branch's, whatever is checked out (a new session may start on main).
   git('switch', '-q', 'main');
   const offBranch = kit('kit.mjs', 'status', KEY);

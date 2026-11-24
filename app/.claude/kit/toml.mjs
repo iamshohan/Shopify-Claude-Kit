@@ -115,13 +115,14 @@ export function parseToml(text) {
 
   function assign(obj, parts, v) {
     let o = obj;
+    // Own keys only: "toString" or "constructor" is a key like any other, not the prototype's.
     for (const p of parts.slice(0, -1)) {
-      if (o[p] === undefined) o[p] = {};
+      if (!Object.hasOwn(o, p)) o[p] = {};
       else if (typeof o[p] !== 'object' || Array.isArray(o[p])) err(`"${p}" is already a value`);
       o = o[p];
     }
     const last = parts[parts.length - 1];
-    if (last in o) err(`duplicate key "${parts.join('.')}"`);
+    if (Object.hasOwn(o, last)) err(`duplicate key "${parts.join('.')}"`);
     o[last] = v;
   }
 
@@ -131,18 +132,22 @@ export function parseToml(text) {
     parts.forEach((p, n) => {
       const lastPart = n === parts.length - 1;
       if (lastPart && arrayOfTables) {
-        if (o[p] === undefined) o[p] = [];
+        if (!Object.hasOwn(o, p)) o[p] = [];
         if (!Array.isArray(o[p])) err(`"${parts.join('.')}" is not an array of tables`);
         o[p].push({});
         o = o[p][o[p].length - 1];
         return;
       }
-      if (o[p] === undefined) o[p] = {};
+      if (!Object.hasOwn(o, p)) o[p] = {};
       o = Array.isArray(o[p]) ? o[p][o[p].length - 1] : o[p];
       if (typeof o !== 'object' || o === null) err(`"${p}" is already a value`);
     });
+    // [a] twice would merge the two silently; the CLI refuses the file. [a.b] before [a] only made a implicitly.
+    if (defined.has(o)) err(`table [${parts.join('.')}] is defined twice`);
+    defined.add(o);
     return o;
   }
+  const defined = new WeakSet();
 
   for (;;) {
     gap();
@@ -188,6 +193,10 @@ function selftest() {
   throws('unterminated string', 'a = "x\n');
   throws('garbage after a value', 'a = 1 2\n');
   throws('table over a value', 'a = 1\n[a]\nb = 2\n');
+  eq('keys named like Object\'s own properties', parseToml('toString = 1\n[constructor]\nx = 2\n'), { toString: 1, constructor: { x: 2 } });
+  throws('a table defined twice', '[a]\nx = 1\n[a]\ny = 2\n');
+  eq('a parent table after its child, and the same sub-table under each array element', parseToml('[a.b]\nx = 1\n[a]\ny = 2\n[[e]]\n[e.c]\nn = 1\n[[e]]\n[e.c]\nn = 2\n'),
+    { a: { b: { x: 1 }, y: 2 }, e: [{ c: { n: 1 } }, { c: { n: 2 } }] });
   const failed = checks.filter((c) => !c[1]);
   for (const [name, , got, want] of failed) console.log(`FAIL ${name}: got ${JSON.stringify(got)}, want ${JSON.stringify(want)}`);
   console.log(failed.length ? `${failed.length} of ${checks.length} failed` : `all ${checks.length} passed`);

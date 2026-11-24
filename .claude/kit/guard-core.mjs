@@ -256,6 +256,8 @@ export function ghMerges(segment) {
   if (rest[at] === 'repo') return rest[at + 1] === 'sync';
   const args = rest.slice(at + 1);
   if (args.some((x) => /\/merges?\b|\/pulls\/\d+\/merge|git\/refs|mergePullRequest/.test(x))) return true;
+  // GraphQL moves refs and commits files too (createCommitOnBranch on main). A query read from a file can't be checked.
+  if (args.includes('graphql') && args.some((x) => /\b(createCommitOnBranch|createRef|updateRefs?|deleteRef|mergeBranch|enablePullRequestAutoMerge)\b|^query=@|^--input$/.test(x))) return true;
   // gh api sends GET unless a method or a field says otherwise.
   const writes = args.some((x, i) => (/^(-X|--method)$/.test(x) && !/^GET$/i.test(args[i + 1] || '')) || /^(-X|--method=)(?!GET$)\w+$/i.test(x) || /^(-f|-F|--field|--raw-field|--input)$/.test(x));
   return writes && args.some((x) => /\/contents\/|\/git\/(commits|trees|blobs)\b/.test(x));
@@ -488,6 +490,55 @@ export function scriptDir(segment, dir) {
   return dir;
 }
 
+// Interpreters whose first non-option argument is the script they run, each with the flags that mean inline code
+// instead (bash -e is errexit, node -e is eval). RUNNER_VALUE_FLAGS take a value.
+const SCRIPT_RUNNERS = {
+  bash: /^-[a-z]*c$/, sh: /^-[a-z]*c$/, zsh: /^-[a-z]*c$/, dash: /^-[a-z]*c$/, source: null, '.': null,
+  node: /^-(e|p|pe|ep)$|^--(eval|print)(=|$)/, bun: /^-(e|p)$|^--(eval|print)(=|$)/, deno: /^(eval|repl)$/, tsx: /^-(e|p)$|^--(eval|print)(=|$)/, 'ts-node': /^-(e|p)$|^--(eval|print)(=|$)/,
+  python: /^-[a-zA-Z]*[cm]$/, python3: /^-[a-zA-Z]*[cm]$/, py: /^-[a-zA-Z]*[cm]$/, ruby: /^-[a-z]*e$/, perl: /^-[a-z]*e$/i,
+};
+const RUNNER_VALUE_FLAGS = new Set(['-r', '--require', '--import', '--loader', '--experimental-loader', '-W', '-X']);
+
+/**
+ * The script file a segment runs: bash deploy.sh, ./deploy.sh, node scripts/ship.mjs, pwsh -File x.ps1. A script written
+ * earlier runs without the guard reading it again, so callers read it now. null for inline code (bash -c, node -e).
+ */
+export function scriptRun(segment) {
+  const s = stripRedirects(segment);
+  const { w, i } = program(s);
+  const raw = words(s);
+  const name = (w[i] || '').replace(/\.(exe|cmd)$/i, '').toLowerCase();
+  // A path with a slash runs as itself: ./deploy.sh, scripts/ship.sh, & .\deploy.ps1.
+  if (/[\\/]/.test(raw[i] || '') && SCRIPT_EXT.test(raw[i])) return raw[i];
+  if (/^(pwsh|powershell)$/.test(name)) { const f = raw.findIndex((x, k) => k > i && /^-f(ile)?$/i.test(x)); return f === -1 ? null : raw[f + 1] || null; }
+  if (!Object.hasOwn(SCRIPT_RUNNERS, name)) return null;
+  const inline = SCRIPT_RUNNERS[name];
+  for (let j = i + 1 + (/^(deno|bun)$/.test(name) && raw[i + 1] === 'run' ? 1 : 0); j < raw.length; j++) {
+    if (inline?.test(raw[j])) return null;
+    if (raw[j].startsWith('-')) { if (RUNNER_VALUE_FLAGS.has(raw[j])) j++; continue; }
+    return raw[j];
+  }
+  return null;
+}
+
+/**
+ * kit-browser's run_code runs in Playwright's Node process, not the page: it can read files and start programs. allowed:
+ * the files that may run (null: none); inline code only without Node's file, process or module APIs. The dev's own
+ * browser servers are theirs: the kit doesn't hook them.
+ */
+export const RUN_CODE_TOOL = /^mcp__kit-browser__browser_run_code/;
+export function runCodeDecision(ti, cwd, root, allowed) {
+  if (typeof ti.filename === 'string' && ti.filename) {
+    const rel = relative(root, resolve(cwd || root, ti.filename)).replaceAll('\\', '/');
+    if (allowed?.test(rel)) return null;
+    return { decision: 'deny', reason: `browser_run_code_unsafe runs files in Node, outside the browser.${allowed ? ' Only the kit\'s own files run here' : ''} (got ${rel}). For page JavaScript, use browser_evaluate.` };
+  }
+  if (/\b(require|import)\s*\(|\bprocess\.|child_process|\bfs\b|readFile|writeFile|\.env\b|shopify-cli/.test(String(ti.code || ''))) {
+    return { decision: 'deny', reason: 'This code uses Node\'s file, process or module APIs, which run outside the browser with your access. For page JavaScript, use browser_evaluate or page.evaluate without them.' };
+  }
+  return null;
+}
+
 // ── The files a command writes ──
 
 export const WRITE_VERBS = /\b(writeFileSync|appendFileSync|writeFile|renameSync|rmSync|unlinkSync|write_text|Set-Content|Out-File|Add-Content|tee|cp|mv|rm|rmdir|Copy-Item|Move-Item|Remove-Item|del|truncate|touch|New-Item|patch|install|rsync|ln)\b|\bopen\s*\(|\bFile\.write|\bsed\s+-i|\bperl\s+-[a-z]*i|\bgit\s+apply\b|\bdd\b[^\n]*\bof=/i;
@@ -685,6 +736,8 @@ export function dumpsEnv(segment) {
   const drive = s.match(/^\s*(Get-ChildItem|gci|dir|ls|Get-Item|gi)\s+(-Path\s+)?['"]?env:([^\s'"]*)/i);
   if ((drive && (!drive[3] || /[*?]/.test(drive[3]) || SECRET_NAME.test(drive[3]))) ||/\[(System\.)?Environment\]::GetEnvironmentVariables\(/i.test(s)) return true;
   if (/\bconsole\.(log|dir|table)\(\s*process\.env\s*\)|JSON\.stringify\(\s*process\.env\s*[,)]|\bnode(\.exe)?\s+(-p|--print)\s+["']?process\.env["']?(?=\s|$)|\bp?print\(\s*(dict\()?os\.environ\s*\)?\s*\)/.test(s)) return true;
+  // The whole environment as a copy (Object.entries, a spread) that is then printed; a copy passed on to spawn prints nothing.
+  if (/Object\.(entries|values|assign)\([^()]*process\.env\s*\)|\.\.\.process\.env\b/.test(s) && /\bconsole\.\w+\(|JSON\.stringify\(|\bnode(\.exe)?\s+(-p|--print)\b|process\.stdout\.write\(/.test(s)) return true;
   // Only assignments before the program are prefixes: `export FOO=bar` sets a variable, it doesn't print them.
   const assign = (x) => /^[A-Za-z_]\w*=/.test(x);
   const all = words(s);

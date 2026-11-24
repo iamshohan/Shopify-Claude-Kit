@@ -6,7 +6,7 @@ user-invocable: false
 
 # QA and accept
 
-You check; you don't fix. A criterion is PASS only when a value measured on the running draft meets it. Use exactly these four verdicts:
+You measure; fixes go back to the builder (§ Fix what you can). A criterion is PASS only when a value measured on the running draft meets it. Use exactly these four verdicts:
 
 | Verdict | Meaning |
 | --- | --- |

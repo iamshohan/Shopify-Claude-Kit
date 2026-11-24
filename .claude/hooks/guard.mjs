@@ -17,6 +17,7 @@ import {
   WRITE_VERBS, INLINE_WRITE, scriptProblem, shellWrites, isGlob, searchesSecrets, gitConfigRisk, pushRouting, discardsWork, checkPush as checkPushCore,
   tagPush, ghMerges, pushesOtherwise, textFromFile, ghRunsWorkflow, ghReleases, runsShopifyCli, repoGit, WRAPPER_PATH, CLI_WORD, CLI_PATH, cliPackage, envFileIn, secretText, dumpsEnv,
   ENV_DUMP_WHY, CLI_LOGIN, DOTENV, SECRET_VAR, SECRET_READ, SECRET_PATH, forceAdd, redact, logPath, enforceMode, emit, scriptDir, userSettings, pushIn, runGuard,
+  scriptRun, runCodeDecision, RUN_CODE_TOOL,
 } from '../kit/guard-core.mjs';
 
 // ── Rules: patterns, verb lists and messages ──
@@ -47,7 +48,7 @@ const STATE_FILE = /logs[\\/][^\\/\s'"]+[\\/]state\.json/i;
 const SEAL = /guard-seal/i;
 const MANIFEST = /kit-manifest/i;
 // Direct Admin API calls with a token skip the wrapper, its store check and the seal.
-const ADMIN_HTTP = /X-Shopify-Access-Token|\/admin\/api\/\d{4}-\d{2}\//i;
+const ADMIN_HTTP = /X-Shopify-Access-Token|\/admin\/api\/(\d{4}-\d{2}|unstable)\//i;
 // Files that can switch the guard or git's safety off: settings.local.json can disable hooks, .mcp.json adds servers,
 // .git/config can hold an alias or a push refspec. Writing them asks.
 const GUARD_OFF = /^(\.claude\/[^/]+\.json|\.mcp\.json|\.git(\/|$))/i;
@@ -65,8 +66,6 @@ const CONFIG_KEYS = {
   draftRoute: 'how the draft theme is made', chromeWithoutAsking: 'admin steps the agent does in your Chrome without asking each time',
 };
 const STORE_VERBS = new Set(['mutate', 'delete-draft']);
-// The gates (Gate 1 approve, Gate 2 accept, an investigation's conclude): each answer is logged for the retro (the
-// skill already asked the dev; the guard doesn't ask a second time).
 // Wrapper verbs that run without asking. Anything else, including verbs added later, asks the dev.
 const SAFE_VERBS = new Set(['cli-check', 'auth-check', 'query', 'pull-live', 'check', 'draft', 'push', 'preview', 'fetch', 'verify', 'help', '--help']);
 // Without the cookie the redirect sets, ?preview_theme_id silently serves the live theme.
@@ -195,13 +194,17 @@ function themePickDecision(segs) {
   return null;
 }
 
-/** The prompt for a change to shopify-kit.json: which settings change, and what each controls. */
+/** A change to shopify-kit.json asks, naming which settings change and what each controls. */
 function configChange(ti, ctx) {
   const before = ctx.read(CONFIG_REL);
   let after = null;
   if (typeof ti.content === 'string') after = ti.content;
   else if (before !== null && typeof ti.old_string === 'string') {
     after = ti.replace_all ? before.split(ti.old_string).join(ti.new_string) : before.replace(ti.old_string, () => ti.new_string);
+  }
+  // Unreadable settings leave the guard protecting only main and master, whatever baseBranch says.
+  if (typeof after === 'string') {
+    try { JSON.parse(after); } catch { return { decision: 'deny', reason: `That would leave ${CONFIG_REL} unreadable (not valid JSON), and the guard would then protect only main and master. Write valid JSON.` }; }
   }
   let lines = null;
   try {
@@ -211,7 +214,7 @@ function configChange(ti, ctx) {
     lines = [...new Set([...Object.keys(a), ...Object.keys(b)])].filter((k) => JSON.stringify(a[k]) !== JSON.stringify(b[k]))
       .map((k) => `- ${k}: ${short(a[k])} → ${short(b[k])}${CONFIG_KEYS[k] ? ` (${CONFIG_KEYS[k]})` : ''}`);
   } catch { /* unreadable: say so */ }
-  return `This changes the kit's settings for this repo (${CONFIG_REL}):\n${lines ? lines.join('\n') || '- no setting changes' : '- the guard couldn\'t tell which settings change'}\nAllow it?`;
+  return { decision: 'ask', reason: `This changes the kit's settings for this repo (${CONFIG_REL}):\n${lines ? lines.join('\n') || '- no setting changes' : '- the guard couldn\'t tell which settings change'}\nAllow it?` };
 }
 
 // ── Bash and PowerShell ──
@@ -306,6 +309,13 @@ function decideCommand(raw, ctx, depth = 0, cwd = null) {
     // npm run x, npm --silent run x, npm test, node --run x, npm install's lifecycle scripts, each with its pre/post-script.
     const p = scriptProblem(seg, ctx.scripts(scriptDir(seg, dir)), scriptRunsCli);
     if (p) return { decision: 'deny', reason: `The package script "${p.name}" runs the Shopify CLI or Theme Kit ("${p.body}"). Use node .claude/kit/shopify.mjs, or ask the dev to run the script.` };
+    // bash deploy.sh, node scripts/ship.mjs: a script file is read when it runs (writing one is only logged). Not the kit's own.
+    const ran = !ctx.master() && scriptRun(seg);
+    const ranAt = ran && dirAfter(ran, dir ?? ROOT);
+    const ranRel = ranAt && relative(ROOT, ranAt).replaceAll('\\', '/');
+    if (ranRel && !/^\.claude\/(kit|hooks)\//i.test(ranRel) && scriptRunsCli(ctx.read(ranRel) ?? '')) {
+      return { decision: 'deny', reason: `${ranRel} runs the Shopify CLI or Theme Kit. Use node .claude/kit/shopify.mjs, or ask the dev to run the script.` };
+    }
     // A deny, not a prompt: the Grep tool does the same search without the token, so the agent just switches.
     const { w, i } = program(stripRedirects(seg));
     if (searchesSecrets(w, i, ROOT, dir, segs)) {
@@ -320,7 +330,9 @@ function decideCommand(raw, ctx, depth = 0, cwd = null) {
     if (here && (g.sub === 'switch' || g.sub === 'checkout') && !g.args.includes('--')) {
       const create = g.args.findIndex((a) => ['-c', '-C', '-b', '-B', '--create', '--force-create'].includes(a));
       const target = create !== -1 ? g.args[create + 1] : g.args.find((a) => !a.startsWith('-'));
-      if (target && !(g.sub === 'checkout' && ctx.isPath(target))) branch = target.replace(/^origin\//, '');
+      // git switch - (or @{-1}) returns to a branch the guard can't see: unknown, so a commit or merge after it asks.
+      if (g.args.some((a) => a === '-' || /^@\{-\d+\}$/.test(a))) branch = null;
+      else if (target && !(g.sub === 'checkout' && ctx.isPath(target))) branch = target.replace(/^origin\//, '');
     }
     // An alias, a push refspec, push.default or a branch's upstream can send "git push -u origin X" somewhere else.
     const oneOff = g.globals.flatMap((a, k) => (g.globals[k - 1] === '-c' ? [a.split('=')[0]] : []));
@@ -440,7 +452,7 @@ function decideFile(ti, cwd, ctx) {
   if (/^\.claude\/logs\/[^/]+\/state\.json$/i.test(rel)) return { decision: 'deny', reason: 'Task state changes go through node .claude/kit/kit.mjs (start, done, back, set).' };
   if (SEAL.test(rel)) return { decision: 'deny', reason: `Only the guard writes ${SEAL_FILE}.` };
   if (MANIFEST.test(rel)) return { decision: 'deny', reason: 'Only the kit installer writes .claude/.kit-manifest.json.' };
-  if (rel.toLowerCase() === CONFIG_REL) return { decision: 'ask', reason: configChange(ti, ctx) };
+  if (rel.toLowerCase() === CONFIG_REL) return configChange(ti, ctx);
   // .env.example and friends document the variables and hold no secrets.
   if (/^(\.claude\/\.env\.local|\.env(?!\.(example|sample|template|dist)$)(\.[^/]*)?|config\.yml)$/i.test(rel)) return { decision: 'deny', reason: 'Credential files are written by the dev, never by Claude.' };
   if (KIT_FILE.test(rel)) {
@@ -486,26 +498,14 @@ const defaultCtx = {
   gitConfig: (key) => git.config(key), staged: () => git.staged(), isTag: (name) => git.isTag(name),
 };
 
-/**
- * kit-browser's run_code runs in Playwright's Node process, not the page: it can read files and start programs. Files run
- * only from the kit (the probe) or a task's design-audit file; inline code only without Node's file, process or module APIs.
- */
-function decideRunCode(ti, cwd) {
-  const NODE_API = /\b(require|import)\s*\(|\bprocess\.|child_process|\bfs\b|readFile|writeFile|\.env\b|shopify-cli/;
-  if (typeof ti.filename === 'string' && ti.filename) {
-    const rel = relative(ROOT, resolve(cwd || ROOT, ti.filename)).replaceAll('\\', '/');
-    if (/^\.claude\/kit\/probe\.init\.js$|^\.claude\/logs\/[^/]+\/design-audit-[\w-]+\.js$/i.test(rel)) return null;
-    return { decision: 'deny', reason: `browser_run_code_unsafe runs files in Node, outside the browser. Only .claude/kit/probe.init.js and the design-audit files kit.mjs writes run here (got ${rel}). For page JavaScript, use browser_evaluate.` };
-  }
-  if (NODE_API.test(String(ti.code || ''))) return { decision: 'deny', reason: 'This code uses Node\'s file, process or module APIs, which run outside the browser with your access. For page JavaScript, use browser_evaluate or page.evaluate without them.' };
-  return null;
-}
+// The files kit-browser's run_code may run (it runs them in Node): the probe, and a task's design-audit file.
+const RUN_CODE_FILES = /^\.claude\/kit\/probe\.init\.js$|^\.claude\/logs\/[^/]+\/design-audit-[\w-]+\.js$/i;
 
 export function decide(input, ctx = defaultCtx) {
   const tool = input.tool_name;
   const ti = input.tool_input || {};
   if (['Edit', 'Write', 'MultiEdit', 'NotebookEdit'].includes(tool)) return decideFile(ti, input.cwd, ctx);
-  if (tool === 'mcp__kit-browser__browser_run_code_unsafe') return decideRunCode(ti, input.cwd);
+  if (RUN_CODE_TOOL.test(tool)) return runCodeDecision(ti, input.cwd, ROOT, RUN_CODE_FILES);
   // Bash, PowerShell, Monitor, and any later tool that runs a command: all read the same way.
   if (typeof ti.command === 'string') return decideCommand(ti.command, ctx, 0, input.cwd || null);
   return null;
@@ -531,6 +531,7 @@ function selftest() {
     [`${M}/del-other.graphql`]: 'mutation { metafieldDefinitionDelete(id: "gid://shopify/MetafieldDefinition/8", deleteAllAssociatedMetafields: true) { deletedDefinitionId } }',
     [`${M}/del-by-comment.graphql`]: '# gid://shopify/MetafieldDefinition/7\nmutation { metafieldDefinitionDelete(identifier: {ownerType: PRODUCT, namespace: "custom", key: "x"}) { deletedDefinitionId } }',
     [CONFIG_REL]: '{"store":"a.myshopify.com","baseBranch":"main"}',
+    'deploy.sh': 'shopify theme push --theme 1', 'scripts/ship.mjs': "spawnSync('shopify', ['theme', 'publish', '-t', '1'])", 'scripts/build.mjs': 'console.log(1)',
   };
   const STATE = { mutations: [{ ids: ['gid://shopify/MetafieldDefinition/7'] }], draft: { themeId: 5, name: K, route: 'cli' } };
   const ctx = (branch = K, scripts = {}, master = false, { gitConfig = {}, staged = [] } = {}) => ({
@@ -683,7 +684,7 @@ function selftest() {
     [bash(`node .claude/kit/kit.mjs note ${K} --note "$(cat .env)"`), 'deny'],
     [bash(`echo ok; node .claude/kit/kit.mjs note ${K} --note x; cat .env`), 'deny'],
     [bash('git commit -m "$(cat .env)"'), 'deny'],
-    // Gates: the skill asks the dev; the guard logs the answer instead of asking a second time
+    // Gates: the skill asks the dev; the guard doesn't ask a second time
     [bash(`node .claude/kit/kit.mjs done ${K} approve --answer "Approve"`), null],
     [bash(`node .claude/kit/kit.mjs done ${K} approve --answer "Approve" 2>&1`), null],
     [bash(`bash -c "node .claude/kit/kit.mjs done ${K} approve --answer x"`), null],
@@ -841,7 +842,7 @@ function selftest() {
       '"C:/Program Files/Git/cmd/git.exe" push origin main', 'env bash -c "git push origin main"', 'bash -lc "git push origin main"', 'timeout 10 git push origin main']
       .map((c) => [bash(c), 'deny']),
     [bash('env git commit -m x'), 'deny', ctx('main')],
-    // a gate the guard can't read as a plain call is logged; a redirect on a kit.mjs call is scanned
+    // a gate in a form the guard can't read as a plain call passes too; a redirect on a kit.mjs call is scanned
     [bash(`node --no-warnings .claude/kit/kit.mjs done ${K} approve --answer "Approve"`), null], [bash(`env node .claude/kit/kit.mjs done ${K} approve --answer "Approve"`), null],
     [bash(`node --no-warnings .claude/kit/kit.mjs set ${K} draft.themeId=9`), 'ask'],
     [bash(`node .claude/kit/kit.mjs set ${K} baseTheme=9`), 'ask'],
@@ -945,6 +946,23 @@ function selftest() {
     [write(`.claude/logs/${K}/notes.md`, 'the guard-seal and the kit-manifest'), null], [write('tools/seal.py', "open('guard-seal.json','w')"), 'deny'],
     [bash('git commit -m x'), null, ctx(K, {}, false, { staged: ['.circleci/config.yml', 'src/.environment.ts'] })],
     [bash('git commit -m x'), 'deny', ctx(K, {}, false, { staged: ['.env.production'] })],
+    // a script file is read when it runs: written earlier, it would otherwise run the CLI unseen
+    ...['bash deploy.sh', './deploy.sh', 'sh -x deploy.sh', 'bash -e deploy.sh', 'node scripts/ship.mjs', 'cd scripts && node ship.mjs'].map((c) => [bash(c), 'deny']),
+    ...['node scripts/build.mjs', 'bash missing.sh', 'bash -c "echo hi"'].map((c) => [bash(c), null]), [bash('bash deploy.sh'), null, ctx(K, {}, true)],
+    // GitHub's GraphQL API moves refs and commits files as well as REST does
+    ...[`gh api graphql -f query='mutation { createCommitOnBranch(input: {branch: {branchName: "main"}}) { commit { oid } } }'`,
+      `gh api graphql -f query='mutation { updateRef(input: {refId: "x", oid: "y", force: true}) { clientMutationId } }'`, 'gh api graphql -F query=@ship.graphql'].map((c) => [bash(c), 'deny']),
+    [bash(`gh api graphql -f query='query { viewer { login } }'`), null],
+    // the whole environment, copied and printed; a copy passed on to a child process prints nothing
+    ...['node -e "console.log(Object.entries(process.env))"', 'node -p "JSON.stringify({...process.env})"', 'node -e "console.log(Object.assign({}, process.env))"'].map((c) => [bash(c), 'deny']),
+    [bash('node -e "spawnSync(\'npm\', [\'test\'], { env: { ...process.env, CI: 1 } })"'), null],
+    [bash('curl -s https://x.myshopify.com/admin/api/unstable/graphql.json -d @q.json'), 'deny'],
+    // back to the previous branch: unknown to the guard, so what lands on it asks
+    [bash('git checkout - && git merge feature/x'), 'ask'], [bash('git switch @{-1} && git commit -m x'), 'ask'],
+    // settings the guard can't read would leave only main and master protected
+    [write(CONFIG_REL, '{"store":"a.myshopify.com",'), 'deny'],
+    // the dev's own browser servers aren't the kit's to restrict
+    [{ tool_name: 'mcp__playwright__browser_run_code_unsafe', tool_input: { code: 'async () => require("fs").readFileSync("data.json", "utf8")' } }, null],
   ];
   if (process.platform === 'win32') {
     cases.push([{ tool_name: 'Write', tool_input: { file_path: msys(`.claude/logs/${K}/state.json`) }, cwd: ROOT }, 'deny']);

@@ -2,6 +2,7 @@
 // Updates the kit everywhere on this machine: pulls this clone, then re-runs the installer in every repo it was installed into.
 //   node update.mjs                  pull, then update every repo
 //   node update.mjs --no-pull        update every repo from this checkout as it is
+//   node update.mjs --force          pull and update even off main or with uncommitted changes
 //   node update.mjs --scan <folder>  also find repos installed before the installer kept a list (one-time), then update
 //   node update.mjs --list           show the repos, change nothing
 // The installers keep the list (.installs.json here, git-ignored). A repo whose kit is gone drops off it.
@@ -45,6 +46,14 @@ if (flag('--list')) {
 }
 
 if (!flag('--no-pull')) {
+  // Every repo gets what this checkout holds: a feature branch or unsaved edits here would reach them all.
+  const branch = spawnSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).stdout.trim();
+  const edited = spawnSync('git', ['status', '--porcelain', '--untracked-files=no'], { cwd: ROOT, encoding: 'utf8' }).stdout.trim();
+  if (!flag('--force') && (branch !== 'main' || edited)) {
+    console.error(`${branch !== 'main' ? `This clone is on "${branch}", not main` : 'This clone has uncommitted changes'}, and every repo would get it. Nothing was updated.\n`
+      + `Switch to main (git switch main) and commit or stash your changes, or run with --force to install it anyway.`);
+    process.exit(1);
+  }
   const before = version();
   const pull = spawnSync('git', ['pull', '--ff-only'], { cwd: ROOT, encoding: 'utf8' });
   // A pull that didn't apply leaves this checkout as it was; installing from it would only repeat the last update.

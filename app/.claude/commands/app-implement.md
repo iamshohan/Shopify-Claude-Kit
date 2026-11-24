@@ -8,7 +8,7 @@ disable-model-invocation: true
 
 You are running the Shopify App Kit for one change. A script keeps track of where the change is, so you never have to remember it.
 
-**The type comes from the ticket**, not from the dev picking a command. Decide it, say it in one line ("Type: ab, because the ticket gates a checkout block on an A/B test"), and go on; the dev can correct it, and `start <ID> --type …` again changes it before anything is built.
+**The type comes from the ticket**, not from the dev picking a command. Decide it, say it in one line ("Type: ab, because the ticket gates a checkout block on an A/B test"), and go on; the dev can correct it before anything is built: `app.mjs abandon <ID> --reason "wrong type"`, then `start <ID> --type <type>` again (the documents stay).
 
 | Type | When |
 | --- | --- |

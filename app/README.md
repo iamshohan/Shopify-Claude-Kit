@@ -14,7 +14,7 @@ node install.mjs <path-to-app-repo> --app [--dry-run] [--force]
 
 Without `--app`, the root installer installs the theme kit. Then, in the app repo: `/app-setup` (it onboards the app too), then `/app-implement <KEY>`.
 
-The app kit lives in `app/` of the theme kit's repo. The code both kits share lives in `../shared/`: `guard-core.mjs`, `jira.mjs` and `update-check.mjs` are copied into `kit/` by `scripts/sync-shared.mjs`, and both installers import `installer-core.mjs`. Parts of `kit/core.mjs` are still copied by hand (see `CLAUDE.md`).
+The app kit lives in `app/` of the theme kit's repo. The code both kits share lives in `../shared/`: `core.mjs`, `guard-core.mjs`, `jira.mjs`, `update-check.mjs` and `rules/runs.md` are copied into `.claude/` by `scripts/sync-shared.mjs` (edit `shared/`, never a copy), and both installers import `installer-core.mjs`.
 
 ## Layout
 

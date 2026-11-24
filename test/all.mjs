@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Every check both kits have, in one run: the shared-code drift check, then the theme kit's and the app kit's suites.
-//   node test/all.mjs        (about a minute: the suites run side by side; each e2e works in its own temp folder)
+//   node test/all.mjs        (about 3 minutes: the suites run side by side; each e2e works in its own temp folder)
 import { spawn } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';

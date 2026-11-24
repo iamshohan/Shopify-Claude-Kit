@@ -8,7 +8,8 @@ function designAudit(spec, env) {
     qa: (s) => Array.from(document.querySelectorAll(s)),
     style: (el) => getComputedStyle(el),
     rect: (el) => el.getBoundingClientRect(),
-    vw: () => innerWidth,
+    // Without the scrollbar, as probe.gutter and media queries measure it.
+    vw: () => document.documentElement.clientWidth,
   };
   // rgb()/rgba() anywhere in a value (colours, borders, shadows) → #rrggbb; a partly transparent one keeps its alpha.
   const hex = (m, r, g, b, a) => {

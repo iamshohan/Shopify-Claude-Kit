@@ -601,10 +601,10 @@ export function deploySteps({ keys, ext, server, serverGone = false, configs, ap
 export const serverChanged = (keys, changed) => keys.some((k) => /^. (webhook:|compliance-webhook:|app-proxy$|model:|enum:|db:|view:|type:)/.test(k))
   || changed.some((p) => /^(app|web|server|prisma|public)\/|^(package\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|shopify\.web\.toml|dockerfile)$/.test(p));
 
-/** The deploy steps for this change, from verify's surface changes and the extensions it touched. */
 /** What the repo is now: an app server (routes or a database) is admin; without one, extensions only. */
 const appKindNow = () => (existsSync(join(ROOT, 'app', 'routes')) || existsSync(join(ROOT, 'prisma')) ? 'admin' : 'extensions');
 
+/** The deploy steps for this change, from verify's surface changes and the extensions it touched. */
 function stepsFor(cfg, st) {
   const keys = (st.verify?.checks.find((c) => c.name === 'surfaces')?.attention || []).map((s) => s.change);
   const items = readItems(treeReader(ROOT), { configName: cfg.appConfig }).items;
@@ -788,23 +788,23 @@ function finishArchive(cfg, id, st, to) {
   return { archived: to, next: archivedNext(cfg, id, st, to) };
 }
 
-/** What's left after a handoff: commit, push, open the PR from handoff.md. */
-/**
- * owner/repo on GitHub, from origin: https or git@github.com, and an SSH alias such as drip-dev:Org/repo (the asmc
- * remote), which the team only uses for GitHub. null for anything else.
- */
 /** Where a new change's branch starts: the base, or the onboarding branch while that isn't merged. */
 function changeSource(cfg) {
   const has = (ref) => run('git', ['cat-file', '-e', `${ref}:${specPaths(cfg).surfaces}`]).code === 0;
   return !has(`origin/${cfg.baseBranch}`) && has(`origin/${ONBOARD_BRANCH}`) ? `origin/${ONBOARD_BRANCH}` : `origin/${cfg.baseBranch}`;
 }
 
+/**
+ * owner/repo on GitHub, from origin: https or git@github.com, and an SSH alias such as drip-dev:Org/repo (the asmc
+ * remote), which the team only uses for GitHub. null for anything else.
+ */
 function githubRepo() {
   const remote = (run('git', ['remote', 'get-url', 'origin']).stdout || '').trim();
   return remote.match(/github\.com[:/]([^/\s]+\/[^/\s]+?)(\.git)?$/)?.[1]
     || remote.match(/^(?:[\w.-]+@)?[\w.-]+:([\w.-]+\/[\w.-]+?)(\.git)?$/)?.[1] || null;
 }
 
+/** What's left after a handoff: commit, push, open the PR from handoff.md. */
 function archivedNext(cfg, id, st, to) {
   const P = specPaths(cfg);
   const uncommitted = run('git', ['status', '--porcelain', '--', P.dir]).stdout.trim();
@@ -815,7 +815,7 @@ function archivedNext(cfg, id, st, to) {
     st.test ? '(test run: no push)' : (uncommitted || behind) && `git push -u origin ${st.branch}`,
     `PR text and deploy checklist: ${to}/handoff.md`,
     st.stackedOn && run('git', ['cat-file', '-e', `origin/${cfg.baseBranch}:${specPaths(cfg).surfaces}`]).code !== 0 && `merge ${st.stackedOn} into ${cfg.baseBranch} first, with a merge commit (a squash merge would make this PR repeat the onboarding)`,
-    !st.test && githubRepo() && `open the PR: https://github.com/${githubRepo()}/compare/${cfg.baseBranch}...${st.branch}?expand=1 (with gh: gh pr create --base ${cfg.baseBranch} --head ${st.branch} --body-file ${to}/handoff.md)`,
+    !st.test && githubRepo() && `open the PR: https://github.com/${githubRepo()}/compare/${cfg.baseBranch}...${st.branch}?expand=1 (with gh: gh pr create --draft --base ${cfg.baseBranch} --head ${st.branch} --body-file ${to}/handoff.md)`,
   ].filter(Boolean);
 }
 
@@ -832,7 +832,7 @@ function retroSignals(st) {
   try {
     guardBlocks = readFileSync(join(LOGS, '_guard.jsonl'), 'utf8').split(/\r?\n/).filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } })
       // This change's branch; entries from before the guard logged a branch fall back to the change's time window.
-      // Gate answers aren't blocks (gateAnswers has them). kind (deny, ask or log) says what the guard did.
+      // Logs from before 0.3 also hold gate answers (gate: true), which aren't blocks. kind (deny, ask or log) says what the guard did.
       .filter((g) => g && !g.gate && g.at >= st.createdAt && g.at <= to && (g.branch ? g.branch === st.branch : true)).map((g) => `${g.at.slice(0, 16)} ${g.kind ? `[${g.kind}] ` : ''}${String(g.reason || '').slice(0, 110)} ← ${String(g.command || '').slice(0, 90)}`);
   } catch { /* no guard log */ }
   return {
@@ -1145,8 +1145,6 @@ switch (verb) {
     const type = typeof flags.type === 'string' ? oneOf(...TYPES)(flags.type) : fail(`Name the type: --type ${TYPES.join('|')}`);
     const existing = readChange(cfg, id, { required: false });
     if (existing && existing.stage !== 'abandoned') { print(summaryLines(cfg, id, existing)); break; }
-    // Every change measures its surfaces against the base branch: without the onboarding there, it measures against an app
-    // the kit never recorded (asmc first run: 7 declared removals showed as never happening).
     // Every change measures its surfaces against the base. Before the onboarding is merged, the change stacks on the
     // onboarding branch and measures against it (asmc first run: measured against main, 7 removals showed as missing).
     const onBase = run('git', ['cat-file', '-e', `origin/${cfg.baseBranch}:${specPaths(cfg).surfaces}`]).code === 0;

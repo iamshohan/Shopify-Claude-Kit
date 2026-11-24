@@ -17,6 +17,7 @@ function diffPaths(a, b, path = '', out = []) {
 }
 
 let failed = 0;
+let compared = 0;
 // No repos would compare nothing and look like a pass.
 if (!process.argv.slice(2).length) {
   console.error('Usage: node test/app-toml-parity.mjs <app-repo> [<app-repo> ...]   (needs the Shopify CLI and a login)');
@@ -30,8 +31,11 @@ for (const repo of process.argv.slice(2)) {
   for (const f of files) {
     const mine = parseToml(readFileSync(f.path, 'utf8'));
     const d = diffPaths(mine, f.content);
+    compared++;
     if (d.length) failed++;
     console.log(`${d.length ? 'FAIL' : 'ok  '}  ${f.path.replace(/\\/g, '/').split('/').slice(-3).join('/')}${d.length ? `  differs at ${d.slice(0, 5).join(', ')}` : ''}`);
   }
 }
-process.exit(failed ? 1 : 0);
+// Every repo skipped compared nothing: that's no pass either.
+if (!compared) console.log('FAIL  no file was compared: every repo was skipped');
+process.exit(failed || !compared ? 1 : 0);
