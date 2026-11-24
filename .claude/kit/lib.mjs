@@ -56,9 +56,6 @@ export const INVESTIGATION_STAGES = [
 
 export const stagesFor = (st) => (st?.kind === 'investigation' ? INVESTIGATION_STAGES : STAGES);
 
-// Stages kit 1.1.0 dropped, and where a task that was in one resumes: teams have tasks in flight.
-const RETIRED_STAGES = { clarify: 'plan', frame: 'gather' };
-
 // ── Output and arguments ──
 
 export const now = () => new Date().toISOString();
@@ -310,9 +307,7 @@ export function readState(key, { required = true } = {}) {
     if (!required) return null;
     fail(`${key} hasn't been started. Run: node .claude/kit/kit.mjs start ${key}`);
   }
-  const st = JSON.parse(readFileSync(p, 'utf8'));
-  if (RETIRED_STAGES[st.stage]) { st.resumedFrom = st.stage; st.stage = RETIRED_STAGES[st.stage]; }
-  return st;
+  return JSON.parse(readFileSync(p, 'utf8'));
 }
 
 /** Write to a temp file and rename, so a crash never leaves half a state file. */

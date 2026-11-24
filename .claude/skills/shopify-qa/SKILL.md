@@ -27,7 +27,6 @@ Never write "QA passed" while any row is FAIL, NOT TESTED or BLOCKED.
    Use `kit.mjs qa-row <KEY> <#> --measured "…" --how "…" --verdict PASS`. It edits one row safely; don't rewrite the table with heredocs or regex scripts.
    - PASS and FAIL need `--measured` and `--how` in the same call, and a draft at HEAD. The row records the commit, the draft, the time and the plan's text for the criterion.
    - `done qa` wants a qa-row verdict for every numbered plan criterion, shown as recorded in report.md, so never type, edit or blank a verdict in the table. A criterion changed in `plan.md` after it was measured gets measured again.
-   - **QA resumed from an earlier kit version:** if `done qa` names rows qa-row has no matching record for, re-measure each and record it with qa-row on the draft at HEAD.
 4. **Browsers: two, each for what it's safe for.**
    - **Storefront (the draft, live for comparison): the `kit-browser` tools** (`mcp__kit-browser__*`, an isolated Playwright browser that `/shopify-setup` adds). It isn't logged in anywhere, so nothing it does can reach the admin.
    - **Theme editor and admin pages: Chrome** (load the `claude-in-chrome` skill, then open a new tab and keep it in front: background tabs freeze animations and timers). Chrome runs as the dev's admin account.

@@ -6,7 +6,7 @@ user-invocable: false
 
 # Handoff
 
-The kit prepares everything and merges nothing. Merging, posting to Jira and going live are the dev's steps. The kit offers to create the PR as a draft; the dev can say no.
+The kit prepares everything and merges nothing. Merging, posting to Jira and going live are the dev's steps. The kit offers to create the PR as a draft, or to print the merge commands for the dev to run; the dev can decline both.
 
 1. **Push the branch:** `git push -u origin <branch>` (already done on a GitHub-connected draft).
    - **Test run** (status says TEST RUN): skip the push. Write everything below as usual so the run can be judged, and start the PR title with "TEST RUN, not for merge". At cleanup, offer to delete the `<KEY>-kit-test` draft and the local branch.
@@ -45,9 +45,14 @@ The kit prepares everything and merges nothing. Merging, posting to Jira and goi
      5. **on a GitHub-connected draft:** "Please don't press Save in this draft's theme editor: every save becomes a change in the code under review." (CHE-865: 36 test edits reached the branch that way.)
 
      Never restate the ticket. No branch names, PR numbers, file paths, Q numbers, internal names or pass counts. Tell the dev to move the ticket to the team's review status (in Drip's Jira usually "AC Review"), not to Done: Done can start billing automation.
-   - **Client check.** Spawn the `outcome-checker` agent with the key and mode `handoff`. Fix the Jira comment by what it finds, and record its `Client surprises:` line and your changes under § Handoff → Client check. `done handoff` refuses without that line.
+   - **Client check.** Spawn the `outcome-checker` agent with the key and mode `handoff`. Fix the Jira comment by what it finds, and record its `Client surprises:` line and your changes under § Handoff → Client check. `done handoff` refuses without that line, except for a small fix (the plan stage skipped its check for the same reason): write "Skipped: small fix." there.
    - **Open points:** known gaps, "see report.md § You must still do", "noticed, not touched" items, and leftover store data.
-4. **The PR.** Write the PR body to `.claude/logs/<KEY>/pr.md`. A PR for the branch already exists (`gh pr view <branch>`, after a loop back): update its body with `gh pr edit <branch> --body-file …` and say so in one line; don't ask again, and don't ask cleanup questions already answered. Otherwise, if `gh` is installed and logged in (`gh auth status`), offer in one AskUserQuestion, together with the cleanup questions below: **Create the PR as a draft (Recommended)** / **I'll create it myself**. On yes: `gh pr create --draft --repo <owner/repo of origin> --base <baseBranch> --head <branch> --title "<title>" --body-file .claude/logs/<KEY>/pr.md`, and give the dev its URL. A draft refused (some plans don't allow draft PRs on private repos): stop and tell the dev; never retry without `--draft`. Never `gh pr ready` or merge. report.md § PR holds the same text as pr.md. Without `gh`, skip the offer: the PR text is in report.md.
+4. **The PR.** Write the PR body to `.claude/logs/<KEY>/pr.md`. A PR for the branch already exists (`gh pr view <branch>`, after a loop back): update its body with `gh pr edit <branch> --body-file …` and say so in one line; don't ask again, and don't ask cleanup questions already answered. Otherwise offer in one AskUserQuestion, together with the cleanup questions below:
+   - **Create the PR as a draft (Recommended)**, only if `gh` is installed and logged in (`gh auth status`): `gh pr create --draft --repo <owner/repo of origin> --base <baseBranch> --head <branch> --title "<title>" --body-file .claude/logs/<KEY>/pr.md`, and give the dev its URL. A draft refused (some plans don't allow draft PRs on private repos): stop and tell the dev; never retry without `--draft`. Never `gh pr ready`.
+   - **Give me the merge commands**, for a team that merges from the terminal. Print them for the dev to run, one per line (a long chained `!` command breaks when pasted): `! git switch <baseBranch>`, `! git pull --ff-only`, `! git merge --no-ff <branch>`, `! git push origin <baseBranch>`. Before them, on a GitHub-connected draft, `! node .claude/kit/kit.mjs premerge <KEY>`; and repeat the deploy warning when merging deploys to the live theme. Never run them yourself: the guard blocks it.
+   - **I'll handle it myself.**
+
+   report.md § PR holds the same text as pr.md.
 5. **Cleanup.** In the same AskUserQuestion round, only for what applies:
    - **The draft theme:** ask only when QA store values exist or the dev wants it gone; otherwise say "Draft kept for client and AC review; `shopify.mjs delete-draft <KEY>` removes it later." When asked: keep it until client and AC review end (recommended), delete it after merge, or delete it now. Deleting uses `shopify.mjs delete-draft <KEY>`, and the dev approves it. A client walkthrough video (`/shopify-video <KEY>`) is filmed on the draft: say so when the ticket or the dev mentions a video.
    - **QA test values** (in the summary's store changes): keep or remove? Each removal is a mutation the dev approves.

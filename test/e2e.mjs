@@ -5,7 +5,7 @@
 //   node test/e2e.mjs [--keep]      --keep leaves the temp folder for inspection
 // Exits 1 if any check fails.
 import { spawnSync, execFileSync } from 'node:child_process';
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { delimiter, dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -742,13 +742,6 @@ try {
   const theirs = kit('kit.mjs', 'status', KEY).out;
   ok('status shows the owner, and warns when git user.email is someone else', /Owner: e2e <e2e@example\.invalid>/.test(mine) && !/WARNING/.test(mine) && /Owner: Ana .*WARNING/.test(theirs), mine + theirs);
 
-  // ── Tasks in flight at a stage this kit version folded away ──
-  kit('kit.mjs', 'start', 'ABC-2');
-  const st2 = join(repo, '.claude', 'logs', 'ABC-2', 'state.json');
-  writeFileSync(st2, JSON.stringify({ ...JSON.parse(readFileSync(st2, 'utf8')), stage: 'clarify', lane: 'small' }));
-  const resumed2 = kit('kit.mjs', 'status', 'ABC-2');
-  ok('a task at the old clarify stage resumes at plan', /stage 3\/9: plan/.test(resumed2.out) && /was at "clarify"/.test(resumed2.out), resumed2.all);
-
   // ── Feasibility ──
   // A feasibility check must list the requirements and give an estimate, checked by the evidence-checker; other investigation types don't.
   const fill = (k, heading, text) => {
@@ -796,11 +789,10 @@ try {
   kit('kit.mjs', 'set', 'ABC-4', 'type=debug');
   fill('ABC-4', '## Question', question);
   const st4 = join(repo, '.claude', 'logs', 'ABC-4', 'state.json');
-  writeFileSync(st4, JSON.stringify({ ...JSON.parse(readFileSync(st4, 'utf8')), stage: 'frame' }));
   const debugGather = kit('kit.mjs', 'done', 'ABC-4', 'gather');
   writeFileSync(st4, JSON.stringify({ ...JSON.parse(readFileSync(st4, 'utf8')), stage: 'conclude' }));
   const debugConclude = kit('kit.mjs', 'done', 'ABC-4', 'conclude', '--answer', 'Accept');
-  ok('an investigation at the old frame stage resumes at gather; a debug one needs no § Requirements and no evidence-checker',
+  ok('a debug investigation needs no § Requirements and no evidence-checker',
     /hypotheses/.test(debugGather.err) && !/Requirements|current stage/.test(debugGather.all) && !/evidence-checker/.test(debugConclude.all), debugGather.all + debugConclude.all);
   // A run with nothing to look back on finishes quietly: no retro printed or recorded.
   kit('kit.mjs', 'start', 'ABC-9', '--investigate');
@@ -861,6 +853,21 @@ try {
   writeFileSync(plan6, readFileSync(plan6, 'utf8').replace('### Decided for you\n', '### Decided for you\n\n- Spacing stays in code: a design constant of the theme.\n'));
   const gate1 = kit('kit.mjs', 'done', 'ABC-6', 'plan');
   ok('"Gate 1" for a value kept in code needs the value named under Decided for you', /says Gate 1, but plan\.md → Decided for you doesn't name it/.test(gate1Unlisted.err), gate1Unlisted.all);
+  // A small fix (a bug fix in at most 3 files, no store writes, nothing differing, no client's call) skips the outcome-checker.
+  const filesHeader = '| Path | Create / modify | Exact change | Anchor (symbol, never a line number) | Data flow |\n| --- | --- | --- | --- | --- |\n';
+  const beforeSmall = readFileSync(plan6, 'utf8');
+  const mutation6 = join(repo, '.claude', 'logs', 'ABC-6', 'mutations', '01-value.graphql');
+  writeFileSync(plan6, beforeSmall.replace(filesHeader, `${filesHeader}| sections/cart.liquid | modify | recompute the total | cart-total | — |\n`));
+  const smallWithWrites = kit('kit.mjs', 'done', 'ABC-6', 'plan');
+  const mutationText = readFileSync(mutation6, 'utf8');
+  unlinkSync(mutation6);
+  const small = kit('kit.mjs', 'done', 'ABC-6', 'plan');
+  writeFileSync(plan6, readFileSync(plan6, 'utf8').replace('- **Differs from the ticket or the A/B test:**', '- **Differs from the ticket or the A/B test:** AC 2 keeps the old rounding'));
+  const smallDiffers = kit('kit.mjs', 'done', 'ABC-6', 'plan');
+  writeFileSync(plan6, beforeSmall);
+  writeFileSync(mutation6, mutationText);
+  ok('a small fix skips the outcome-checker; store writes or a difference from the ticket bring it back',
+    /Independent check/.test(smallWithWrites.err) && !/Independent check/.test(small.err) && /Independent check/.test(smallDiffers.err), smallWithWrites.all + small.all + smallDiffers.all);
   // A task started before the kit added Decided for you and Independent check has neither heading: it isn't refused for them.
   const plan6Text = readFileSync(plan6, 'utf8');
   writeFileSync(plan6, plan6Text.replace(/### Decided for you\n[\s\S]*?(?=### Not proven yet)/, '').replace(/### Independent check\n[\s\S]*?(?=---)/, ''));

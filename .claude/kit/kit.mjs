@@ -177,7 +177,7 @@ function planBody(md) {
   return `${md.split(/\r?\n/).filter((l) => { if (/^##\s/.test(l)) skip = /^##\s+As built\b/i.test(l.trim()); return !skip; }).join('\n').trimEnd()}\n`;
 }
 
-/** Lines added (+) and removed (-) in plan.md since Gate 1, or null when there is no approved copy (approved before kit 1.1.0's listing). */
+/** Lines added (+) and removed (-) in plan.md since Gate 1, or null when the approved copy is missing. */
 function planDiff(key) {
   const approved = join(LOGS, key, APPROVED_PLAN);
   if (!existsSync(approved)) return null;
@@ -197,7 +197,7 @@ function sinceApproval(key, st) {
   const diff = planDiff(key);
   return [
     `Changed files plan.md § Files doesn't name: ${unplanned.length ? unplanned.map((f) => (reaching.has(f) ? `${f} (${reaching.get(f)})` : f)).join(', ') : 'none'}`,
-    diff === null ? 'plan.md changes since approval: no approved copy to compare (approved before this kit version)'
+    diff === null ? 'plan.md changes since approval: no approved copy to compare'
       : diff.length ? `plan.md changes since approval (${diff.length} lines):\n${diff.slice(0, 40).map((l) => `  ${l}`).join('\n')}${diff.length > 40 ? `\n  … ${diff.length - 40} more` : ''}`
         : 'plan.md changes since approval: none',
   ];
@@ -316,19 +316,38 @@ function glanceProblems(key) {
   const said = attention.join('\n').toLowerCase();
   const indep = added(key, 'plan.md', '### Independent check', '## At a glance').join('\n');
   const unnamed = reach(key).filter((x) => !said.includes(x.file.toLowerCase()) && !said.includes(x.file.split('/').pop().toLowerCase()));
-  // Definitions and the mutation files the plan wrote; QA data that only names existing products writes nothing.
-  const mutations = join(LOGS, key, 'mutations');
-  const storeWrites = (filled(key, 'plan.md', '### Definitions', '## Store setup') && !saysNone(key, 'plan.md', '### Definitions', '## Store setup'))
-    || (existsSync(mutations) && readdirSync(mutations).some((f) => f.endsWith('.graphql')));
+  const storeWrites = writesStore(key);
   return [
     !attention.length && 'fill plan.md § At a glance → ### Needs your attention: what this change can affect beyond the new feature, most impact first, or "none: only new files the feature owns"',
     unnamed.length && `Needs your attention doesn't name ${unnamed.map((x) => `${x.file} (${x.reach})`).join('; ')}. For each, say what could change for what already uses it, and how the plan contains it`,
     storeWrites && !/\bstore\b|definition|metaobject|metafield/.test(said) && 'Needs your attention: name the store writes (definitions, QA values) and whether they show on live before the merge',
     !rows.length && 'fill plan.md § At a glance → ### What changes: one row per file (or file group), "What happens" in 15 words at most',
-    hasHeading(key, 'plan.md', '### Independent check') && (!/Surprises\s*:/i.test(indep) || !/Unlisted assumptions\s*:/i.test(indep))
+    hasHeading(key, 'plan.md', '### Independent check') && !smallFix(key, readState(key)) && (!/Surprises\s*:/i.test(indep) || !/Unlisted assumptions\s*:/i.test(indep))
       ? 'plan.md § At a glance → ### Independent check needs the outcome-checker agent\'s plan pass: run it (mode plan), fix what it finds, and record its "Surprises:" and "Unlisted assumptions:" lines there'
       : false,
   ];
+}
+
+/** Definitions and the mutation files the plan wrote; QA data that only names existing products writes nothing. */
+function writesStore(key) {
+  const mutations = join(LOGS, key, 'mutations');
+  return (filled(key, 'plan.md', '### Definitions', '## Store setup') && !saysNone(key, 'plan.md', '### Definitions', '## Store setup'))
+    || (existsSync(mutations) && readdirSync(mutations).some((f) => f.endsWith('.graphql')));
+}
+
+/**
+ * A small fix skips the outcome-checker's plan and handoff passes: a bug fix in at most 3 files, with no store writes,
+ * nothing differing from the ticket and no client's call. Its value is catching what the client didn't ask for; here there's none.
+ */
+function smallFix(key, st) {
+  if (st?.type !== 'bugfix') return false;
+  const plan = read(join(LOGS, key, 'plan.md'));
+  const brief = existsSync(join(LOGS, key, 'brief.md')) ? read(join(LOGS, key, 'brief.md')) : '';
+  const differs = differsLines(plan).join('\n').replace(/^- \*\*Differs[^*]*\*\*/, '').replace(/^[\s\-*]+/, '');
+  const files = planPaths(key).length;
+  return files > 0 && files <= 3 && !writesStore(key)
+    && (!differs || /^(none|n\/a|—)/i.test(differs))
+    && !/client['’]?s call/i.test(`${plan}\n${brief}`.replace(/<!--[\s\S]*?-->/g, ''));
 }
 
 /** The "Differs from the ticket" bullet under plan.md § At a glance, as lines. */
@@ -372,7 +391,7 @@ function handoffTextProblems(key, st) {
     jira.trim() && notTold.length && `the Jira comment doesn't tell the client about ${notTold.join(', ')}: add each row of What differs from what was asked, in their words, with its AC`,
     /\.claude[\\/]logs|\b(report|plan|brief)\.md\b/i.test(`${pr}\n${jira}`) && 'the PR or the Jira comment points to the kit\'s files (.claude/logs/…, report.md, plan.md), which git ignores: paste what reviewers need inline',
     st.draft?.route === 'github' && jira.trim() && !/\bsav(e|ing)\b/i.test(jira) && 'the draft is GitHub-connected: the Jira comment must ask reviewers not to press Save in its theme editor (each save becomes a commit on the branch under review)',
-    hasHeading(key, 'report.md', '### Client check') && filled(key, 'report.md', '## Handoff') && !/Client surprises\s*:/i.test(check) && 'report.md § Handoff → Client check needs the outcome-checker agent\'s handoff pass: run it (mode handoff), fix the Jira comment by it, and record its "Client surprises:" line',
+    hasHeading(key, 'report.md', '### Client check') && !smallFix(key, st) && filled(key, 'report.md', '## Handoff') && !/Client surprises\s*:/i.test(check) && 'report.md § Handoff → Client check needs the outcome-checker agent\'s handoff pass: run it (mode handoff), fix the Jira comment by it, and record its "Client surprises:" line',
   ];
 }
 
@@ -770,7 +789,6 @@ function summaryLines(key, st, cfg) {
     const s = stages[i];
     lines.push(`${key} · ${label} · stage ${i + 1}/${stages.length}: ${s.name}${s.gate ? ` (${s.gate})` : ''}`);
     lines.push(`Next: load the skill "${s.skill}" and do the "${s.name}" stage.`);
-    if (st.resumedFrom) lines.push(`This task was at "${st.resumedFrom}", a stage this kit version folded into "${s.name}": the skill's ${s.name} stage covers what was left of it.`);
   }
   const done = stages.filter((_, j) => j < (i === -1 ? stages.length : i)).map((s) => {
     const g = st.gates?.[s.name];
@@ -880,7 +898,7 @@ function selftest() {
   eq('ignore regex', ignore('assets/theme.js.map'), true);
   eq('ignore miss', ignore('sections/header.liquid'), false);
   eq('stages implement', stagesFor({}).map((x) => x.name), ['intake', 'analyze', 'plan', 'approve', 'build', 'draft', 'qa', 'accept', 'handoff']);
-  eq('implement gates', stagesFor({ lane: 'small' }).filter((x) => x.gate).map((x) => x.name), ['approve', 'accept']);
+  eq('implement gates', stagesFor({}).filter((x) => x.gate).map((x) => x.name), ['approve', 'accept']);
   eq('stages investigation, the gate still named conclude', stagesFor({ kind: 'investigation' }).map((x) => `${x.name}${x.gate ? '*' : ''}`), ['gather', 'conclude*']);
   eq('parseArgs takes a value that starts with -- but isn\'t a flag', parseArgs(['qa-row', 'A-1', '3', '--measured', '--gap: 16px', '--how', '__qa.css()']).flags, { measured: '--gap: 16px', how: '__qa.css()' });
   eq('parseArgs leaves a following flag alone', parseArgs(['push', 'A-1', '--reconciled', '--dry-run']).flags, { reconciled: true, 'dry-run': true });
@@ -1097,7 +1115,6 @@ switch (verb) {
     // The commit QA measured: handoff checks that the branch it pushes is still this one.
     if (stage === 'qa') st.qa = { ...st.qa, commit: ref(`refs/heads/${st.branch}`) };
     st.history.push({ at: now(), event: 'done', stage, answer: answer || undefined });
-    delete st.resumedFrom;
     const next = stages[stageIndex(stage, st) + 1];
     st.stage = next ? next.name : 'done';
     writeState(key, st);
@@ -1140,7 +1157,6 @@ switch (verb) {
     }
     for (const s of stages.slice(to)) delete st.gates[s.name];
     st.history.push({ at: now(), event: 'back', from: st.stage, to: target, reason: flags.reason.trim() });
-    delete st.resumedFrom;
     st.stage = target;
     writeState(key, st);
     print(summaryLines(key, st, readConfig({ required: false })));

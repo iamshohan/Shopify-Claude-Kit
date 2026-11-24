@@ -117,7 +117,9 @@ Aim for 300 lines or fewer. A small fix gets a short plan: write "none" under a 
 
 ### Last: the independent check
 
-Spawn the `outcome-checker` agent with the key and mode `plan`. It reads the ticket and the theme first, writes its own expectations, then compares them with the plan, so it doesn't inherit the plan's blind spots.
+**Skip it for a small fix:** a bug fix whose § Files names at most 3 files, with no store writes, nothing under Differs from the ticket and no "client's call". Write "Skipped: small fix." under Independent check; `done plan` refuses the skip when the plan isn't one. The same skip applies to the handoff's client check.
+
+Otherwise spawn the `outcome-checker` agent with the key and mode `plan`. It reads the ticket and the theme first, writes its own expectations, then compares them with the plan, so it doesn't inherit the plan's blind spots.
 - Fix what it finds: add Differs rows, Not proven yet rows, QA criteria with live baselines; move shared-file overrides into the feature's files; rewrite merchant text.
 - A finding you disagree with stays, with one line on why.
 - Record its lines (`Surprises:`, `Unlisted assumptions:`, `Convention:` and the rest) and your changes under At a glance → **Independent check**. The dev reads them at Gate 1. `done plan` refuses without the `Surprises:` and `Unlisted assumptions:` lines.

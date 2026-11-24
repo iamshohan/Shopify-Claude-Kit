@@ -15,7 +15,7 @@ user-invocable: false
    If it stops because a file couldn't be written or the folder couldn't move, its message says why: fix that and run `handoff <ID>` again (it writes the same files again).
 4. **Commit and push** with the commands it prints (`git add -- appspec`, the commit, `git push -u origin <branch>`). A test run never pushes (the guard blocks it).
 5. **Tell the dev**, in at most 8 lines:
-   - the PR text is in `appspec/archive/<date>-<ID>/handoff.md` § PR description (offer to open the PR with `gh pr create` using it; only if they say yes)
+   - the PR text is in `appspec/archive/<date>-<ID>/handoff.md` § PR description. Offer in one AskUserQuestion: **Open the PR as a draft** (only with `gh` logged in: `gh pr create --draft --repo <owner/repo of origin> --base <base> --head <branch> --body-file <handoff.md's PR text>`; never retry without `--draft`), **Give me the merge commands** (print one per line for the dev to run: `! git switch <base>`, `! git pull --ff-only`, `! git merge --no-ff <branch>`, `! git push origin <base>`; a change stacked on `kit-onboard` merges `kit-onboard` first, the same way), or **I'll handle it myself**. Never run a merge or a push to the base yourself.
    - the deploy checklist in the same file: the dev deploys, in that order; the kit never does
    - the manual checks the reviewer still does
 6. If the run had friction the kit caused, `app.mjs retro <ID>` lists the signals; record each kit cause with `app.mjs note <ID> "…" --kind <kind>`. Optional.
