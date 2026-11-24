@@ -261,11 +261,20 @@ function decideCommand(raw, ctx, depth = 0, cwd = null) {
   const live = segs.filter((s) => !isText(s));
   const scanned = live.join(' ; ').replace(WRAPPER_PATH, ' KIT_WRAPPER ');
   // grep "shopify theme push" docs/ and echo "…" run nothing: the CLI's words count only where something could run them.
-  // cd into the CLI's own folder to grep its source runs nothing, but only when every other segment only reads.
-  const filters = (s) => /^(head|tail|sort|uniq|wc|cut|cat|ls)(\.exe)?$/i.test(program(stripRedirects(s)).w[program(stripRedirects(s)).i] || '') && !substitutes(s);
-  const readsOnly = live.every((s) => onlyReadsText(s) || cdArg(s) || filters(s));
-  const runnable = live.filter((s) => !onlyReadsText(s) && !(readsOnly && cdArg(s))).join(' ; ').replace(WRAPPER_PATH, ' KIT_WRAPPER ');
-  if (CLI_WORD.test(runnable) || CLI_PATH.test(runnable) || CLI_PKG.test(runnable) || CLI_ENV.test(runnable) || LIVE_THEME.test(runnable)) return { decision: 'deny', reason: USE_WRAPPER };
+  // Reading the CLI's own files (cd into its folder, ls or find there, its path in a variable) runs nothing, but only
+  // when every segment only reads; node or npx on a path in there is still a CLI call (runsShopifyCli below).
+  const filters = (s) => {
+    const { w, i } = program(stripRedirects(s));
+    const p = w[i] || '';
+    return !substitutes(s) && (/^(head|tail|sort|uniq|wc|cut|cat|ls|dir)(\.exe)?$/i.test(p)
+      || (/^find(\.exe)?$/i.test(p) && !w.slice(i + 1).some((a) => /^-(exec|execdir|delete|ok|okdir|fprint\w*)$/.test(a))));
+  };
+  const assignOnly = (s) => /^\s*[A-Za-z_]\w*=("[^"]*"|'[^']*'|\S*)\s*$/.test(stripRedirects(s));
+  const readsOnly = live.every((s) => onlyReadsText(s) || cdArg(s) || filters(s) || assignOnly(s));
+  const runnable = live.filter((s) => !onlyReadsText(s)).join(' ; ').replace(WRAPPER_PATH, ' KIT_WRAPPER ');
+  // Only for the CLI check: the reads still count for the seal, state and manifest checks below.
+  const cliRunnable = live.filter((s) => !onlyReadsText(s) && !(readsOnly && (cdArg(s) || filters(s) || assignOnly(s)))).join(' ; ').replace(WRAPPER_PATH, ' KIT_WRAPPER ');
+  if (CLI_WORD.test(cliRunnable) || CLI_PATH.test(cliRunnable) || CLI_PKG.test(cliRunnable) || CLI_ENV.test(cliRunnable) || LIVE_THEME.test(cliRunnable)) return { decision: 'deny', reason: USE_WRAPPER };
   if (segs.some((s) => { const { w, i } = program(s); return THEMEKIT.test(w.slice(i).join(' ')); })) {
     return { decision: 'deny', reason: 'Theme Kit (the "theme" command) can deploy to live themes. Use node .claude/kit/shopify.mjs, or ask the dev to run it.' };
   }
@@ -311,7 +320,7 @@ function decideCommand(raw, ctx, depth = 0, cwd = null) {
     // A deny, not a prompt: the Grep tool does the same search without the token, so the agent just switches.
     const { w, i } = program(stripRedirects(seg));
     if (searchesSecrets(w, i, ROOT, dir, segs)) {
-      return { decision: 'deny', reason: 'A recursive search over the repo root, .claude/ or ~/.claude also reads .claude/.env.local or ~/.claude/.env, which hold the Jira token. Use the Grep tool (it skips git-ignored files), search a narrower folder, or add --include=<glob> or --exclude=\'.env*\'.' };
+      return { decision: 'deny', reason: 'A recursive search over the repo root, .claude/ or ~/.claude also reads the secret files there: the repo\'s .env files and Theme Kit\'s config.yml (excluding .claude/ doesn\'t skip those), .claude/.env.local and ~/.claude/.env. Use the Grep tool (it skips git-ignored files), search a theme folder such as sections/, or add --include=<glob>, or --exclude=\'.env*\' --exclude=config.yml.' };
     }
 
     const g = gitCommand(seg);
@@ -370,7 +379,10 @@ function decideCommand(raw, ctx, depth = 0, cwd = null) {
       hold({ decision: 'ask', reason: `This removes or replaces ${rel}, which holds task state and the ids of the store objects each task created (cleanup deletes by them). It's git-ignored, so it can't be restored. Allow it?` });
     }
     // A pattern (guard-seal.jso?, .claude/*) could reach any of those: name the file instead.
-    if (isGlob(rel) && /^\.claude\//i.test(rel)) return { decision: 'deny', reason: `${rel} is a pattern inside .claude/, which could reach task state, the seal or the kit. Name the file.` };
+    // Inside a named subfolder of a task (logs/<KEY>/abtest/*.md, video/scenes/*.mp4) a pattern can't reach state.json or
+    // the seal, which sit one level up; intake itself copies A/B code there.
+    const inTaskSubfolder = /^\.claude\/logs\/[^/*?[\]]+\/[^/*?[\]]+\//i.test(rel);
+    if (isGlob(rel) && /^\.claude\//i.test(rel) && !inTaskSubfolder) return { decision: 'deny', reason: `${rel} is a pattern inside .claude/, which could reach task state, the seal or the kit. Name the file.` };
     // rm -rf .claude/hooks names a folder: test it as one too.
     const asDir = `${rel}/`;
     const kitFile = /^\.claude\/?$/i.test(rel) || (ctx.master() ? [rel, asDir].some((r) => GUARD_WIRING.test(r)) : [rel, asDir].some((r) => KIT_FILE.test(r)));
@@ -852,6 +864,15 @@ function selftest() {
     [bash('cd /c/Users/x/AppData/Roaming/npm/node_modules/@shopify/cli 2>/dev/null && grep -rln "default-app-home" dist | head -5'), null],
     [bash('cd /c/Users/x/AppData/Roaming/npm/node_modules/@shopify/cli && node bin/run.js theme publish -t 1'), 'deny'],
     [bash('cd /c/Users/x/AppData/Roaming/npm/node_modules/@shopify/cli && npm run build'), 'deny'],
+    [bash('ls "/c/Users/x/AppData/Roaming/npm/node_modules/@shopify/cli"'), null],
+    [bash('find "/c/Users/x/AppData/Roaming/npm/node_modules/@shopify/cli" -iname "*schema*"'), null],
+    [bash('find "/c/Users/x/AppData/Roaming/npm/node_modules/@shopify/cli" -name x -exec node {} \\;'), 'deny'],
+    [bash('F="/c/Users/x/AppData/Roaming/npm/node_modules/@shopify/cli/dist/x.js"; grep -n theme "$F"'), null],
+    [bash('node "/c/Users/x/AppData/Roaming/npm/node_modules/@shopify/cli/bin/run.js" theme list'), 'deny'],
+    // a pattern inside a task's named subfolder can't reach state.json or the seal one level up
+    [bash(`cp /d/x/*.md .claude/logs/${K}/abtest/`), null],
+    [bash(`rm -f .claude/logs/${K}/video/scenes/*.mp4`), null],
+    [bash(`rm -f .claude/logs/${K}/*.json`), 'deny'],
     // kit-browser's run_code: only the kit's own files, and inline code without Node's APIs
     [{ tool_name: 'mcp__kit-browser__browser_run_code_unsafe', tool_input: { filename: '.claude/kit/probe.init.js' }, cwd: ROOT }, null],
     [{ tool_name: 'mcp__kit-browser__browser_run_code_unsafe', tool_input: { filename: `.claude/logs/${K}/design-audit-desktop.js` }, cwd: ROOT }, null],

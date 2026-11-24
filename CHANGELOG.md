@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.15.2 — 2026-11-25
+
+Guard false positives from the real-run review, all reproduced (each with a self-test):
+- A pattern inside a task's named log subfolder (`cp … .claude/logs/<KEY>/abtest/`, `rm …/video/scenes/*.mp4`) is allowed: intake itself copies A/B code there, and state.json and the seal sit one level up, out of its reach.
+- Listing or finding files in the installed Shopify CLI's folder, also with its path in a variable, is allowed when the whole command only reads; `find -exec` or `-delete`, and running anything from there, are still refused.
+- The message for a recursive search over the repo root names what it would read (the repo's `.env` files and `config.yml`, which excluding `.claude/` doesn't skip) and the excludes that fix it. CHE-865 retried it four times.
+
 ## 1.15.1 — 2026-11-24
 
 With app kit 0.2.0, from the app kit's first real run.

@@ -18,7 +18,7 @@ Type these commands in Claude Code's prompt. Pasting their text as a message doe
 | `/app-change <KEY>` | Add or change behaviour |
 | `/app-fix <KEY>` | A bug: failing test first, then the fix |
 | `/app-maintain <KEY>` | API version bump, dependencies, refactor: no behaviour change |
-| `/app-ab <KEY>` | An A/B-gated checkout extension or Function, with its gate and sunset, and the test's own variation and control code in `abtest/<ID>/` |
+| `/app-ab <KEY>` | An A/B-gated checkout extension or Function, with its gate and how the test ends, and the test's own variation and control code in `abtest/<ID>/` |
 | `/app-ask <question>` | How does X work? Read-only |
 | `/app-drift` | Health check; `--regression` runs every archived test |
 

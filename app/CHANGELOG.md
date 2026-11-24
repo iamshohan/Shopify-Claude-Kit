@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.1 — 2026-11-25
+
+From the review of the first A/B change (ASM-924, at Gate 1).
+- **The A/B key is checked end to end.** verify's new `ab code` check reads § Gate's key and values and fails when `abtest/<ID>/` is missing, still holds the template's `TICKET`, `TEST NAME` or `"true"`, doesn't write each value, has no control file, or when no extension file reads the key. Before, verify set the attribute by hand, so a variation that wrote the wrong value passed every scenario while its visitors saw control.
+- **Gate 1 wants scenarios for the test code itself** (the variation writes the key once, control clears it): verify records those checks as `qa:` rows, which `qa-row` takes only for declared scenarios. Verify sets the "present" side by running the variation file unchanged, and measures "absent" in the same session.
+- **The variation template** posts only its own keys (a stale copy of all attributes could overwrite another app's), writes one at a time with a short delay and at most 3 times per page (no update loop), and also reacts to adds through `fetch`, for themes without a cart drawer.
+- **"Sunset" is now "A/B test completion"**, with a fixed order: remove the block or deactivate the Function, then stop the test, then delete the extension. Stale attributes stay on carts; the old template said they cleared. Proposals with `## Sunset` still count.
+- **The handoff's A/B steps are steps,** not copies of § Gate: paste each file into its arm, set the targeting, preview on the client store (`/cart.js` shows the key), start; and the completion order.
+- **Deploy checklist:** "deploy the app server" only when the repo still has one (the recorded kind went stale); a step to request network access before deploying a checkout extension that calls out.
+- **Merge and PR links** work for an SSH-alias remote (`git@drip-dev:Org/repo`), and the handoff prints one too: without it, the dev pushed straight to main.
+- **Verify knows the checkout editor's limits:** its preview is a cross-origin iframe the probe can't reach, a cleared text setting arrives as `undefined` (code defaults fill it back in), and an admin "Preview" checkout loses its cart when stepping back.
+- **Guard** (with theme kit 1.15.2): a pattern inside a change's named log subfolder, and listing or finding files in the installed CLI's folder (with its path in a variable too), are allowed; running anything from there is still refused.
+
 ## 0.2.0 — 2026-11-24
 
 After the first real run (an extension-only A/B app: setup, onboard and a first change took about 25 dev interactions, and left 19 kit notes).

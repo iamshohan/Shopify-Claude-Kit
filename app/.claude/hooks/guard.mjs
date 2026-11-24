@@ -300,11 +300,20 @@ function decideCommand(raw, ctx, depth = 0, cwd = null) {
   const live = segs.filter((s) => !isText(s));
   const scanned = live.join(' ; ').replace(WRAPPER_PATH, ' KIT_WRAPPER ');
   // grep "app deploy" docs/ and echo "…" run nothing: the CLI's words count only where something could run them.
-  // cd into the CLI's own folder to grep its source runs nothing, but only when every other segment only reads.
-  const filters = (s) => /^(head|tail|sort|uniq|wc|cut|cat|ls)(\.exe)?$/i.test(program(stripRedirects(s)).w[program(stripRedirects(s)).i] || '') && !substitutes(s);
-  const readsOnly = live.every((s) => onlyReadsText(s) || cdArg(s) || filters(s));
-  const runSegs = live.filter((s) => !onlyReadsText(s) && !(readsOnly && cdArg(s)));
+  // Reading the CLI's own files (cd into its folder, ls or find there, its path in a variable) runs nothing, but only
+  // when every segment only reads; node or npx on a path in there is still a CLI call.
+  const filters = (s) => {
+    const { w, i } = program(stripRedirects(s));
+    const p = w[i] || '';
+    return !substitutes(s) && (/^(head|tail|sort|uniq|wc|cut|cat|ls|dir)(\.exe)?$/i.test(p)
+      || (/^find(\.exe)?$/i.test(p) && !w.slice(i + 1).some((a) => /^-(exec|execdir|delete|ok|okdir|fprint\w*)$/.test(a))));
+  };
+  const assignOnly = (s) => /^\s*[A-Za-z_]\w*=("[^"]*"|'[^']*'|\S*)\s*$/.test(stripRedirects(s));
+  const readsOnly = live.every((s) => onlyReadsText(s) || cdArg(s) || filters(s) || assignOnly(s));
+  const runSegs = live.filter((s) => !onlyReadsText(s));
   const runnable = runSegs.join(' ; ').replace(WRAPPER_PATH, ' KIT_WRAPPER ');
+  // Only for the CLI check: the reads still count for the seal and state checks below.
+  const cliRunnable = live.filter((s) => !onlyReadsText(s) && !(readsOnly && (cdArg(s) || filters(s) || assignOnly(s)))).join(' ; ').replace(WRAPPER_PATH, ' KIT_WRAPPER ');
   if (DEPLOY_WORDS.test(runnable) || NEVER.test(runnable.replace(/KIT_WRAPPER/g, ''))) {
     return { decision: 'deny', reason: 'Deploying, releasing, app env, app execute and bulk, and dev clean are the dev\'s steps, never the agent\'s. Handoff lists what the dev runs. If you only mentioned them in text, use the Grep tool or rephrase.' };
   }
@@ -313,7 +322,7 @@ function decideCommand(raw, ctx, depth = 0, cwd = null) {
     return { decision: 'deny', reason: 'Only the kit reaches a store, and only the dev store: node .claude/kit/shopify.mjs query or mutate.' };
   }
   // The CLI by name or as the program itself: npx shopify app info, a full path to shopify.cmd.
-  if (CLI_WORD.test(runnable) || CLI_PATH.test(runnable) || CLI_PKG.test(runnable) || CLI_ENV.test(runnable) || segs.some(runsShopifyCli)) {
+  if (CLI_WORD.test(cliRunnable) || CLI_PATH.test(cliRunnable) || CLI_PKG.test(cliRunnable) || CLI_ENV.test(cliRunnable) || segs.some(runsShopifyCli)) {
     if (DEV_RUNS.test(runnable)) return { decision: 'deny', reason: `That needs the dev's login or a running session. Ask the dev to run it with the ! prefix; app dev keeps running, so the dev starts it in a separate terminal with the appDev command node .claude/kit/shopify.mjs info prints (it names the dev app and store). (${cmd.slice(0, 200)})` };
     return { decision: 'deny', reason: USE_WRAPPER };
   }
@@ -350,7 +359,8 @@ function decideCommand(raw, ctx, depth = 0, cwd = null) {
   const whole = kinds.find((k) => k.kind === 'change-dir');
   if (whole) hold({ decision: 'ask', reason: `This removes, moves or replaces ${whole.rel} as a whole: its specs, tasks and state go with it. Deleting or renaming a change is the dev's call. Allow it?` });
   // A pattern inside appspec/ or .claude/ could reach kit state or settings: the agent names the file instead.
-  const glob = kinds.find((k) => k.kind === 'glob' && (/^\.claude\//i.test(k.rel) || k.rel.toLowerCase().startsWith(`${P.dir.toLowerCase()}/`)));
+  // Inside a named subfolder of a change's logs (logs/<ID>/screens/*.png) a pattern can't reach the seal one level up.
+  const glob = kinds.find((k) => k.kind === 'glob' && ((/^\.claude\//i.test(k.rel) && !/^\.claude\/logs\/[^/*?[\]]+\/[^/*?[\]]+\//i.test(k.rel)) || k.rel.toLowerCase().startsWith(`${P.dir.toLowerCase()}/`)));
   if (glob) return { decision: 'deny', reason: `${glob.rel} is a pattern inside ${P.dir}/ or .claude/, which could reach kit state or settings. Name the file.` };
   if (ADMIN_HTTP.test(scanned) || segs.some((s) => { const { w, i } = program(stripRedirects(s)); return FETCHERS.test(w[i] || '') && /myshopify\.com\/admin/i.test(s); })) {
     return { decision: 'deny', reason: 'Admin API calls go through node .claude/kit/shopify.mjs query or mutate: they reach only the dev store, and mutations are shown to the dev first.' };
@@ -683,6 +693,9 @@ function selftest() {
     // reading the installed CLI's source from its folder runs nothing; running anything from there is still a CLI call
     [bash('cd /c/Users/x/AppData/Roaming/npm/node_modules/@shopify/cli 2>/dev/null && grep -rln "default-app-home" dist | head -5'), null],
     [bash('cd /c/Users/x/AppData/Roaming/npm/node_modules/@shopify/cli && node bin/run.js app deploy'), 'deny'],
+    [bash('ls "/c/Users/x/AppData/Roaming/npm/node_modules/@shopify/cli"'), null],
+    [bash('find "/c/Users/x/AppData/Roaming/npm/node_modules/@shopify/cli" -name x -delete'), 'deny'],
+    [bash('cp /d/x/*.png .claude/logs/GIFT-1/screens/'), null],
     [bash('git commit -F .env'), 'deny'], [bash('gh auth token'), 'deny'], [bash('gh repo sync --branch main'), 'deny'], [bash('git subtree push --prefix=x origin main'), 'deny'],
     // denied: git
     [bash('git push origin main'), 'deny'], [bash('git push -u origin HEAD'), 'deny'], [bash(`git push -f origin ${ID}`), 'deny'],

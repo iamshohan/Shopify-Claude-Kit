@@ -122,7 +122,7 @@ export const STAGES = [
   { name: 'handoff', skill: 'app-handoff' },
 ];
 // change: add or adjust behaviour. fix: a bug, reproduced by a failing test. maintain: no behaviour change (API version,
-// dependencies, refactor). ab: an A/B-gated extension with a gate and a sunset.
+// dependencies, refactor). ab: an A/B-gated extension with a gate and its completion (how the test ends).
 export const TYPES = ['change', 'fix', 'maintain', 'ab'];
 
 export const stageIndex = (name) => STAGES.findIndex((s) => s.name === name);

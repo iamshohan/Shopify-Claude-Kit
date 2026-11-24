@@ -89,7 +89,7 @@ const TYPE_NOTE = {
   change: 'Adds or adjusts behaviour.',
   fix: 'A bug: § Reproduce names the failing test and the failure seen before the fix, and a scenario binds that test.',
   maintain: 'No behaviour change (API version, dependencies, refactor): scenarios are optional, as re-checks of what the maintenance could break; the full regression must pass.',
-  ab: 'An A/B-gated extension: § Gate says what turns the variation on, § Sunset when and how it goes.',
+  ab: 'An A/B-gated extension: § Gate says what turns the variation on, § A/B test completion when and how it goes.',
 };
 // Each type adds its own sections to the one proposal template.
 const TYPE_SECTIONS = { fix: 'proposal-fix.md', ab: 'proposal-ab.md' };
@@ -315,7 +315,12 @@ function proposeProblems(cfg, id, st) {
     // Only before the first Gate 1 (after it the fix may be built, so its test passes), and once the rest is in order.
     ...(type === 'fix' && !st.approved && !scenarioProblems(rows).length ? reproProblems(rows) : []),
     type === 'ab' && !filled(cfg, id, st, '## Gate') && 'fill proposal.md § Gate: the attribute key and values, and what happens without it',
-    type === 'ab' && !filled(cfg, id, st, '## Sunset') && 'fill proposal.md § Sunset: when the test ends and how the extension is removed',
+    // A proposal from before the rename has § Sunset; it counts.
+    type === 'ab' && !filled(cfg, id, st, '## A/B test completion') && !filled(cfg, id, st, '## Sunset') && 'fill proposal.md § A/B test completion: when the test ends and how the extension is removed',
+    // The test code is measured too: verify records its checks as qa: rows, and qa-row takes only declared scenarios.
+    type === 'ab' && !(rows.some((s) => /variation/i.test(JSON.stringify(s)) && /cart\.js|attribute|propert/i.test(JSON.stringify(s)))
+      && rows.some((s) => /control/i.test(JSON.stringify(s)) && /clear|remov|delet|absent/i.test(JSON.stringify(s))))
+      && 'an A/B change measures its own test code: add qa: scenarios for "the variation code writes the key and value to /cart.js (once, no update loop)" and "the control code clears it"',
     ...retiresFrom(md).filter((c) => !ledger.has(testKey(c.file, c.name))).map((c) => `§ Retires → ${checkKey(c)} isn't a test an archived change bound; list only those there`),
     !sectionLines(md, '## Tasks').some((l) => /^- \[[ x]\] \S/.test(l)) && 'fill proposal.md § Tasks: one "- [ ] …" line per task, each naming the scenarios it satisfies',
   ].filter(Boolean);
@@ -372,6 +377,62 @@ export function securityVerdict(findings, baseline, changed) {
   const fresh = findings.filter((f) => !isKnown(f));
   const blocking = fresh.filter((f) => !LOW_SEVERITY.has(f.severity) && (baseline || f.severity !== 'medium'));
   return { known: findings.filter(isKnown), fresh, blocking, verdict: blocking.length ? 'FAIL' : findings.length ? 'WARN' : 'PASS' };
+}
+
+/**
+ * An A/B change gates on one key: the test code in abtest/<ID>/ must write § Gate's key and values, and the extension
+ * must read that key. Nothing else ties them together: with the template's "true" left in, verify's hand-set attribute
+ * passes every scenario while every variation visitor sees control.
+ */
+export function abGateOf(md) {
+  const gate = sectionLines(md, '## Gate').join(' ');
+  const ticks = [...gate.matchAll(/`([^`]+)`/g)].map((m) => m[1]);
+  const key = ticks.find((t) => /^_[\w-]+$/.test(t)) || null;
+  const values = [...new Set(ticks.filter((t) => t !== key && /^[\w-]{1,20}$/.test(t)))];
+  return { key, values };
+}
+
+/** § A/B test completion, or § Sunset in a proposal written before the rename. */
+const completionOf = (md) => { const l = sectionLines(md, '## A/B test completion'); return l.length ? l : sectionLines(md, '## Sunset'); };
+
+/** The A/B activation and completion as steps in their order, from § Gate and the files in abtest/<ID>/. */
+function abSteps(id, md) {
+  const { key, values } = abGateOf(md);
+  const dir = join(ROOT, 'abtest', id);
+  const files = existsSync(dir) ? readdirSync(dir).filter((f) => /\.js$/.test(f)) : [];
+  const variations = files.filter((f) => !/control/i.test(f));
+  const control = files.find((f) => /control/i.test(f));
+  return [
+    'After the deploy and the block placed (or the Function activated) on the client store, before the test starts:',
+    `Paste the test code into the A/B tool: ${variations.map((f) => `abtest/${id}/${f}`).join(', ') || `abtest/${id}/variation*.js`} into its variation${variations.length > 1 ? 's' : ''}${control ? `, abtest/${id}/${control} into control` : ''}.`,
+    'Set the targeting and the trigger as § Gate says.',
+    `Preview each arm on the client store (the dev store's theme can't test the client's cart trigger): ${key ? `/cart.js shows ${key} = ${values.join(' or ') || 'its value'} before checkout, after one /cart/update.js; control shows no ${key}` : 'the attribute reaches /cart.js before checkout'}. Then start the test.`,
+    'When it ends, in this order: remove the block (or deactivate the Function), then stop the test, then delete the extension in a maintain change. Stopping the test first leaves carts that have the attribute showing the variation.',
+  ];
+}
+
+function abCodeProblems(id, md) {
+  const { key, values } = abGateOf(md);
+  if (!key) return ['§ Gate names no key: write it in backticks, e.g. `_abc-123`'];
+  const dir = join(ROOT, 'abtest', id);
+  const files = existsSync(dir) ? readdirSync(dir).filter((f) => /\.js$/.test(f)) : [];
+  if (!files.length) return [`abtest/${id}/ has no test code: write the variation and control files from .claude/kit/templates/abtest-*.js`];
+  const out = [];
+  const text = Object.fromEntries(files.map((f) => [f, readFileSync(join(dir, f), 'utf8')]));
+  // The template derives the key from its ID constant: _${ID.toLowerCase()}.
+  const writesKey = (src) => src.includes(key) || (src.match(/var ID = ["']([^"']+)["']/)?.[1] && `_${src.match(/var ID = ["']([^"']+)["']/)[1].toLowerCase()}` === key);
+  for (const [f, src] of Object.entries(text)) {
+    if (/["']TICKET["']|TEST NAME/.test(src)) out.push(`abtest/${id}/${f} still has the template's TICKET or TEST NAME`);
+    if (!writesKey(src)) out.push(`abtest/${id}/${f} doesn't use the key ${key}`);
+  }
+  const variations = Object.entries(text).filter(([f]) => !/control/i.test(f));
+  const literal = (src, v) => new RegExp(`["'\`]${v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["'\`]`).test(src);
+  for (const v of values) if (!variations.some(([, src]) => literal(src, v))) out.push(`no variation file in abtest/${id}/ writes the value "${v}" from § Gate`);
+  if (!values.includes('true') && variations.some(([, src]) => /\]:\s*["']true["']/.test(src))) out.push(`a variation file still writes the template's "true", which § Gate doesn't list`);
+  if (!Object.keys(text).some((f) => /control/i.test(f))) out.push(`abtest/${id}/ has no control file (control.js clears the key)`);
+  const extFiles = git(['ls-files', 'extensions'], { allowFail: true }).split('\n').filter((f) => /\.(m?[jt]sx?|graphql|rs|toml|liquid)$/.test(f));
+  if (!extFiles.some((f) => read(f).includes(key))) out.push(`no file under extensions/ reads the key ${key}: the extension and the test code disagree`);
+  return out;
 }
 
 function runVerify(cfg, id, st, { skipTests }) {
@@ -440,6 +501,10 @@ function runVerify(cfg, id, st, { skipTests }) {
     add('bundle size', r?.skipped ? 'WARN' : r?.ok ? 'PASS' : 'FAIL', r ? r.bundles.map((x) => `${x.extension}: ${x.verdict}${x.gzipBytes ? ` ${(x.gzipBytes / 1024).toFixed(1)} KB gz / ${(x.rawBytes / 1024).toFixed(1)} KB raw` : ''}`).join(' · ') || r.error : 'build gave no result');
   }
 
+  if (typeOf(st) === 'ab') {
+    const problems = abCodeProblems(id, md);
+    add('ab code', problems.length ? 'FAIL' : 'PASS', problems.join(' · ') || 'the test code writes § Gate\'s key and values, and the extension reads the key');
+  }
   if (cfg.securityCheck === false) add('security check', 'WARN', 'skipped: "securityCheck": false in .claude/app-kit.json');
   else {
     const r = parsedOut(wrapper(['security']));
@@ -492,6 +557,8 @@ export function deploySteps({ keys, ext, server, serverGone = false, configs, ap
     server && !serverGone && 'Deploy the app server (hosting), so new routes and webhooks answer before Shopify starts calling them.',
     (serverGone || dbGone) && `After the release, retire what the app no longer uses: ${[serverGone && 'the app server\'s hosting', dbGone && 'the production database (take a backup first)'].filter(Boolean).join(' and ')}. Nothing to migrate or deploy there.`,
     pcd.length && `Request protected customer data access for ${pcd.join(', ')} in the Partner Dashboard (API access) before releasing.`,
+    // A checkout extension that calls out (reviews, an API) needs this approved first, or the deploy is refused.
+    has(/^\+ capability:[^/]+\/network_access$/) && `Request network access for ${keys.filter((k) => /^\+ capability:[^/]+\/network_access$/.test(k)).map((k) => k.slice('+ capability:'.length).split('/')[0]).join(', ')} in the Dev Dashboard (the app's API access) before deploying: without it the deploy is refused.`,
     `Run shopify app deploy --config <the production app's config>.${configNote} Deploy creates a new app version and releases it to every installed store at once; with --no-release it only creates the version, which you release from the Partner Dashboard when ready.${removed.length ? ` This change removes ${removed.join(', ')}: deploy asks you to confirm the removal (--allow-deletes in CI), and merchants lose what they placed.` : ''} Rollback: release the previous version.`,
     has(/^\+ scope:/) && 'New scopes: each store approves them when a merchant next opens the app. Until then the app runs with its old scopes, so the new code has to cope without them.',
     has(/webhook/) && 'Webhooks change with the release; check the subscriptions in the Partner Dashboard afterwards.',
@@ -526,7 +593,8 @@ function stepsFor(cfg, st) {
   // The kind setup recorded can go stale: a change that removes the backend leaves kind admin behind (asmc first run).
   const removedServer = git(['diff', '--name-only', '--diff-filter=D', `${effectiveBase(st, cfg)}...HEAD`, '--', 'app/routes', 'prisma', 'shopify.web.toml'], { allowFail: true });
   const serverGone = cfg.kind === 'admin' && appKindNow() !== 'admin' && Boolean(removedServer);
-  const server = cfg.kind === 'admin' && !serverGone && serverChanged(keys, changedFiles(effectiveBase(st, cfg)));
+  // What the repo is now decides, not the kind setup recorded: an app with no server has nothing to host.
+  const server = appKindNow() === 'admin' && !serverGone && serverChanged(keys, changedFiles(effectiveBase(st, cfg)));
   return deploySteps({ keys, ext, server, serverGone, configs, appConfig: cfg.appConfig });
 }
 
@@ -537,8 +605,8 @@ function handoff(cfg, id, st) {
   const manual = rows.filter((s) => s.check.kind === 'manual');
   const waived = Object.entries(st.qa?.rows || {}).filter(([, r]) => r.verdict === 'WAIVED');
   const design = sectionLines(md, '## Design');
-  // The A/B type's activation and sunset come from the proposal the dev approved at Gate 1.
-  const abLines = typeOf(st) === 'ab' ? [...sectionLines(md, '## Gate').map((l) => `Gate: ${l}`), ...sectionLines(md, '## Sunset').map((l) => `Sunset: ${l}`)] : [];
+  // The A/B type's activation and completion come from the proposal the dev approved at Gate 1.
+  const abLines = typeOf(st) === 'ab' ? [...sectionLines(md, '## Gate').map((l) => `Gate: ${l}`), ...completionOf(md).map((l) => `When the test ends: ${l}`)] : [];
   const retired = retiresFrom(md);
   const since = sinceGate1(st, md);
   return [
@@ -573,7 +641,7 @@ function handoff(cfg, id, st) {
     '',
     ...stepsFor(cfg, st).map((s) => `- [ ] ${s}`),
     ...(design.length && !saysNone(design) ? ['', '### From proposal.md § Design (this change\'s own notes; the order above comes first)', ...design.map((l) => `- ${l.replace(/^[-*]\s*/, '')}`)] : []),
-    ...(abLines.length ? ['', '### A/B test: activation and sunset', ...abLines.map((l) => `- [ ] ${l}`)] : []),
+    ...(abLines.length ? ['', '### A/B test: activation and completion', ...abSteps(id, md).map((l) => `- [ ] ${l}`), '', 'From proposal.md § Gate and § A/B test completion:', ...abLines.map((l) => `- ${l}`)] : []),
     '',
     `Store mutations run on the dev store: ${(st.mutations || []).length}.`,
     '',
@@ -607,7 +675,7 @@ function gateView(cfg, id, st) {
       decided: sectionLines(md, '## Decided for you'),
       retires: retiresFrom(md).map(checkKey),
       ...(typeOf(st) === 'fix' ? { reproduce: sectionLines(md, '## Reproduce') } : {}),
-      ...(typeOf(st) === 'ab' ? { abGate: sectionLines(md, '## Gate'), sunset: sectionLines(md, '## Sunset') } : {}),
+      ...(typeOf(st) === 'ab' ? { abGate: sectionLines(md, '## Gate'), completion: completionOf(md) } : {}),
       outOfScope: sectionLines(md, '## Out of scope'),
     };
   }
@@ -693,6 +761,16 @@ function finishArchive(cfg, id, st, to) {
 }
 
 /** What's left after a handoff: commit, push, open the PR from handoff.md. */
+/**
+ * owner/repo on GitHub, from origin: https or git@github.com, and an SSH alias such as drip-dev:Org/repo (the asmc
+ * remote), which the team only uses for GitHub. null for anything else.
+ */
+function githubRepo() {
+  const remote = (run('git', ['remote', 'get-url', 'origin']).stdout || '').trim();
+  return remote.match(/github\.com[:/]([^/\s]+\/[^/\s]+?)(\.git)?$/)?.[1]
+    || remote.match(/^(?:[\w.-]+@)?[\w.-]+:([\w.-]+\/[\w.-]+?)(\.git)?$/)?.[1] || null;
+}
+
 function archivedNext(cfg, id, st, to) {
   const P = specPaths(cfg);
   const uncommitted = run('git', ['status', '--porcelain', '--', P.dir]).stdout.trim();
@@ -702,6 +780,7 @@ function archivedNext(cfg, id, st, to) {
     uncommitted && `git add -- ${P.dir} && git commit -m "${(cfg.commitPattern || '{ID}: handoff').replace('{ID}', id)}"`,
     st.test ? '(test run: no push)' : (uncommitted || behind) && `git push -u origin ${st.branch}`,
     `PR text and deploy checklist: ${to}/handoff.md`,
+    !st.test && githubRepo() && `open the PR: https://github.com/${githubRepo()}/compare/${cfg.baseBranch}...${st.branch}?expand=1 (with gh: gh pr create --base ${cfg.baseBranch} --head ${st.branch} --body-file ${to}/handoff.md)`,
   ].filter(Boolean);
 }
 
@@ -821,8 +900,7 @@ function onboard(cfg, flags = {}) {
     }
   }
   // The dev merges onboarding before the first change starts; give them the link, not "open a PR".
-  const remote = (run('git', ['remote', 'get-url', 'origin']).stdout || '').trim();
-  const repo = remote.match(/github\.com[:/]([^/]+\/[^/]+?)(\.git)?$/)?.[1];
+  const repo = githubRepo();
   const branch = currentBranch();
   return {
     created: out, surfaces, security,
@@ -909,6 +987,8 @@ function selftest() {
   const steps = (keys, ext = {}, server = false) => deploySteps({ keys, ext, server, configs: ['shopify.app.toml', 'shopify.app.prod.toml'], appConfig: 'shopify.app.toml' }).join('\n');
   eq('checklist: a PCD scope asks for protected customer data access', [/Request protected customer data access for read_customers/.test(steps(['+ scope:read_customers'])), /protected customer data/.test(steps(['+ scope:read_products']))], [true, false]);
   eq('checklist: deploy names --config and the repo\'s configs', /--config <the production app's config>.*shopify\.app\.prod\.toml/.test(steps([])), true);
+  eq('A/B gate: the key and the values, not file names or event names', abGateOf('## Gate\n\n- Key: cart attribute `_asm-924`. Values: `1` → B, `2` → C.\n- Code: `abtest/ASM-924/variation-1.js`, `control.js`; trigger `cart:item-added`, `/cart/update.js`.\n'),
+    { key: '_asm-924', values: ['1', '2'] });
   eq('checklist: the production config is validated by the dev first', /Validate the production config.*--config shopify\.app\.prod\.toml/.test(steps([])), true);
   // asmc first run: a change that removed the backend got "migrate the database" and "deploy the app server".
   const gone = deploySteps({ keys: ['- model:Session'], ext: {}, server: false, serverGone: true, configs: ['shopify.app.toml'], appConfig: 'shopify.app.toml' }).filter(Boolean).join('\n');
@@ -943,8 +1023,8 @@ function selftest() {
     [{ measured: '--gap: 16px', how: 'probe' }, { reason: true, test: true }]);
   eq('hashes ignore line endings', [sha('a\r\nb\r\n') === sha('a\nb\n'), sha('a\nb') === sha('a\nc')], [true, false]);
   eq('cmd.exe refuses its own syntax as a failed run, not a crash', [cmdExeProblem(['app', 'function', 'run', '--input', 'C:/a & b/in.json']) !== null, cmdExeProblem(['app', 'info', '--json', '--path', 'C:/apps/gift']), /Refusing/.test(cmdExeProblem(['50%']) || '')], [true, null, true]);
-  eq('the proposal template holds each type\'s sections', TYPES.map((t) => ['## Scenarios', '## Reproduce', '## Gate', '## Sunset'].filter((h) => proposalTemplate('X-1', t).includes(`\n${h}\n`))),
-    [['## Scenarios'], ['## Scenarios', '## Reproduce'], ['## Scenarios'], ['## Scenarios', '## Gate', '## Sunset']]);
+  eq('the proposal template holds each type\'s sections', TYPES.map((t) => ['## Scenarios', '## Reproduce', '## Gate', '## A/B test completion'].filter((h) => proposalTemplate('X-1', t).includes(`\n${h}\n`))),
+    [['## Scenarios'], ['## Scenarios', '## Reproduce'], ['## Scenarios'], ['## Scenarios', '## Gate', '## A/B test completion']]);
   eq('table cells', cells('| a | b \\| c | |'), ['a', 'b | c', '']);
   const pkgDir = mkdtempSync(join(tmpdir(), 'app-kit-selftest-'));
   writeFileSync(join(pkgDir, 'package.json'), JSON.stringify({ scripts: {

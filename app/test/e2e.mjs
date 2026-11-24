@@ -242,7 +242,7 @@ writeFileSync(outFile, JSON.stringify({ testResults: files.map((file) => ({ name
   git('switch', '-q', '-c', ID, 'origin/main');
   const started = app('start', ID, '--type', 'change', '--title', 'Free gift at 50 EUR');
   ok('start creates the change folder at propose', started.code === 0 && existsSync(join(repo, C(ID, 'proposal.md'))) && /stage 1\/5: propose/.test(started.out), started.all);
-  ok('the proposal template has § Scenarios and no type sections for a change', /\n## Scenarios\n/.test(read(C(ID, 'proposal.md'))) && !/## Reproduce|## Sunset/.test(read(C(ID, 'proposal.md'))));
+  ok('the proposal template has § Scenarios and no type sections for a change', /\n## Scenarios\n/.test(read(C(ID, 'proposal.md'))) && !/## Reproduce|## A\/B test completion/.test(read(C(ID, 'proposal.md'))));
 
   // ── Scenarios first: the guard by stage ──
   ok('guard: app code is closed at propose', decision('Edit', { file_path: join(repo, 'extensions/gift/src/run.js') }) === 'deny');
@@ -541,14 +541,18 @@ writeFileSync(outFile, JSON.stringify({ testResults: files.map((file) => ({ name
   ok('archive records the surface changed outside the kit', 'webhook:products/update' in JSON.parse(read('appspec/surfaces.json')).items);
   commit(`${MN}: archive`);
 
-  // ── A/B: § Gate and § Sunset ──
+  // ── A/B: § Gate and § A/B test completion ──
   const AB = 'AB-5';
   git('switch', '-q', '-c', AB, ID);
   app('start', AB, '--type', 'ab');
-  const abScen = ['| S1 | the cart attribute _ab_gift is B | the buyer opens checkout | the banner is shown | qa: banner shown |', '| S2 | no _ab_gift attribute | the buyer opens checkout | no banner | qa: no banner |'];
+  const abScen = ['| S1 | the cart attribute _ab_gift is B | the buyer opens checkout | the banner is shown | qa: banner shown |', '| S2 | no _ab_gift attribute | the buyer opens checkout | no banner | qa: no banner |',
+    '| S3 | a cart with one item | the variation code runs | /cart.js has _ab_gift = B, after one update | qa: variation writes once |', '| S4 | a cart with _ab_gift = B | the control code runs | the attribute is cleared | qa: control clears |'];
+  // Without the test code's own scenarios (S3, S4), gate refuses an A/B change.
+  write(C(AB, 'proposal.md'), proposal({ id: AB, scenarios: abScen.slice(0, 2) }));
+  ok('an A/B change needs scenarios for its own test code (variation writes, control clears)', /measures its own test code/.test(app('done', AB, 'propose', '--answer', 'ok').err));
   write(C(AB, 'proposal.md'), proposal({ id: AB, scenarios: abScen }));
   const abNo = app('done', AB, 'propose', '--answer', 'ok');
-  ok('an A/B change needs § Gate and § Sunset', /§ Gate/.test(abNo.err) && /§ Sunset/.test(abNo.err), abNo.all);
+  ok('an A/B change needs § Gate and § A/B test completion', /§ Gate/.test(abNo.err) && /§ A\/B test completion/.test(abNo.err), abNo.all);
   const abSurf = '| Change | Surface | Why | Scenario |\n| --- | --- | --- | --- |\n| + | extension:ab-ship | the gated banner | S1 |\n| + | target:ab-ship/purchase.checkout.block.render | where the banner shows | S1 |';
   write(C(AB, 'proposal.md'), proposal({ id: AB, scenarios: abScen, surfaces: abSurf, design: '- A checkout UI block, placed by the dev; no data, no server.', attention: '- A new checkout block: the dev places it after the release.',
     extra: '## Gate\n\nCart attribute _ab_gift: B shows the banner; missing or A shows nothing.\n\n## Sunset\n\nThe test ends on 2026-12-15; the dev removes the block, then a maintain change deletes the extension.\n\n' }));
