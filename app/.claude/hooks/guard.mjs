@@ -65,7 +65,8 @@ const CONFIG_KEYS = {
   jiraBaseUrl: 'where jira.mjs sends the Jira token',
 };
 // Wrapper verbs that run without asking: local, or read-only on the dev store. Anything else, including verbs added later, asks.
-const SAFE_VERBS = new Set(['cli-check', 'info', 'validate', 'build', 'function-build', 'function-typegen', 'function-run', 'security', 'query', 'help', '--help']);
+// generate-extension scaffolds local files from Shopify's template: nothing changes on Shopify until the dev deploys.
+const SAFE_VERBS = new Set(['cli-check', 'info', 'validate', 'generate-extension', 'build', 'function-build', 'function-typegen', 'function-run', 'security', 'query', 'help', '--help']);
 // The gates: Gate 1 approves the proposal, Gate 2 accepts the result. Each answer is logged for the retro (the skill
 // already asked the dev; the guard doesn't ask a second time).
 const GATE_STAGES = new Set(['propose', 'accept']);
@@ -160,7 +161,7 @@ function changeClosed(rel, P, ctx) {
 /** Why app code is closed now (spec first), or null when the change on this branch is in build. */
 function codeClosed(rel, ctx) {
   const active = ctx.changes().filter((c) => c.st.branch === ctx.branch() && !['done', 'abandoned'].includes(c.st.stage));
-  if (!active.length) return { hasChange: false, why: `${rel} is app code, and no change is open on this branch, so no spec or check covers this edit. Start one (/app-change, /app-fix, /app-maintain), or allow this single edit?` };
+  if (!active.length) return { hasChange: false, why: `${rel} is app code, and no change is open on this branch, so no spec or check covers this edit. Start one (/app-implement), or allow this single edit? (Before onboarding, /app-setup may edit app code freely.)` };
   if (active.length > 1) return { hasChange: false, why: `Two changes are open on this branch (${active.map((c) => c.id).join(', ')}); the guard can't tell which this edit belongs to. Allow it?` };
   const { id, st } = active[0];
   if (st.stage === 'build') return null;
@@ -535,7 +536,7 @@ function decideFile(ti, cwd, ctx) {
   }
   const kind = writeKind(rel, P);
   if (kind === 'kit-only') {
-    return { decision: 'deny', reason: `${rel} changes only through node .claude/kit/app.mjs: surfaces, the test ledger, the security baseline and the archive follow approved changes. To change behaviour: /app-change.` };
+    return { decision: 'deny', reason: `${rel} changes only through node .claude/kit/app.mjs: surfaces, the test ledger, the security baseline and the archive follow approved changes. To change behaviour: /app-implement.` };
   }
   if (kind === 'state' || kind === 'change') {
     const why = changeClosed(rel, P, ctx);

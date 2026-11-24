@@ -39,7 +39,7 @@ Code read: <files> · built bundle: yes/no · src and build agree: yes/no/not ch
 | # | Behaviour (shopper view) | How the test does it | Hardcoded values | Theme equivalent | static / dynamic candidate | Source (file:line) |
 ### Targeting
 ### Removed in the port
-### Questions for the dev
+### Open points (the plan stage decides or asks them)
 ### Not clear from the code
 ```
 

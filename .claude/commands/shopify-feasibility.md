@@ -1,5 +1,5 @@
 ---
-description: Feasibility check and estimate before anyone picks up a ticket. Reads the ticket, asks the dev about unclear requirements, and answers whether it can be built, the limitations, what the client will get, the approaches with their trade-offs, and an estimate in agentic development hours. Read-only, with evidence. The same flow as /shopify-investigate with the type set to feasibility. Resumable.
+description: Feasibility check and estimate before anyone picks up a ticket. Reads the ticket, settles what the ticket and the code answer, asks the dev only the real calls, and answers whether it can be built, the limitations, what the client will get, the approaches with their trade-offs, and an estimate in agentic development hours. Read-only, with evidence. The same flow as /shopify-investigate with the type set to feasibility. Resumable.
 argument-hint: <TICKET-KEY or a description of what's wanted>
 disable-model-invocation: true
 ---

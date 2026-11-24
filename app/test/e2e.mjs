@@ -200,6 +200,12 @@ writeFileSync(outFile, JSON.stringify({ testResults: files.map((file) => ({ name
   write('.claude/app-kit.json', cfgText);
   ok('jira refuses a change name that isn\'t a ticket key', /not a Jira key/.test(jira('gift-label').all));
   ok('cli-check passes against the contract', shop('cli-check').code === 0, shop('cli-check').all);
+  // The kit scaffolds an extension itself, named for the feature (merchants see the name), never the ticket key.
+  const gen = shop('generate-extension', 'checkout_ui', 'trust-list', '--flavor', 'react');
+  ok('generate-extension scaffolds the extension with the CLI\'s template', gen.code === 0 && json(gen).generated?.name === 'trust-list' && existsSync(join(repo, 'extensions', 'trust-list', 'shopify.extension.toml')), gen.all);
+  ok('generate-extension refuses a ticket key or a non-kebab name', /ticket key/.test(shop('generate-extension', 'checkout_ui', 'abc-123').all) && /kebab-case/.test(shop('generate-extension', 'checkout_ui', 'Trust List').all));
+  ok('the guard lets generate-extension run without asking', decision('Bash', { command: 'node .claude/kit/shopify.mjs generate-extension checkout_ui trust-list --flavor react' }) === 'allow');
+  rmSync(join(repo, 'extensions', 'trust-list'), { recursive: true, force: true });
   const shapeCheck = node('kit/shopify.mjs', ['cli-check', '--force'], { FAKE_SHAPE_CHANGED: '1' });
   ok('cli-check fails when app info\'s JSON loses grantedScopes', shapeCheck.code !== 0 && /remoteApp\.grantedScopes/.test(shapeCheck.out), shapeCheck.all);
   const shapeInfo = node('kit/shopify.mjs', ['info'], { FAKE_SHAPE_CHANGED: '1' });
@@ -231,9 +237,16 @@ writeFileSync(outFile, JSON.stringify({ testResults: files.map((file) => ({ name
   commit('onboard the app kit');
   const lateRedo = app('onboard', '--redo');
   ok('onboard --redo refuses once the baseline is committed', lateRedo.code !== 0 && /is committed/.test(lateRedo.all), lateRedo.all);
-  // Before the onboarding reaches origin/main, a change would measure against an app the kit never recorded.
+  // Before the onboarding reaches a remote, a change would measure against an app the kit never recorded. Pushed to
+  // origin/kit-onboard, a change may stack on it (and measures from it) before it's merged.
   const unmerged = app('start', ID, '--type', 'change');
-  ok('start refuses until the onboarding is merged into the base branch', unmerged.code !== 0 && /isn't on origin\/main yet/.test(unmerged.all), unmerged.all);
+  ok('start refuses while the onboarding is on no remote branch', unmerged.code !== 0 && /on neither origin\/main nor origin\/kit-onboard/.test(unmerged.all), unmerged.all);
+  git('push', '-q', 'origin', 'main:kit-onboard');
+  git('fetch', '-q', 'origin');
+  const stackedHint = app('start', ID, '--type', 'change');
+  ok('with the onboarding pushed but not merged, start tells the change to branch from origin/kit-onboard', /--no-track origin\/kit-onboard/.test(stackedHint.all), stackedHint.all);
+  git('push', '-q', 'origin', '--delete', 'kit-onboard');
+  git('fetch', '-q', '--prune', 'origin');
   git('push', '-q', 'origin', 'main');
 
   // ── Start ──

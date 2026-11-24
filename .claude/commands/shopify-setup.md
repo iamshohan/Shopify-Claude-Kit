@@ -24,7 +24,7 @@ Run these and keep the results for later steps:
 6. **This machine** (each is shared by every theme repo on it):
    - **Shopify plugin:** is the `shopify-plugin:shopify` skill in your skill list? Listing it in `.claude/settings.json` doesn't install it.
    - **Telemetry opt-out:** does `kit.mjs optout` still need to run? (It's cheap: just run it in step 3.)
-   - **`kit-browser`** (the storefront browser, isolated and logged in nowhere): are the `mcp__kit-browser__*` tools available? If they are, run `claude mcp get kit-browser`: an `Args` line without `--snapshot-mode none` (added before kit 1.7.0) needs removing and adding again. <!-- TEMPORARY kit-browser-1.7.0: remove in kit 1.15.0 with the other lines carrying this tag (grep it). -->
+   - **`kit-browser`** (the storefront browser, isolated and logged in nowhere): are the `mcp__kit-browser__*` tools available?
    - **Claude in Chrome** (the admin and theme editor, in the dev's own Chrome): are the `mcp__claude-in-chrome__*` tools available? This one can't be installed from here.
    - **Video tools:** `node .claude/kit/video.mjs check`.
 
@@ -70,9 +70,7 @@ Collect everything step 1.6 found missing, from this list, in this order:
 | --- | --- |
 | Shopify plugin | `claude plugin install shopify-ai-toolkit@claude-plugins-official` |
 | Telemetry opt-out (always) | `node .claude/kit/kit.mjs optout`: an empty file that stops the plugin reporting prompts and code to shopify.dev |
-| `kit-browser` (old args: `claude mcp remove kit-browser --scope user` first) | `claude mcp add kit-browser --scope user -- npx -y @playwright/mcp@0.0.83 --isolated --headless --snapshot-mode none` |
-
-<!-- TEMPORARY kit-browser-1.7.0: remove in kit 1.15.0 with the other lines carrying this tag (grep it). -->
+| `kit-browser` | `claude mcp add kit-browser --scope user -- npx -y @playwright/mcp@0.0.83 --isolated --headless --snapshot-mode none` |
 | Video tools (for `/shopify-video`, about 100 MB outside the repo) | `node .claude/kit/video.mjs setup` |
 
 `--snapshot-mode none` stops a full page snapshot (about 4k tokens on a product page) after every click and resize, which QA never reads. Don't substitute the dev's own Playwright server: it may drive their logged-in Chrome (`--extension`), and storefront QA needs `kit-browser`.

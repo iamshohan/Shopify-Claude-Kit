@@ -1,6 +1,6 @@
 ---
 name: app-recon
-description: Read-only map of a Shopify app for one question or change - which routes, loaders and actions, webhooks, extensions, Functions, Prisma models, GraphQL operations, earlier changes and tests implement an area, with file:line evidence. Never edits anything. Used by the App Kit's propose stage and /app-ask.
+description: Read-only map of a Shopify app for one question or change - which routes, loaders and actions, webhooks, extensions, Functions, Prisma models, GraphQL operations, earlier changes and tests implement an area, with file:line evidence. Never edits anything. Used by the App Kit's propose stage and /app-investigate.
 tools: Read, Grep, Glob, Bash
 model: sonnet
 ---

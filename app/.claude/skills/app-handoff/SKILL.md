@@ -12,11 +12,12 @@ user-invocable: false
    - writes `handoff.md` and moves the change to `appspec/archive/<date>-<ID>/`; its `test:` scenarios now join the ledger every later verify runs (minus what § Retires lists)
 
    If it stops because a file couldn't be written or the folder couldn't move, its message says why: fix that and run `handoff <ID>` again (it writes the same files again).
-3. **Commit and push** with the commands it prints (`git add -- appspec`, the commit, `git push -u origin <branch>`). A test run never pushes (the guard blocks it).
-4. **Tell the dev**, in at most 8 lines:
+3. **A comment for the client**, for the dev to post on the ticket, in handoff.md § Jira comment and in chat: what's done and when shoppers first see it (after the deploy, or when the block is placed), every way the result differs from the ticket in the client's words, and for an A/B change what the client or CRO does to start the test. Plain words: no branch names, file paths, scenario ids or internal names. If an answer from the client or CRO is still open, end with it as a question.
+4. **Commit and push** with the commands it prints (`git add -- appspec`, the commit, `git push -u origin <branch>`). A test run never pushes (the guard blocks it).
+5. **Tell the dev**, in at most 8 lines:
    - the PR text is in `appspec/archive/<date>-<ID>/handoff.md` § PR description (offer to open the PR with `gh pr create` using it; only if they say yes)
    - the deploy checklist in the same file: the dev deploys, in that order; the kit never does
    - the manual checks the reviewer still does
-5. If the run had friction the kit caused, `app.mjs retro <ID>` lists the signals; record each kit cause with `app.mjs note <ID> "…" --kind <kind>`. Optional.
+6. If the run had friction the kit caused, `app.mjs retro <ID>` lists the signals; record each kit cause with `app.mjs note <ID> "…" --kind <kind>`. Optional.
 
 **Done when:** the handoff ran, the result is committed and pushed (not in a test run), and the dev has the PR text and checklist. `app.mjs status <ID>` says what's left if you're unsure.

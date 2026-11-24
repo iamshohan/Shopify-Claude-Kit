@@ -14,13 +14,8 @@ Type these commands in Claude Code's prompt. Pasting their text as a message doe
 | Command | For |
 | --- | --- |
 | `/app-setup` | Once per repo and person: CLI check, `.claude/app-kit.json` (dev store, app config, verify commands, Jira URL) |
-| `/app-onboard` | Once per repo: `appspec/`, current surfaces, security baseline |
-| `/app-change <KEY>` | Add or change behaviour |
-| `/app-fix <KEY>` | A bug: failing test first, then the fix |
-| `/app-maintain <KEY>` | API version bump, dependencies, refactor: no behaviour change |
-| `/app-ab <KEY>` | An A/B-gated checkout extension or Function, with its gate and how the test ends, and the test's own variation and control code in `abtest/<ID>/` |
-| `/app-ask <question>` | How does X work? Read-only |
-| `/app-drift` | Health check; `--regression` runs every archived test |
+| `/app-implement <KEY>` | Implement a ticket. The agent picks the type: a new or changed behaviour, a bug fix (failing test first), an A/B-gated extension (with the test's own variation and control code in `abtest/<ID>/`, and how the test ends), or maintenance (no behaviour change) |
+| `/app-investigate <KEY or question>` | Read-only: how does X work, or is a ticket feasible and how long would it take |
 
 Run a command again with the same ID to continue.
 
@@ -48,7 +43,7 @@ It catches a well-meaning agent's mistakes; branch protection, Partner Dashboard
 
 ## Handover
 
-Commit `appspec/changes/<ID>/` with the work and `git push -u origin <branch>`. A teammate runs `git switch <branch>`, then `/app-change <ID>`, and continues at the same stage.
+Commit `appspec/changes/<ID>/` with the work and `git push -u origin <branch>`. A teammate runs `git switch <branch>`, then `/app-implement <ID>`, and continues at the same stage.
 
 ## Install, Jira, feedback
 

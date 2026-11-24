@@ -1,10 +1,10 @@
-# Shopify Implementation Kit · v1.15.2
+# Shopify Implementation Kit · v1.16.0
 
 A Claude Code setup for Shopify theme repos.
 
-- **`/shopify-implement <KEY>`** takes a Jira ticket (a winning A/B test, a feature or a bug fix) to a QA'd draft theme. It reads the ticket and the code, asks you every open decision, gets a file-by-file plan approved, builds on a task branch, pushes to an unpublished copy of the live theme, and checks the draft with measured values.
+- **`/shopify-implement <KEY>`** takes a Jira ticket (a winning A/B test, a feature or a bug fix) to a QA'd draft theme. It reads the ticket and the code, decides what they answer and asks you only the real calls, gets a file-by-file plan approved, builds on a task branch, pushes to an unpublished copy of the live theme, and checks the draft with measured values.
 - **`/shopify-investigate <KEY or question>`** answers feasibility, debugging and how-does-it-work questions, read-only and with evidence.
-- **`/shopify-feasibility <KEY>`** is the same flow set up for a ticket nobody has picked up yet: it asks you about unclear requirements, then says whether it can be built, what the client will actually get (and how it differs from what they expect), the limitations, the approaches with their trade-offs, and an estimate in agentic development hours. Questions only the client can answer go into the Jira comment, not to you.
+- **`/shopify-feasibility <KEY>`** is the same flow set up for a ticket nobody has picked up yet: it settles what the ticket and the code answer, then says whether it can be built, what the client will actually get (and how it differs from what they expect), the limitations, the approaches with their trade-offs, and an estimate in agentic development hours. Questions only the client can answer go into the Jira comment, not to you.
 - **`/shopify-video <KEY>`** makes the client's walkthrough video once QA is accepted: what's new, where it lives in the theme editor and what to watch out for, how it behaves with different values, and a storefront tour. English voice with captions; you approve the storyboard (with each scene's length, and optional scenes to add) and watch the video before it goes out.
 
 It never publishes a theme, writes to the live theme, or pushes or merges into the base branch. Merging stays with you.
@@ -168,7 +168,7 @@ The logs are history, not a knowledge base: every task reads the code fresh.
 | push: "The repo's .shopifyignore excludes …" | decide how those files reach the store (often an admin step). If the draft can go without them: `push <KEY> --skip-ignored`, and the report lists them |
 | push or verify: "the draft doesn't match" | push once more. A JSON file that keeps differing usually needs its schema change pushed first. |
 | The draft seems to show old code | `shopify.mjs fetch <KEY> <path> --find <text>`. A plain `?preview_theme_id` request gets the live theme. |
-| GitHub route: `git push` is rejected | someone saved in the admin: `git pull --no-rebase origin <branch>`, then push |
+| GitHub route: `git push` is rejected | someone saved in the admin: look first (`git log HEAD..origin/<branch> --stat`), then `git pull --no-rebase origin <branch>` and push, or drop test edits |
 | A `done` is refused | it lists what's missing: finish that and run it again |
 | The guard blocks a harmless command that mentions "shopify" | use the Grep tool, or rephrase |
 | You need a CLI command the wrapper doesn't have | run it yourself with `!`; the guard only watches Claude |

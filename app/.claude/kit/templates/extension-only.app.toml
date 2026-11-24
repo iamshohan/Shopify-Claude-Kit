@@ -1,0 +1,22 @@
+# An extension-only app's config: no backend, no scopes, no webhook subscriptions. From the first real run's app
+# (asmc), validated with the CLI. Keep each toml's own client_id, name and handle; copy the rest.
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "<this toml's own client_id>"
+application_url = "https://shopify.dev/apps/default-app-home"
+embedded = true
+name = "<this toml's own name>"
+
+[access_scopes]
+scopes = ""
+
+# Required even without a backend: validate and build fail with "[auth] Required" when it's missing.
+[auth]
+redirect_urls = [ "https://shopify.dev/apps/default-app-home/api/auth" ]
+
+[webhooks]
+api_version = "2027-01"
+
+[build]
+include_config_on_deploy = true
+automatically_update_urls_on_dev = true

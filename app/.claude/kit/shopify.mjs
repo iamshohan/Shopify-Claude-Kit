@@ -20,6 +20,8 @@ Local (no store):
   cli-check [--force]                    the CLI still has every command and flag the kit uses (cached per CLI version)
   info                                   app name, extensions, local scopes vs scopes granted on Shopify (never secrets)
   validate                               app config validate: the app and extension configs are valid
+  generate-extension <template> <name> [--flavor F]
+                                         scaffold an extension from Shopify's template (local files; e.g. checkout_ui trust-list --flavor react)
   build                                  shopify app build, then each checkout UI bundle's size against the 64 KB limit
   function-build <extension>             build one Function to wasm
   function-typegen <extension>           regenerate one Function's input types
@@ -29,12 +31,13 @@ Local (no store):
 Dev store (devStore in .claude/app-kit.json):
   query <file.graphql> [--vars <file.json>]            a read-only Admin GraphQL query, with the app's own token
   mutate <ID> <file.graphql> [--vars <file.json>]      a mutation; the guard shows it to the dev first. Files live in .claude/logs/<ID>/
-The dev runs these with the ! prefix: shopify app init | dev | config link | config use | generate extension | graphiql | deploy | release`;
+The dev runs these with the ! prefix: shopify app init | config link | config use | graphiql | deploy | release; app dev in its own terminal`;
 
 // Every command and flag the wrapper uses. cli-check fails when one disappears, so a CLI update breaks loudly here.
 const CLI_CONTRACT = [
   { cmd: ['app', 'info'], flags: ['--json', '--no-input', '--path'], usedBy: 'info' },
   { cmd: ['app', 'config', 'validate'], flags: ['--json', '--no-input', '--path'], usedBy: 'validate' },
+  { cmd: ['app', 'generate', 'extension'], flags: ['--template', '--name', '--flavor', '--json', '--no-input', '--path'], usedBy: 'generate-extension' },
   { cmd: ['app', 'build'], flags: ['--no-input', '--path', '--skip-dependencies-installation'], usedBy: 'build' },
   { cmd: ['app', 'function', 'build'], flags: ['--path', '--no-input'], usedBy: 'function-build' },
   { cmd: ['app', 'function', 'typegen'], flags: ['--path', '--no-input'], usedBy: 'function-typegen' },
@@ -343,6 +346,19 @@ switch (verb) {
     break;
   }
   case 'info': print(info(cfg)); break;
+  case 'generate-extension': {
+    // The scaffold from Shopify's template, with the CLI's cached login: local files only, nothing changes on Shopify
+    // until the dev deploys. Before, the run stopped in propose for the dev to answer the CLI's prompts.
+    const [template, name] = rest;
+    if (!template || !name) fail('Usage: generate-extension <template> <name> [--flavor <flavor>]: e.g. checkout_ui trust-list --flavor react');
+    if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(name)) fail(`Name the extension by its feature in kebab-case (e.g. trust-list), not "${name}".`);
+    if (/^[a-z]+-\d+(-|$)/.test(name)) fail(`"${name}" looks like a ticket key. Merchants see the extension's name: name the feature instead (e.g. trust-list).`);
+    const r = cli(['app', 'generate', 'extension', '--template', template, '--name', name, ...(typeof flags.flavor === 'string' ? ['--flavor', flags.flavor] : []), '--json'], cfg);
+    const ext = jsonWith(r.stdout, 'extension')?.extension || r.data?.extension;
+    if (r.code !== 0 || !ext) fail(`generate extension failed: ${cliError(r) || r.stderr.slice(-600)}\nIf the CLI needs a login or a choice it can't make without prompts, ask the dev to run: ! shopify app generate extension --template ${template} --name ${name}${configFlag(cfg).length ? ` ${configFlag(cfg).join(' ')}` : ''}`);
+    print({ generated: ext, next: 'Write § Surfaces from app.mjs surfaces <ID>; build commits the folder as its first commit.' });
+    break;
+  }
   case 'validate': {
     const r = cli(['app', 'config', 'validate', '--json'], cfg);
     print(r.data ?? { error: cliError(r) });

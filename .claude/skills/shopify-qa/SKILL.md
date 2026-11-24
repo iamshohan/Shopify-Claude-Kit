@@ -32,9 +32,10 @@ Never write "QA passed" while any row is FAIL, NOT TESTED or BLOCKED.
    - **Storefront (the draft, live for comparison): the `kit-browser` tools** (`mcp__kit-browser__*`, an isolated Playwright browser that `/shopify-setup` adds). It isn't logged in anywhere, so nothing it does can reach the admin.
    - **Theme editor and admin pages: Chrome** (load the `claude-in-chrome` skill, then open a new tab and keep it in front: background tabs freeze animations and timers). Chrome runs as the dev's admin account.
    - **No `kit-browser` tools?** Stop and ask the dev to add the server (the command is in `/shopify-setup`, step 3) and restart Claude Code. The storefront isn't measured in Chrome: it can't set the viewport.
-5. **Viewports.** `browser_resize` to each width × height the criteria need, then read `innerWidth` back. `browser_click` is a real pointer click on the element: give it a CSS selector, or a ref from `browser_find`. Actions return no page snapshot (`--snapshot-mode none`); take `browser_snapshot` only when you need the page's structure. If `browser_navigate` does return a page snapshot, this machine's kit-browser predates kit 1.7.0: tell the dev once (fix: `/shopify-setup` step 3) and go on (TEMPORARY kit-browser-1.7.0). Touch-only behaviour (swipes, `touchstart` handlers) stays a by-hand row.
-6. **Plan the order.** Work page by page, then viewport by viewport, and measure every criterion for that page and width before navigating again.
-7. **Plain HTML checks** (does the draft render X, which theme served it) don't need the browser: `node .claude/kit/shopify.mjs fetch <KEY> <path> --find <text>`.
+5. **Overlays first.** Shopify's preview bar (`#PBarNextFrameWrapper`), cookie banners and newsletter popups block clicks and hit tests (POP-1065, VET-33, GSD-80). In kit-browser, before measuring: accept only the necessary cookies, close popups, and hide the preview bar. This is the test browser only; never in the dev's Chrome.
+6. **Viewports.** `browser_resize` to each width × height the criteria need, then read `innerWidth` back. `browser_click` is a real pointer click on the element: give it a CSS selector, or a ref from `browser_find`. Actions return no page snapshot (`--snapshot-mode none`); take `browser_snapshot` only when you need the page's structure. Touch-only behaviour (swipes, `touchstart` handlers) stays a by-hand row.
+7. **Plan the order.** Work page by page, then viewport by viewport, and measure every criterion for that page and width before navigating again.
+8. **Plain HTML checks** (does the draft render X, which theme served it) don't need the browser: `node .claude/kit/shopify.mjs fetch <KEY> <path> --find <text>`.
 
 ### On every page, before measuring
 
@@ -79,7 +80,7 @@ Never write "QA passed" while any row is FAIL, NOT TESTED or BLOCKED.
       - `merge` can't remove a value. To test an empty image or url setting, use `source` with the whole template.
       - Section groups work the same way: header and footer settings live in `sections/header-group.json` (or `footer-group.json`), so override that file, not a template.
    2. Run `node .claude/kit/shopify.mjs preview <KEY> <file>`, open the URL it returns, pass the gates above, and measure.
-   3. After two failed previews for one case, mark those rows NOT TESTED, quote the CLI error, and move on.
+   3. After two failed previews for one case, measure it in the draft's theme editor instead (change the setting, measure, then reset as step 3 below says). Only if that fails too: NOT TESTED, with the CLI error. A preview never applies an override to a section group (`sections/*-group.json`, GSD-80's header): go to the editor for those directly.
 3. **Customizer.** Skip this step when `contract.mjs` reports no changed section, block or theme settings files (a CSS-only or Liquid-only fix): nothing in the editor changed. Otherwise: the theme editor is one cross-origin iframe, so `read_page`, `find`, `get_page_text` and `javascript_tool` can't see inside it: work from screenshots and clicks. Split the check in four.
    1. **Contract (script).** Run `node .claude/kit/contract.mjs <KEY>`. It writes `.claude/logs/<KEY>/contract.md` from the changed schemas, locales and templates: names, presets, where each section can be added, and every setting's label, type, default, options/range, info and `visible_if`.
       - Compare it row by row with `plan.md` § Schema details. Each mismatch is a FAIL.
@@ -92,7 +93,7 @@ Never write "QA passed" while any row is FAIL, NOT TESTED or BLOCKED.
       - each new image, colour, url or dynamic-source picker: open it, check it shows what it should (the metafield, for a dynamic source), close it
       - blocks: add one with the "Add block" button and remove it again; reorder only with the panel's own controls, never by drag
 
-      **Then leave the editor as it was:** set every changed value back and check that **Save** is grey; if it isn't, use the editor's undo until it is. Never click Save, Publish, Remove section, delete, or anything that changes the store. On a GitHub-connected draft a Save becomes a commit on the PR branch; `kit.mjs premerge <KEY>` would catch one, but don't make it. Claude in Chrome missing, or a login page: these become BLOCKED rows for the dev, as below.
+      **Then leave the editor as it was:** reload the editor and choose to leave or discard the unsaved changes, then check that **Save** is grey. Setting values back by hand or with undo often leaves Save active, and undo doesn't cleanly reverse adding a block. Never click Save, Publish, Remove section, delete, or anything that changes the store. On a GitHub-connected draft a Save becomes a commit on the PR branch; `kit.mjs premerge <KEY>` would catch one, but don't make it. Claude in Chrome missing, or a login page: these become BLOCKED rows for the dev, as below.
    4. **By hand (dev checklist).** Add a BLOCKED row with "dev checks by hand" only for what you can't do in step 3, and only for what this change touches:
       - placing a section or block by drag in the theme or checkout editor (synthetic drag events there aren't reliable)
       - touch-only behaviour on a real phone
@@ -101,7 +102,7 @@ Never write "QA passed" while any row is FAIL, NOT TESTED or BLOCKED.
       - anything else judged by eye that the plan names
 4. **Regression.** Run `node .claude/kit/compare.mjs <KEY>`. It compares live with the draft on the untouched paths: the section lists and the feature prefix decide its verdict. `htmlDiffers` lists sections whose HTML differs, often per-request content (stock, recommendations): look at the ones the branch touches.
    - DIFFERS: rule out live edits made after the draft was copied (`draftCreatedAt`) before calling it a regression.
-   - BLOCKED (password page, bot protection, wrong theme): report it as BLOCKED.
+   - BLOCKED (password page, bot protection, wrong theme): report it as BLOCKED. Rate-limited (HTTP 429, even after its retries): compare in kit-browser instead, live against the draft (the section ids under `main` and the feature prefix), and say so in How.
 5. **Console errors** on each target page: `__qa.errors()`.
 
 ### The report
@@ -124,6 +125,8 @@ Never write "QA passed" while any row is FAIL, NOT TESTED or BLOCKED.
    - "Since the plan was approved" from `kit.mjs status <KEY>`: changed files the plan didn't name, and the plan's changes. Say "none" when both are none.
    - anything noticed that the dev should decide about, at most three lines
    - **"Not proven yet" rows that didn't pass** (plan.md § At a glance), each with its fallback, first and set apart: "#11 Restock Rocket for the set product: NOT TESTED. Fallback: no waitlist button."
+**Before Gate 2: fix what you can.** A FAIL whose fix stays inside the approved plan (a selector, a missing guard, a timing, a style value the plan states) goes back to build on its own: `kit.mjs back <KEY> build --reason "QA #n"`, fix, push, re-measure, at most 2 rounds. Come to Gate 2 with 0 FAIL, and list what you fixed in one line each. Ask instead when the Expected itself looks wrong (it was written from code, and live already does otherwise), when the fix touches a price or a discount, or after 2 rounds.
+
 2. AskUserQuestion: "QA result for <KEY>". Options: **Accept, I'll do the N checks** (or **Accept** when nothing is open), **Fix the failures**, and **I'll test more first**. When "not proven yet" rows didn't pass, replace the first option with **Use the fallback for #…** and **Accept #… untested** (the dev's risk, named), naming every such row: each row of Not proven yet points at criteria in its "QA #" column, and each of those that isn't PASS belongs in both labels (VSD-354 named #4/#5 and missed #6, so the dev was asked twice). Keep the other two options. `done accept` refuses an untested not-proven row the answer doesn't name.
 3. Then:
    - **Accept** (or **Accept #… untested**) → `kit.mjs done <KEY> accept --answer "<their words>"`.

@@ -7,4 +7,5 @@
 - **Safety code** (`hooks/guard.mjs`, `kit/guard-core.mjs`, `kit/shopify.mjs`, the GraphQL reading in `kit/core.mjs`): every new rule or bypass gets a self-test or e2e case.
 - **`kit/guard-core.mjs`, `kit/jira.mjs` and `kit/update-check.mjs` are generated from `../shared/`** by `node ../scripts/sync-shared.mjs`: edit `shared/`, never the copy. The theme kit's guard uses the same core, so run both kits' guard self-tests after a change there. Still copied by hand from the theme kit, and worth checking when one side changes: parts of `kit/core.mjs` (GraphQL reading), `kit/repo.mjs` (`protectedBranches`), the seal and log helpers in `hooks/guard.mjs`, and `rules/app-runs.md`.
 - **Release:** bump `app/.claude/VERSION`, add an `app/CHANGELOG.md` entry.
+- **Keep level with the theme kit** (root `CLAUDE.md` → "Keep the two kits level"): a change to how runs behave gets its counterpart in the other kit in the same release, or a line in the changelog saying why not.
 - `test/` stays outside `.claude/`, so app repos never get it.

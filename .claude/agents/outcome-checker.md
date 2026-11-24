@@ -25,10 +25,11 @@ You get a task key and a mode (`plan` or `handoff`). Files are in `.claude/logs/
 - **Merchant text:** labels or info strings in developer words, filler info text that repeats the label, a `t:` key or label missing from § Schema details.
 - **Uncovered:** an AC and surface no QA criterion checks. A criterion about an existing component (a menu, a drawer, the header) whose Expected isn't measured on live first ("same as live, plus …").
 - **Client's call:** a question about what customers see, content or price that § Decided records from the dev alone without "Dev, for the client".
+- **Should have asked:** a line under At a glance → Decided for you that the kit's rule says to ask (`.claude/rules/kit-runs.md`: a departure from a quoted AC or the winner, something the client must maintain, money, real alternatives, a contradiction, something costly to undo). The agent now decides alone; this is the check on that.
 
 ## Mode: handoff
 
-Read the ticket first, then `plan.md` → Differs from the ticket, `brief.md` § Decided (questions starting "Client's call"), and `report.md` § Handoff (What differs from what was asked, Jira comment, Admin steps, Go-live order). Read them as the client who asked for this and will review it.
+Read the ticket first, then `plan.md` → Differs from the ticket and the lines under Decided for you marked "(client's call)", `brief.md` § Decided (questions starting "Client's call"), `report.md` § Criteria (every row that isn't PASS) and Open points (what the client can see that QA noticed but didn't touch), and `report.md` § Handoff (What differs from what was asked, Jira comment, Admin steps, Go-live order). Read them as the client who asked for this and will review it.
 - **Client surprises:** each thing the client will find different from what they asked, and whether the Jira comment tells them, in plain words.
 - **Jira comment:** does it restate the ticket? Use internal names (branch, PR, files, Q numbers, "the Variant", pass counts)? Point to files the client can't open (`.claude/logs/…`)? Leave out when shoppers will first see the change?
 - **Go-live:** an admin step whose Save shows at once to shoppers before something it depends on exists (a discount code shown before the code is created). Steps in an order that shows a half-finished state.
@@ -43,6 +44,7 @@ Convention: <file: what, and the contained alternative> | none       ← plan
 Merchant text: <setting: problem> | none                             ← plan
 Uncovered: <AC × surface, or criterion without a live baseline> | none   ← plan
 Client's call: <Q#: what> | none                                     ← plan
+Should have asked: <Decided-for-you line: why> | none                 ← plan
 Client surprises: <each, and whether the Jira comment says it> | none   ← handoff
 Jira comment: <problems> | fine                                      ← handoff
 Go-live: <problems> | fine                                           ← handoff

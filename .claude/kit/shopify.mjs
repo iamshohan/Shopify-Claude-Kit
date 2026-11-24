@@ -1024,6 +1024,9 @@ switch (verb) {
     let overrides;
     try { overrides = JSON.parse(readFileSync(abs, 'utf8')); } catch (e) { fail(`Overrides file isn't valid JSON: ${e.message}`); }
     if (!overrides.theme_changes) fail('Overrides need a top-level "theme_changes" object. Start from .claude/kit/templates/preview-overrides.example.json.');
+    // GSD-80: an override on the header group returned a URL without applying it, and a full "source" got a 400.
+    const groups = Object.keys(overrides.theme_changes).filter((p) => /^sections\/[^/]+\.json$/i.test(p));
+    if (groups.length) fail(`A preview doesn't apply overrides to section groups (${groups.join(', ')}): the URL comes back, but the setting isn't changed. Measure those rows in the draft's theme editor instead (change the setting, measure, then reload and discard).`);
     assertOwnDraft(key, st, listThemes(cfg.store).find((t) => sameId(t.id, st.draft.themeId)));
     const file = relative(ROOT, abs).replaceAll('\\', '/');
     // Re-previewing the same overrides file updates its preview instead of creating another.

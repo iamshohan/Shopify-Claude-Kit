@@ -853,7 +853,11 @@ try {
   writeFileSync(brief6, readFileSync(brief6, 'utf8').replace(stays, `${stays}| Spacing | AC 2 | design constant | |\n`).replace(qa6, `${qa6}none: nothing needed the dev's call\n`));
   const noAgreement = kit('kit.mjs', 'done', 'ABC-6', 'plan');
   writeFileSync(brief6, readFileSync(brief6, 'utf8').replace('| Spacing | AC 2 | design constant | |', '| Spacing | AC 2 | design constant | Gate 1 |'));
+  // "Gate 1" counts only when the dev can see the value under Decided for you.
+  const gate1Unlisted = kit('kit.mjs', 'done', 'ABC-6', 'plan');
+  writeFileSync(plan6, readFileSync(plan6, 'utf8').replace('### Decided for you\n', '### Decided for you\n\n- Spacing stays in code: a design constant of the theme.\n'));
   const gate1 = kit('kit.mjs', 'done', 'ABC-6', 'plan');
+  ok('"Gate 1" for a value kept in code needs the value named under Decided for you', /says Gate 1, but plan\.md → Decided for you doesn't name it/.test(gate1Unlisted.err), gate1Unlisted.all);
   // A task started before the kit added Decided for you and Independent check has neither heading: it isn't refused for them.
   const plan6Text = readFileSync(plan6, 'utf8');
   writeFileSync(plan6, plan6Text.replace(/### Decided for you\n[\s\S]*?(?=### Not proven yet)/, '').replace(/### Independent check\n[\s\S]*?(?=---)/, ''));

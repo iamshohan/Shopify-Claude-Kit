@@ -12,8 +12,8 @@ user-invocable: false
 
 0. **Investigated first?** If `kit.mjs status` says so, read `.claude/logs/<KEY>/investigation.md`. Its question, answer and evidence are this task's starting context. After a feasibility check, its § Requirements answers are decisions the dev already made: copy them into `brief.md` § Decided → Questions and answers (citing investigation.md), so the plan stage doesn't ask them again. Re-check any code it cites at the current commit before relying on it, and carry its Confirmed findings into `brief.md`.
 1. **Start from current code.** Run `git fetch origin`, then look for a local or remote branch matching the key, ignoring case (`git branch --list`, `git ls-remote --heads origin`).
-   - One exists → tell the dev now, before analysis: a teammate may have started. If they'll reuse it, analyze reads that branch; build asks again when it creates the branch.
-   - The checked-out commit isn't `origin/<baseBranch>` (status names the base) → say so, and ask whether to switch to it before analyze, so the plan is made against the code the build starts from. Never switch with uncommitted changes.
+   - One exists → tell the dev now, before analysis: a teammate may have started. Reuse it when it holds only this task's own commits, and say so; ask only otherwise. Record the decision (`kit.mjs set <KEY> branch=<name>`), so build doesn't ask again.
+   - The checked-out commit isn't `origin/<baseBranch>` (status names the base): with a clean tree, switch to it and say so, so the plan is made against the code the build starts from. With uncommitted changes, ask: never switch over them.
 2. **Read the ticket:** `node .claude/kit/jira.mjs <KEY>`. If the script reports missing credentials, pass on its fix (create `~/.claude/.env` once per machine) or ask the dev to paste the ticket text. Don't guess requirements.
 3. **Related tickets.** Read up to three with `node .claude/kit/jira.mjs <KEY> --no-comments`, chosen from the summary, links, parent and `mentionedKeys`.
    - An A/B implementation ticket usually names or links the A/B test ticket ("Implement ABC-120"). That ticket holds the design, the variations and the targeting, so read it. Fetch its comments too if decisions seem to be in them.
@@ -36,10 +36,10 @@ user-invocable: false
 6. **A/B ports only.** Look things up first, and ask only what's still open, in one AskUserQuestion round:
    - **The winner:** from the ticket and its comments. Ask only when they don't name it, or name more than one.
    - **The A/B code:** look for it yourself with Glob: `shadow-drip-exps/src/*/<TEST-KEY>/` and `DripExperiments/` one and two folders above this repo (`../`, `../../`), and the paths the ticket names. Read only; never write there. Found → copy it into `.claude/logs/<KEY>/abtest/` and say where it came from. Not found → ask: "I'll put the files in .claude/logs/<KEY>/abtest/" or "It's at <path>".
-   - **The testing tool:** from recon's `experimentTools` and the ticket. **Still running:** fetch a page the test targets live (`shopify.mjs fetch <KEY> <path> --live`) and look for its markers (the body class or element the code adds). Ask only when neither settles it. The go-live order at handoff needs both.
+   - **The testing tool:** from recon's `experimentTools` and the ticket. **Still running:** the fetched HTML has no JavaScript run, so markers the test code adds (a body class, an element) never show there. Evidence is the tool's script tag or the experiment's id in that HTML, the ticket, or the dev's word; without it, record `abtest.running=unknown` and say so, rather than "no". The go-live order at handoff needs both.
    - **If it still runs:** QA compares the draft with the live winner, and the tool must stay off the draft.
      - Targeting by country or audience: a link or cookie that forces the variation (the tool's preview or QA link), from the ticket or the code. Not found → ask; without one, QA can't see the winner from outside the targeted markets. Record it: `kit.mjs set <KEY> abtest.reference=<link>`.
-     - Whether the experiment excludes `preview_theme_id` URLs: ask the dev to exclude them, or record that QA must check for it. This one stays a question: only the dev can see the tool's settings.
+     - Whether the experiment excludes `preview_theme_id` URLs: don't ask. QA checks the draft for the test's markers anyway; if they appear, then ask the dev to exclude the draft in the tool.
 
    Prefer the built bundle (`build/*.js`, `build/*.css`), because that's what actually ran. Note whether only source code was provided.
 

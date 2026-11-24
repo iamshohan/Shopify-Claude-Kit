@@ -12,7 +12,7 @@ import { spawnSync } from 'node:child_process';
 import { print, fail, now, writeJsonAtomic, WIN, cmdExeProblem } from './core.mjs';
 import {
   ROOT, KIT_DIR, LOGS, KIT_VERSION, CONFIG_REL, STAGES, TYPES, specPaths, parseArgs, readConfig, devStore, run, git, currentBranch, head,
-  protectedBranches, branchFor, effectiveBase, owner, stageIndex, finished, normId, changeDir, readChange, writeChange, listChanges, isAppCode,
+  protectedBranches, branchFor, effectiveBase, ONBOARD_BRANCH, owner, stageIndex, finished, normId, changeDir, readChange, writeChange, listChanges, isAppCode,
 } from './repo.mjs';
 import { tableUnder, sectionLines, saysNone, cells, checkKey, scenariosFrom, scenarioProblems, scenarioLine, scenarioRecord, changedSince, retiresFrom } from './scenarios.mjs';
 import { readItems, treeReader, gitReader, diffItems, attentionFor, readSnapshot, snapshotText, extensionList, PCD_SCOPE } from './surfaces.mjs';
@@ -844,12 +844,18 @@ function detect() {
   if (usable('test')) verify.push({ name: 'test', run: 'npm test' });
   const configs = readdirSync(ROOT).filter((f) => /^shopify\.app(\.[\w-]+)?\.toml$/.test(f));
   const admin = appKindNow() === 'admin';
+  // shopify.app.toml is usually production; a named one (shopify.app.<name>.toml) is the dev app config link made.
+  const devConfig = configs.find((c) => c !== 'shopify.app.toml');
+  // Shopify's app template with only its scaffold commit: setup can make it extension-only before onboarding.
+  const commits = Number(git(['rev-list', '--count', 'HEAD'], { allowFail: true }) || 0);
+  const untouchedTemplate = admin && existsSync(join(ROOT, 'app', 'routes')) && commits > 0 && commits <= 2 && !existsSync(join(ROOT, 'appspec'));
   return {
     suggestion: {
       devStore: 'drip-dev-eho-store.myshopify.com', baseBranch: git(['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], { allowFail: true }).replace(/^origin\//, '') || 'main',
-      appConfig: configs.includes('shopify.app.toml') ? 'shopify.app.toml' : configs[0] || 'shopify.app.toml', kind: admin ? 'admin' : 'extensions', verify,
+      appConfig: devConfig || 'shopify.app.toml', kind: admin ? 'admin' : 'extensions', verify,
     },
     appConfigs: configs,
+    untouchedTemplate,
     notes: [
       configs.length > 1 && `Several app configs (${configs.join(', ')}): set appConfig to the dev app's, so the kit never targets production.`,
       Object.values(scripts).some((s) => /shopify\s+app\s+deploy/.test(s)) && 'package.json has a deploy script; the guard blocks it, and the dev deploys.',
@@ -866,7 +872,7 @@ function onboard(cfg, flags = {}) {
   // committed. The guard keeps the agent from deleting these files itself; once committed, a change records what changed.
   if (flags.redo) {
     for (const rel of [P.surfaces, P.securityBaseline]) {
-      if (run('git', ['ls-files', '--error-unmatch', rel]).code === 0) fail(`${rel} is committed, so onboarding is done. Record what changed with a change (/app-maintain), not a redo.`);
+      if (run('git', ['ls-files', '--error-unmatch', rel]).code === 0) fail(`${rel} is committed, so onboarding is done. Record what changed with a change (/app-implement), not a redo.`);
       rmSync(join(ROOT, rel), { force: true });
     }
   }
@@ -1090,7 +1096,7 @@ switch (verb) {
   case 'list': {
     const all = listChanges(cfg);
     const open = all.filter(({ st }) => !finished(st));
-    if (!open.length) print('No open changes. Start one with /app-change, /app-fix, /app-maintain or /app-ab.');
+    if (!open.length) print('No open changes. Start one with /app-implement <KEY>.');
     for (const { id, st } of open) print(`${id}\t${typeOf(st)}${st.test ? ' (test run)' : ''}\t${st.stage}\t${st.updatedAt.slice(0, 10)}\t${st.owner?.name || ''}\t${st.branch}`);
     const abandoned = all.filter(({ st }) => st.stage === 'abandoned').map(({ id }) => id);
     if (abandoned.length) print(`Abandoned (not open; start <ID> --type … restarts one): ${abandoned.join(', ')}`);
@@ -1104,20 +1110,23 @@ switch (verb) {
     if (existing && existing.stage !== 'abandoned') { print(summaryLines(cfg, id, existing)); break; }
     // Every change measures its surfaces against the base branch: without the onboarding there, it measures against an app
     // the kit never recorded (asmc first run: 7 declared removals showed as never happening).
+    // Every change measures its surfaces against the base. Before the onboarding is merged, the change stacks on the
+    // onboarding branch and measures against it (asmc first run: measured against main, 7 removals showed as missing).
     const onBase = run('git', ['cat-file', '-e', `origin/${cfg.baseBranch}:${specPaths(cfg).surfaces}`]).code === 0;
-    if (existsSync(join(ROOT, specPaths(cfg).surfaces)) && !onBase && !flags.test) {
-      fail(`${specPaths(cfg).surfaces} isn't on origin/${cfg.baseBranch} yet: the onboarding branch isn't merged. Merge it first (the link app.mjs onboard printed, or open a PR from kit-onboard), then git fetch origin and start this change from origin/${cfg.baseBranch}.`);
+    const onOnboard = !onBase && run('git', ['cat-file', '-e', `origin/${ONBOARD_BRANCH}:${specPaths(cfg).surfaces}`]).code === 0;
+    if (!onBase && !onOnboard && !flags.test) {
+      fail(existsSync(join(ROOT, specPaths(cfg).surfaces))
+        ? `${specPaths(cfg).surfaces} is on neither origin/${cfg.baseBranch} nor origin/${ONBOARD_BRANCH}: push the onboarding branch (git push -u origin ${ONBOARD_BRANCH}), then start again.`
+        : `${specPaths(cfg).surfaces} isn't on this branch. Not onboarded yet: run /app-setup, which onboards the app.`);
     }
-    if (!existsSync(join(ROOT, specPaths(cfg).surfaces))) {
-      fail(`${specPaths(cfg).surfaces} isn't on this branch. Not onboarded yet: run /app-onboard. Onboarded on a branch that isn't merged yet: merge that PR, or cut this change's branch from the onboarding branch.`);
-    }
+    const from = onOnboard ? `origin/${ONBOARD_BRANCH}` : `origin/${cfg.baseBranch}`;
     const st0 = { test: Boolean(flags.test) };
     const want = branchFor(cfg, id, st0);
     const branch = currentBranch();
     if (protectedBranches(cfg).some((p) => p.toLowerCase() === branch.toLowerCase())) {
-      fail(`You're on ${branch}, which is protected. Create the change branch first:\n  git fetch origin\n  git switch -c ${want} --no-track origin/${cfg.baseBranch}`);
+      fail(`You're on ${branch}, which is protected. Create the change branch first:\n  git fetch origin\n  git switch -c ${want} --no-track ${from}`);
     }
-    if (branch !== want) fail(`Check out the change branch first (expected ${want}, on ${branch}):\n  git switch -c ${want} --no-track origin/${cfg.baseBranch}   (or git switch ${want} if it exists)`);
+    if (branch !== want) fail(`Check out the change branch first (expected ${want}, on ${branch}):\n  git switch -c ${want} --no-track ${from}   (or git switch ${want} if it exists)`);
     const dir = join(ROOT, changeDir(cfg, id));
     mkdirSync(dir, { recursive: true });
     if (!existsSync(join(dir, 'proposal.md'))) writeFileSync(join(dir, 'proposal.md'), proposalTemplate(id, type));
@@ -1131,7 +1140,8 @@ switch (verb) {
     const st = {
       schemaVersion: 2, kitVersion: KIT_VERSION, id, type, title: typeof flags.title === 'string' ? flags.title : '', tickets: /^[A-Z][A-Z0-9]+-\d+$/.test(id) ? [id] : [],
       createdAt: now(), owner: owner(), stage: STAGES[0].name, gates: {}, test: st0.test,
-      branch, base: effectiveBase({}, cfg) || head(), history: [{ at: now(), event: 'start' }], qa: { rows: {} }, reviews: {}, mutations: [],
+      ...(onOnboard ? { stackedOn: ONBOARD_BRANCH } : {}),
+      branch, base: effectiveBase(onOnboard ? { stackedOn: ONBOARD_BRANCH } : {}, cfg) || head(), history: [{ at: now(), event: 'start' }], qa: { rows: {} }, reviews: {}, mutations: [],
     };
     // A restart keeps the abandoned attempt's documents (rewrite what no longer holds) and a pointer to why it stopped.
     if (existing) st.restartedFrom = { type: typeOf(existing), abandonedAt: existing.updatedAt, reason: (existing.history || []).filter((e) => e.event === 'abandon').pop()?.reason || '' };
@@ -1272,6 +1282,9 @@ switch (verb) {
     // A verdict is only as good as what was observed: the value seen, and where and how.
     const text = (f) => (typeof flags[f] === 'string' ? flags[f].trim().replace(/\r?\n/g, ' ') : '');
     if (flags.verdict !== 'BLOCKED' && (!text('measured') || !text('how'))) fail(`A ${flags.verdict} needs --measured "<what you observed: the text, the value, the element>" and --how "<where and how: the store page, viewport, tool>", in the same call.`);
+    // A PASS that says part of it wasn't shown is partial (as the theme kit refuses since 1.13.10's review): split it.
+    const hedge = flags.verdict === 'PASS' && text('measured').match(/\b(?:not provable|can(?:no|')t (?:be )?prove[nd]?|not (?:yet )?(?:verified|measured|tested|checked|shown)|unverified|untested|assumed|only partly|partially)\b|\blimit(?:ation)?s?\s*:/i);
+    if (hedge) fail(`--measured says "${hedge[0]}", so part of ${s.id} wasn't shown. Measure it, or record BLOCKED with what's missing.`);
     // The code a verdict was measured on: a row measured before a fix doesn't count after it.
     st.qa = { rows: { ...st.qa?.rows, [s.id]: { verdict: flags.verdict, measured: text('measured'), how: text('how'), digest: codeDigest(cfg), at: now() } } };
     writeChange(cfg, id, st);

@@ -6,7 +6,7 @@ import { join } from 'node:path';
 
 const DIR = process.env.FAKE_SHOPIFY_DIR;
 if (!DIR) { process.stderr.write('FAKE_SHOPIFY_DIR is not set\n'); process.exit(1); }
-const VALUE_FLAGS = new Set(['path', 'config', 'store', 'query-file', 'variable-file', 'input', 'export', 'client-id']);
+const VALUE_FLAGS = new Set(['path', 'config', 'store', 'query-file', 'variable-file', 'input', 'export', 'client-id', 'template', 'name', 'flavor']);
 const words = [];
 const flags = {};
 const argv = process.argv.slice(2);
@@ -30,11 +30,20 @@ if (flags.config) {
 }
 if (flags.help) {
   // Every flag the wrapper's contract looks for, so cli-check passes.
-  process.stdout.write('FLAGS\n  --json\n  --no-input\n  --path=<value>\n  --input=<value>\n  --export=<value>\n  --store=<value>\n  --query-file=<value>\n  --variable-file=<value>\n  --skip-instructions\n  --skip-dependencies-installation\n');
+  process.stdout.write('FLAGS\n  --json\n  --no-input\n  --path=<value>\n  --input=<value>\n  --export=<value>\n  --store=<value>\n  --query-file=<value>\n  --variable-file=<value>\n  --skip-instructions\n  --skip-dependencies-installation\n  --template=<value>\n  --name=<value>\n  --flavor=<value>\n');
   process.exit(0);
 }
 switch (cmd) {
   case 'app config validate': out({ valid: true, issues: [] }); break;
+  // Like the CLI 5 schema (AppGenerateExtensionResult): the scaffold under extensions/<name>.
+  case 'app generate extension': {
+    const dir = join(flags.path, 'extensions', flags.name);
+    mkdirSync(join(dir, 'src'), { recursive: true });
+    writeFileSync(join(dir, 'shopify.extension.toml'), `api_version = "2026-07"\n\n[[extensions]]\nname = "${flags.name}"\nhandle = "${flags.name}"\ntype = "ui_extension"\n\n[[extensions.targeting]]\ntarget = "purchase.checkout.block.render"\nmodule = "./src/Checkout.jsx"\n`);
+    writeFileSync(join(dir, 'src', 'Checkout.jsx'), 'export default function Extension() { return null; }\n');
+    out({ status: 'success', extension: { name: flags.name, type: 'ui_extension', template: flags.template, flavor: flags.flavor || null, directory: dir } });
+    break;
+  }
   case 'app build': process.stdout.write('Build complete\n'); break;
   case 'app function build': process.stdout.write('Function built\n'); break;
   case 'app function run': {

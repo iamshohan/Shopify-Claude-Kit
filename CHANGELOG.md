@@ -1,5 +1,33 @@
 # Changelog
 
+## 1.16.0 — 2026-11-25
+
+From the second five-way review (developer experience and automation quality, both kits) and the dev's answers: fix QA failures without asking, more autonomy where it's safe, and stricter checks where the agent now decides alone.
+
+**How runs work** (`rules/kit-runs.md`, with app kit 0.3.0):
+- **Waiting on the client or CRO:** flag what only they can answer as early as possible, give the dev a ready-to-post comment, keep doing what doesn't depend on it, and stop only where the answer decides the work ahead. No check enforces it.
+- **Project knowledge in the repo's root `CLAUDE.md`** (always loaded, never touched by the installer): the agent reads it and offers to add a line under "## Project notes" when it learns how this project works (its dev server, a deploy step).
+- **Write files with the Write or Edit tool**, as the app kit already said.
+- **QA fixes failures inside the plan on its own** before Gate 2, at most 2 rounds, and comes to Gate 2 with 0 FAIL. In 5 of 6 runs, a FAIL went to Gate 2 only so the dev could pick "Fix the failures". It still asks for a wrong Expected, money, or after 2 rounds.
+
+**Checks on what the agent decides alone:**
+- **"(client's call)" decisions reach the client:** handoff wants a What-differs row (Ref "client's call") for each one under Decided for you. Before, only questions the dev answered counted.
+- **"Should have asked:"** is a new outcome-checker line: a decision taken alone that the ask list covers.
+- **"Gate 1" for a value kept in code** counts only when the value is named under Decided for you.
+- **The PR names every QA row that wasn't verified** (GSD-80's PR said the on/off switch worked; QA never tested it). The PR and Jira comment may not point to report.md, plan.md or brief.md either.
+- **Gate 2 refuses an open FAIL** unless the dev names it.
+- **A bug fix's repro row** needs live and draft values that differ, with live showing the bug; both words appearing used to be enough.
+
+**QA:**
+- A failed preview falls back to the theme editor; `preview` refuses section-group overrides, which never apply (GSD-80).
+- The editor is reset by reloading and discarding, not by undo.
+- Overlays (Shopify's preview bar, cookie banners, popups) are cleared in kit-browser first.
+- A rate-limited `compare` is replaced by a kit-browser comparison.
+
+**Fewer asks:** intake switches a clean tree to the base itself, reuses a task's own branch (recorded, so build doesn't ask again), and leaves the `preview_theme_id` question to QA's marker check. "Is the A/B test still running" needs evidence (the tool's script, the ticket, the dev), or it's `unknown`: markers the test's JavaScript adds never show in fetched HTML. A loop after handoff updates the existing PR instead of asking again. `/shopify-video` runs its own tool setup. Decided for you shows the top 10 and "N more", with "(vs AC n)" first.
+
+**Smaller:** a rejected push on a GitHub-connected draft shows the incoming editor saves before pulling them; the PR offer passes `--repo` and never retries without `--draft`; a plan rule on sections that can't read their theme blocks' settings (CHE-865); the TEMPORARY kit-browser 1.7.0 lines are gone; text that still said "ask every question" is fixed.
+
 ## 1.15.2 — 2026-11-25
 
 Guard false positives from the real-run review, all reproduced (each with a self-test):

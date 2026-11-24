@@ -1,6 +1,6 @@
 ---
 name: app-propose
-description: The propose stage of the App Kit (/app-change, /app-fix, /app-maintain, /app-ab). Write proposal.md - the scenarios with their checks, the declared surfaces, the design when a heavy surface needs one, and the tasks - then hand it to the dev for review at Gate 1. Use only when app.mjs status says the stage is propose.
+description: The propose stage of the App Kit (/app-implement, every type). Write proposal.md - the scenarios with their checks, the declared surfaces, the design when a heavy surface needs one, and the tasks - then hand it to the dev for review at Gate 1. Use only when app.mjs status says the stage is propose.
 user-invocable: false
 ---
 
@@ -15,7 +15,7 @@ The dev approves behaviour, not code. Everything you write here is read by someo
 - Shopify facts (scopes, API fields, Function targets and limits, extension targets and components) come from `shopify-plugin:shopify`, not memory. Choose the **narrowest scope** that does the job.
 - **Open questions:** decide what the ticket, the app's code, the archived changes or the docs answer, and write each decision in § Decided for you (one line, with why). Ask the dev, in one AskUserQuestion round before writing the scenarios, only what `.claude/rules/app-runs.md` lists: a departure from the ticket, a new scope or something the merchant must maintain, money, real alternatives, a contradiction, something costly to undo.
 - **A change to `shopify.app*.toml` or an extension toml:** write the edited toml and run `node .claude/kit/shopify.mjs validate` before Gate 1. Docs don't list every required key: the first real run dropped `[auth]` from the docs' reading, and validate then failed with "[auth] Required", costing a second Gate 1.
-- **A new extension:** generating it is the dev's step. Ask them to run `! shopify app generate extension` (on the change branch) before you write § Surfaces, then copy the rows `node .claude/kit/app.mjs surfaces <ID>` prints, changed to the targets and capabilities the change will use, not the template's defaults (build edits the generated toml to match). Its API version and its own dependencies come with the declared extension; its targets and capabilities need rows.
+- **A new extension:** generate it yourself on the change branch before you write § Surfaces: `node .claude/kit/shopify.mjs generate-extension <template> <name> --flavor <flavor>` (e.g. `checkout_ui trust-list --flavor react`; the name is the feature, never the ticket key). Then copy the rows `node .claude/kit/app.mjs surfaces <ID>` prints, changed to the targets and capabilities the change will use, not the template's defaults (build edits the generated toml to match). Its API version and its own dependencies come with the declared extension; its targets and capabilities need rows. If the verb fails on a login or a choice it can't make, it prints the command for the dev.
 
 ## 2. proposal.md
 
@@ -42,14 +42,12 @@ By type:
 
 1. Run `node .claude/kit/app.mjs gate <ID>` until it passes (it lists the proposal's problems first).
 2. Commit the change folder on the change branch (`git add appspec/changes/<ID>` and commit).
-3. **Gate 1: hand the proposal over, don't ask yet.** Say it's ready at `appspec/changes/<ID>/proposal.md` and show, from gate's output, in at most 20 lines:
-   - the behaviour: `scenarios`, one line each with its values and its check (shorten wording, never the values)
-   - the surfaces: `surfaces`, `pcdScopes` first
-   - `design` when there is one, in a line or two
-   - `attention`, and `retires` if any
-   - `decided`: what you decided without asking, one line each, so the dev can change any of it
-   - fix: `reproduce`; A/B: `abGate` and `completion`
-   - anything you are unsure of
+3. **Gate 1: hand the proposal over, don't ask yet.** Say it's ready at `appspec/changes/<ID>/proposal.md` and show, from gate's output, in at most 15 lines (the first real A/B Gate 1 was 39 lines, and the dev called it "lots of text"):
+   - what needs the dev first: `attention`, any departure from the ticket, and what you're unsure of
+   - the behaviour as groups, not every row: "S1–S4: the block shows for variation 1 and 2, nothing without the key"; values in full only where they're the point
+   - the surfaces in one line, `pcdScopes` first; `design` in a line when there is one
+   - `decided`: "N decisions in § Decided for you", plus the one or two the dev would most likely change
+   - fix: `reproduce`; A/B: the key and values from `abGate`, and `completion` in a line
    End with: "Review it and tell me: approve, what to change, or any question." Then stop and wait; no AskUserQuestion. Questions → answer and wait. Changes → edit the proposal, run gate again, say what changed, wait.
 4. On an explicit approval: `node .claude/kit/app.mjs done <ID> propose --answer "<the dev's words>"`. If the reply could be read either way, ask.
 

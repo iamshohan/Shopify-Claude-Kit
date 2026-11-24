@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.3.0 — 2026-11-25
+
+**Three commands instead of eight**, like the theme kit's:
+- `/app-setup` sets up and onboards, and on a re-run is the health check (was setup, onboard and drift).
+- `/app-implement <KEY>` runs every kind of change; the agent picks the type from the ticket (change, fix, ab, maintain) and says which (was change, fix, maintain and ab).
+- `/app-investigate <KEY or question>` answers a question, or checks a ticket's feasibility with what the client gets, the approaches, an estimate in agentic hours and a draft Jira comment (was ask, which only answered questions).
+The installer removes the old command files on update.
+
+**Setup in minutes, not 25 interactions:**
+- An untouched app template that should be extension-only is stripped inside setup, before onboarding, without a change or a gate. `detect` reports `untouchedTemplate` and suggests the dev config. `templates/extension-only.app.toml` holds the validated defaults (the default app home, the `[auth]` redirect validate requires).
+- Settings are decided, and the guard's prompt on app-kit.json is the confirmation.
+- **The first change doesn't wait for the onboarding merge:** it stacks on `kit-onboard` and is measured from it until that branch is in the base (this replaces 0.2.0's refusal).
+- **The kit generates extensions itself:** `shopify.mjs generate-extension <template> <name> --flavor <f>` (local files with the CLI's cached login; it refuses a ticket key as the name). The first A/B run waited for "extension generated".
+
+**Level with the theme kit:** the client and CRO rule, project knowledge in the root `CLAUDE.md`, verify fixing failures inside the scenarios on its own (at most 2 rounds), `qa-row` refusing a hedged PASS, a client comment at handoff, and a shorter Gate 1 message (at most 15 lines; the first A/B Gate 1 was 39).
+
 ## 0.2.1 — 2026-11-25
 
 From the review of the first A/B change (ASM-924, at Gate 1).

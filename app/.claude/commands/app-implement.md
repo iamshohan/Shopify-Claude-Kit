@@ -1,23 +1,32 @@
 ---
-description: Add or adjust behaviour in this Shopify app, scenarios first. From a Jira key or a description to an archived, verified change with a PR text and a deploy checklist. Resumable. Run it again with the same ID to continue.
+description: Implement a ticket in this Shopify app, scenarios first - a new or changed behaviour, a bug fix, an A/B-gated extension, or maintenance. From a Jira key or a description to an archived, verified change with a PR text and a deploy checklist. Resumable. Run it again with the same ID to continue.
 argument-hint: <JIRA-KEY or short-kebab-id> [description] [--test]
 disable-model-invocation: true
 ---
 
-# /app-change $ARGUMENTS
+# /app-implement $ARGUMENTS
 
-You are running the Shopify App Kit for one change. A script keeps track of where the change is, so you never have to remember it. The type is **change** unless the command that sent you here names another (`fix`, `maintain`, `ab`).
+You are running the Shopify App Kit for one change. A script keeps track of where the change is, so you never have to remember it.
+
+**The type comes from the ticket**, not from the dev picking a command. Decide it, say it in one line ("Type: ab, because the ticket gates a checkout block on an A/B test"), and go on; the dev can correct it, and `start <ID> --type …` again changes it before anything is built.
+
+| Type | When |
+| --- | --- |
+| `fix` | something behaves wrongly: reproduce it first |
+| `ab` | an extension or Function that acts only for an A/B test's variation (a cart attribute or line item property the test code writes) |
+| `maintain` | no behaviour change: an API version bump, dependency updates, a refactor |
+| `change` | anything else: new or changed behaviour |
 
 ## Every time, before anything else
 
 1. No ID given → run `node .claude/kit/app.mjs list`, ask the dev which change to continue or what to start, and stop until they answer. A description without an ID: pick a short kebab-case ID (e.g. `gift-label`), say it in one line, and go on; the dev can rename it before the first commit. A Jira key is the ID itself.
-2. `.claude/app-kit.json` missing → tell the dev to run `/app-setup`, and stop. `appspec/surfaces.json` missing → `/app-onboard`, and stop.
+2. `.claude/app-kit.json` missing → tell the dev to run `/app-setup`, and stop. `appspec/surfaces.json` missing → `/app-setup`, which onboards the app, and stop.
 3. Once per session: `node .claude/kit/shopify.mjs cli-check`. If it reports problems, show them and stop: the kit may no longer match the CLI.
 4. Run `node .claude/kit/app.mjs status <ID>`.
    - **Archived:** status says what's left (commit, push, the handoff). Do that. Only if the dev says the ticket was reopened, start it again below.
    - **Not started:** status names the branch to create.
      1. Run `git status --porcelain`. Uncommitted app changes → ask the dev what to do with them. Never stash or discard without asking.
-     2. `git fetch origin`, then the `git switch -c <branch> --no-track origin/<baseBranch>` status printed (`--no-track`: a branch that tracks the base can send a push there). If the branch exists locally or on origin: reuse it when it holds only this change's own commits (named for the ID, nothing merged in from elsewhere), and say so; ask the dev only otherwise.
+     2. `git fetch origin`, then the `git switch -c <branch> --no-track …` status printed (from `origin/kit-onboard` while the onboarding isn't merged: the change stacks on it, and its PR follows the onboarding's) (`--no-track`: a branch that tracks the base can send a push there). If the branch exists locally or on origin: reuse it when it holds only this change's own commits (named for the ID, nothing merged in from elsewhere), and say so; ask the dev only otherwise.
      3. `node .claude/kit/app.mjs start <ID> --type <type> --title "<one line>"`, adding `--test` when the arguments include it or the dev calls it a test run (the branch is then `<ID>-kit-test`).
 5. The status names the current stage and the skill that owns it. **Load that skill with the Skill tool and do only that stage.**
 6. When the stage's "Done when" holds, run `node .claude/kit/app.mjs done <ID> <stage>`. Gate stages also need `--answer "<the dev's words>"`. The script refuses while the stage's output is missing: read its message, fix the gap, and run it again.

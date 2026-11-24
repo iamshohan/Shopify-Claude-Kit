@@ -152,7 +152,16 @@ const short = (sha) => (sha ? sha.slice(0, 7) : 'none');
 /** A bug fix's QA criterion that reproduces the bug: named as a repro, and says what live shows. */
 const reproRows = (rows) => rows.filter((r) => /\brepro(duc\w*)?\b/i.test(r) && /\blive\b/i.test(r));
 /** A repro measurement shows both sides, in either order: it fails on live and passes on the draft. */
-const bothSides = (measured) => /\blive\b/i.test(measured || '') && /\bdraft\b/i.test(measured || '');
+/**
+ * A repro row's two halves, "live: … ; draft: …": live shows the bug and the draft something else. Checking only that
+ * both words appear let "live: not reproduced; draft: ok" pass.
+ */
+const bothSides = (measured) => {
+  const half = (side) => String(measured || '').match(new RegExp(`\\b${side}\\s*:\\s*([^;]*)`, 'i'))?.[1]?.trim() || '';
+  const live = half('live');
+  const draft = half('draft');
+  return Boolean(live && draft) && live.toLowerCase() !== draft.toLowerCase() && !/not reproduc|couldn'?t reproduc|can'?t reproduc|no (bug|issue|error)|\bworks\b/i.test(live);
+};
 const rowNum = (row) => cells(row)[0].replace(/\*/g, '');
 /** plan.md § QA criteria: each number → the rest of its row, the text qa-row records with a measurement. */
 const planCriteria = (key) => new Map(tableRows(key, 'plan.md', '## QA criteria').filter((r) => /^\d+$/.test(rowNum(r))).map((r) => [rowNum(r), cells(r).slice(1).join(' | ')]));
@@ -201,6 +210,7 @@ function staysInCodeProblems(key) {
   const within = '## Decided';
   const rows = tableRows(key, 'brief.md', '#### Stays in code', within);
   if (!rows.length && !saysNone(key, 'brief.md', '#### Stays in code', within)) return ['fill brief.md § Control surface → Stays in code (one row per value the merchant can\'t change, or "none")'];
+  const decided = added(key, 'plan.md', '### Decided for you', '## At a glance').join('\n').toLowerCase();
   return rows.flatMap((r) => {
     const [value, ac = '', why = '', agreed = ''] = cells(r);
     if (!ac) return [`Stays in code → "${value}": name the editability AC it touches, or "none"`];
@@ -208,6 +218,11 @@ function staysInCodeProblems(key) {
     // A design constant (spacing, a breakpoint) is listed under Decided for you and approved with the plan; content the
     // merchant would change (text, images, links, which items show) is asked as its own question (Q#).
     if (!/^none\b/i.test(ac) && !/Q\s*\d+|Gate 1|Decided for you/i.test(agreed)) return [`Stays in code → "${value}" touches ${ac}. A design constant: list it under plan.md → Decided for you and write "Gate 1" in "Dev agreed". Content the merchant would change: ask it as its own question (Q#), or make it editable`];
+    // "Gate 1" counts only when the dev can see it there: the value is named under Decided for you.
+    if (!/^none\b/i.test(ac) && !/Q\s*\d+/i.test(agreed) && hasHeading(key, 'plan.md', '### Decided for you')
+      && !decided.includes(value.replace(/[*`]/g, '').trim().toLowerCase().split(/[\s(,]/)[0])) {
+      return [`Stays in code → "${value}" says Gate 1, but plan.md → Decided for you doesn't name it: list it there, so the dev sees it before approving`];
+    }
     return [];
   });
 }
@@ -341,11 +356,20 @@ function handoffTextProblems(key, st) {
   const notTold = [...tableACs].filter((n) => !jiraACs.has(n)).map((n) => `AC ${n}`);
   const pr = added(key, 'report.md', '### PR', '## Handoff').join('\n');
   const check = added(key, 'report.md', '### Client check', '## Handoff').join('\n');
+  // Since 1.15.0 the agent decides what customers see itself and marks it "(client's call)" under Decided for you:
+  // those reach the client too, as rows whose Ref says "client's call".
+  const decidedForClient = added(key, 'plan.md', '### Decided for you', '## At a glance').filter((l) => /\(client'?s call\)/i.test(l)).length;
+  const clientRows = (table.match(/client'?s call/gi) || []).length;
+  // A row QA didn't PASS is named in the PR, so nobody reads "works" where it wasn't verified (GSD-80's on/off switch).
+  const notVerified = Object.entries(st.qa?.rows || {}).filter(([, r]) => r.verdict && r.verdict !== 'PASS').map(([n]) => n);
+  const unnamed = notVerified.filter((n) => !new RegExp(`#${n}\\b`).test(pr));
   return [
     hasHeading(key, 'report.md', '### What differs from what was asked') && missing.length && `report.md § Handoff → What differs from what was asked has no row for ${missing.join(', ')} (from plan.md → Differs and brief.md's "Client's call" questions): say what the client gets instead, in their words`,
+    hasHeading(key, 'report.md', '### What differs from what was asked') && clientRows < decidedForClient && `plan.md → Decided for you has ${decidedForClient} decision(s) marked "(client's call)", and What differs from what was asked has ${clientRows} row(s) with "client's call" as its Ref: give each its own row, in the client's words, so the Jira comment tells them`,
+    unnamed.length && `the PR doesn't name the QA rows that weren't verified (${unnamed.map((n) => `#${n}`).join(', ')}): list each with its verdict, so the PR claims nothing QA didn't show`,
     filled(key, 'report.md', '## Handoff') && !jira.trim() && 'write report.md § Handoff → Jira comment',
     jira.trim() && notTold.length && `the Jira comment doesn't tell the client about ${notTold.join(', ')}: add each row of What differs from what was asked, in their words, with its AC`,
-    /\.claude[\\/]logs/i.test(`${pr}\n${jira}`) && 'the PR or the Jira comment points to .claude/logs/…, which git ignores: paste what reviewers need inline',
+    /\.claude[\\/]logs|\b(report|plan|brief)\.md\b/i.test(`${pr}\n${jira}`) && 'the PR or the Jira comment points to the kit\'s files (.claude/logs/…, report.md, plan.md), which git ignores: paste what reviewers need inline',
     st.draft?.route === 'github' && jira.trim() && !/\bsav(e|ing)\b/i.test(jira) && 'the draft is GitHub-connected: the Jira comment must ask reviewers not to press Save in its theme editor (each save becomes a commit on the branch under review)',
     hasHeading(key, 'report.md', '### Client check') && filled(key, 'report.md', '## Handoff') && !/Client surprises\s*:/i.test(check) && 'report.md § Handoff → Client check needs the outcome-checker agent\'s handoff pass: run it (mode handoff), fix the Jira comment by it, and record its "Client surprises:" line',
   ];
@@ -705,6 +729,13 @@ function unprovenProblems(key) {
 }
 
 /** Not-proven criteria that didn't PASS and that the dev's Gate 2 answer doesn't name. */
+/** A FAIL is fixed, or the dev accepts it by name: "Accept, I'll do the 1 check" took GSD-80's open FAIL along. */
+function openFails(st, answer) {
+  const fails = Object.entries(st.qa?.rows || {}).filter(([, r]) => r.verdict === 'FAIL').map(([n]) => n)
+    .filter((n) => !new RegExp(`(^|\\D)${n}(?!\\d)`).test(answer));
+  return fails.length && `QA rows ${fails.map((n) => `#${n}`).join(', ')} are FAIL. Fix them (back to build), amend the criterion to a live baseline and measure again, or accept only if the dev names each one: --answer "<their words, naming ${fails.map((n) => `#${n}`).join(', ')}>"`;
+}
+
 function unprovenUntested(key, st, answer) {
   const named = (n) => new RegExp(`(^|\\D)${n}(?!\\d)`).test(answer);
   const open = [...new Set(unprovenRows(key).flatMap((r) => r.qa))].filter((n) => st.qa?.rows?.[n]?.verdict !== 'PASS' && !named(n));
@@ -818,6 +849,10 @@ function selftest() {
   eq('parseArgs booleans', parseArgs(['push', '--dry-run', 'ABC-1']), { _: ['push', 'ABC-1'], flags: { 'dry-run': true } });
   eq('retryDelay: Retry-After wins, capped at 30 s; else 3, 8, 15 s', [retryDelay('5', 1), retryDelay('120', 1), retryDelay(null, 1), retryDelay('Wed, 21 Oct 2026', 2), retryDelay(null, 3)], [5000, 30000, 3000, 8000, 15000]);
   eq('verbHelp: the verb\'s lines with their continuations; none for an unknown verb', [verbHelp('qa-row').length, verbHelp('done').length, verbHelp('abandon').length, verbHelp('nope').length], [4, 2, 1, 0]);
+  eq('repro: live shows the bug and the draft something else, not just both words', [
+    bothSides('live: total 10.00; draft: total 8.00'), bothSides('live: not reproduced; draft: ok'), bothSides('live: 8.00; draft: 8.00'), bothSides('checked live and draft'),
+  ], [true, false, false, false]);
+  eq('accept: an open FAIL needs the dev to name it', [Boolean(openFails({ qa: { rows: { 7: { verdict: 'FAIL' } } } }, 'Accept')), openFails({ qa: { rows: { 7: { verdict: 'FAIL' } } } }, 'Accept, #7 is pre-existing')], [true, 0]);
   eq('parseArgs values', parseArgs(['done', 'ABC-1', 'approve', '--answer', 'use a block']), { _: ['done', 'ABC-1', 'approve'], flags: { answer: 'use a block' } });
   eq('storefrontPath plain', storefrontPath('cart'), '/cart');
   eq('storefrontPath home', storefrontPath('home'), '/');
@@ -1039,7 +1074,7 @@ switch (verb) {
     const def = stages[stageIndex(stage, st)];
     const answer = typeof flags.answer === 'string' ? flags.answer.trim() : '';
     if (def.gate && !answer) fail(`"${stage}" is a gate (${def.gate}). Ask the dev, then record their words: --answer "..."`);
-    const missing = [...(EXIT_CHECKS[stage]?.(key, st) || []), stage === 'accept' && unprovenUntested(key, st, answer)].filter(Boolean);
+    const missing = [...(EXIT_CHECKS[stage]?.(key, st) || []), stage === 'accept' && unprovenUntested(key, st, answer), stage === 'accept' && openFails(st, answer)].filter(Boolean);
     if (missing.length) {
       // Kept for the retro: repeated refusals at one stage point at a skill that doesn't say what the check wants.
       st.history.push({ at: now(), event: 'refused', stage, missing: missing.map((m) => m.slice(0, 160)) });

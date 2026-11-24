@@ -34,7 +34,7 @@ A clone of the old `DripDevelopment` repo gets no more updates; switch it first 
 Open Claude Code in the repo you installed into, trust the folder when it asks, then run:
 
 - **Theme repo:** `/shopify-setup`. It proves the guard is live, checks the Shopify CLI, your logins and tools (with the exact fix for anything missing), and writes `.claude/shopify-kit.json` with you.
-- **App repo:** `/app-setup`, then `/app-onboard` (once per repo). Setup checks the CLI and writes `.claude/app-kit.json` (dev store, app config, verify commands). Onboard creates `appspec/` with the app's current surfaces; commit it.
+- **App repo:** `/app-setup` (once per repo). It checks the CLI, writes `.claude/app-kit.json` (dev store, app config, verify commands), makes an untouched app template extension-only if that's what the app is, and onboards the app: `appspec/` with its current surfaces, on a `kit-onboard` branch to merge.
 
 For Jira keys, both setups tell you when to create `~/.claude/.env` (once per machine; it covers every kit repo):
 
@@ -66,12 +66,7 @@ Run a command again with the same key to continue where it stopped. Team guide: 
 | Command | Use it to |
 | --- | --- |
 | `/app-setup` | Set up once per repo and person: checks the CLI, writes `.claude/app-kit.json` (dev store, app config, verify commands) |
-| `/app-onboard` | Once per repo: creates `appspec/` with the app's current surfaces |
-| `/app-change ABC-123` | Add or change behaviour: scenarios → your approval → build → verify → your acceptance → PR text and deploy checklist |
-| `/app-fix ABC-123` | Fix a bug: a failing test first, then the fix |
-| `/app-maintain ABC-123` | API version bump, dependencies or refactor, with no behaviour change |
-| `/app-ab ABC-123` | Build an A/B-gated checkout extension or Function |
-| `/app-ask <question>` | Ask how something works, read-only |
-| `/app-drift` | Health check: surfaces changed outside the kit, archived tests gone (`--regression` runs them all) |
+| `/app-implement ABC-123` | Implement a ticket: a new behaviour, a bug fix, an A/B-gated extension or maintenance (the agent picks the type). Scenarios → your approval → build → verify → your acceptance → PR text and deploy checklist |
+| `/app-investigate <KEY or question>` | Read-only: answers a question, or checks a ticket's feasibility with an estimate before anyone picks it up |
 
 Run a command again with the same key to continue where it stopped. Team guide: [`app/.claude/README.md`](app/.claude/README.md).

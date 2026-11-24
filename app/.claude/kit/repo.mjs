@@ -98,9 +98,18 @@ export function branchFor(cfg, id, st) {
   return (cfg?.branchPattern || DEFAULTS.branchPattern).replace('{ID}', id).replace('{id}', id.toLowerCase());
 }
 
-/** The commit a change is measured from: where HEAD meets origin/<base> (as a PR diff is), else where the branch started. */
+/** The branch onboarding commits appspec/ on; a first change may stack on it before it's merged. */
+export const ONBOARD_BRANCH = 'kit-onboard';
+
+/**
+ * The commit a change is measured from: where HEAD meets origin/<base> (as a PR diff is), else where the branch started.
+ * A change stacked on the unmerged onboarding branch is measured from it, until that branch is in the base.
+ */
 export function effectiveBase(st, cfg) {
-  return git(['merge-base', 'HEAD', `origin/${cfg?.baseBranch || 'main'}`], { allowFail: true }) || st.base;
+  const base = `origin/${cfg?.baseBranch || 'main'}`;
+  const stacked = st?.stackedOn && git(['rev-parse', '--verify', '--quiet', `origin/${st.stackedOn}`], { allowFail: true })
+    && run('git', ['merge-base', '--is-ancestor', `origin/${st.stackedOn}`, base]).code !== 0;
+  return git(['merge-base', 'HEAD', stacked ? `origin/${st.stackedOn}` : base], { allowFail: true }) || st?.base;
 }
 
 export function owner() {
