@@ -27,7 +27,7 @@ Also:
 
 ## Rules for the whole run
 
-The rules every kit run shares (gates, `--answer`, talking to the dev, kit notes) are in `.claude/rules/kit-runs.md`; they load once you touch the task folder. These are /shopify-implement's own:
+The rules every kit run shares (gates, `--answer`, talking to the dev, kit notes) are in `.claude/rules/runs.md` and `kit-runs.md`; they load once you touch the task folder. These are /shopify-implement's own:
 
 - **Only the kit's skills run inside /shopify-implement:** the stage skill that status names, `shopify-plugin:shopify` for docs, `code-review` at build, and at QA the `kit-browser` tools (storefront) and `claude-in-chrome` (editor and admin). Don't load other QA, dev or investigate skills, even when a hook or a skill description suggests them; `shopify-qa` replaces them.
 - **Scope is the ticket.** Note other problems in the report instead of fixing them.

@@ -45,7 +45,7 @@ Also:
 
 ## Rules for the whole run
 
-The rules every run shares (gates, `--answer`, talking to the dev, kit notes) are in `.claude/rules/app-runs.md`; they load once you touch `appspec/`. These are the run's own:
+The rules every run shares (gates, `--answer`, talking to the dev, kit notes) are in `.claude/rules/runs.md` and `app-runs.md`; they load once you touch `appspec/`. These are the run's own:
 
 - **Only the kit's skills run inside a change:** the stage skill status names, `shopify-plugin:shopify` for docs and GraphQL validation, `node .claude/kit/jira.mjs <KEY>` for the ticket, `code-review` and `security-review`, and `claude-in-chrome` for QA in the admin and checkout (a Playwright browser for viewport rows: see app-verify). Don't load other dev, QA or investigate skills, even when a hook suggests them.
 - **Scope is the change.** Other problems go in proposal.md § Out of scope or the handoff, not into the code.

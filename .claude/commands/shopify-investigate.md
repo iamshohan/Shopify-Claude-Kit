@@ -28,7 +28,7 @@ After a compaction or in a new session, run status first and continue from what 
 
 ## Rules
 
-The rules every kit run shares (gates, `--answer`, talking to the dev, kit notes) are in `.claude/rules/kit-runs.md`; they load once you touch the task folder. These are the investigation's own:
+The rules every kit run shares (gates, `--answer`, talking to the dev, kit notes) are in `.claude/rules/runs.md` and `kit-runs.md`; they load once you touch the task folder. These are the investigation's own:
 
 - **Read-only:** the skill lists what that means.
 - **Only these skills run here:** `shopify-investigation`, `shopify-plugin:shopify` for docs, the `kit-browser` tools for the storefront (Chrome if they're missing), and `claude-in-chrome` for admin pages. Don't load other investigate or QA skills.

@@ -5,6 +5,8 @@ paths:
 
 # Kit runs (/shopify-implement and /shopify-investigate)
 
+The rules every run of either kit shares (the client or CRO, project notes, writing files, `--answer`, talking to the dev) are in `runs.md` next to this file. These are the theme kit's own:
+
 - **Decide what's clear; ask only what's the dev's call.** When the ticket, the A/B winner, the theme's own pattern or a clear convention answers a question, decide it, record it, and tell the dev in one line ("Decided: … because …"). The dev reviews those at the next gate and can change any of them. **Ask** (all at once, each with 2–4 options and your recommendation first) only when:
   - the work would depart from a quoted acceptance criterion or from the A/B winner;
   - it creates something the client or merchant must maintain: a metafield or metaobject definition, data entry per product, a new app or integration;
@@ -13,21 +15,9 @@ paths:
   - the ticket and the A/B test, or two tickets, contradict each other, or the code can't settle it;
   - it can't be undone cheaply later.
   A question whose recommended option you'd have taken anyway, with nothing in this list behind it, is a decision: take it and report it.
-- **Waiting on the client or CRO.** Some answers only the client or the CRO team can give: what customers see, content, a trade-off the ticket leaves open, an approval before going live. Flag each one as early as you can see it (intake, or the first stage that reveals it), and give the dev a ready-to-post comment: short, in the client's words, the question with its options and what each means for them. Then keep going with everything that doesn't depend on the answer, and say what you're doing meanwhile. Stop only where the answer decides the work ahead (a question in the plan, the go-live); when the dev comes back with the reply, record it in their words and continue from there. No kit check enforces this: it's how the team works.
-- **What this project does its own way** (its dev server command, a deploy step, where a draft's link goes, a quirk of its theme or app) lives in the repo's root `CLAUDE.md`, which every session loads and the kit's installer never touches. Read it at the start. When you learn such a fact that a teammate would need next time, offer to add one line there under "## Project notes", and add it on a yes. Never put credentials or client data in it.
-- **Write files with the Write or Edit tool,** never `printf`, `echo`, a heredoc or `node -e`. The guard reads a shell command's text as something it could run, so text that mentions a CLI command or a secret file gets refused when it's written through the shell.
 - **Gates are the dev's decisions.** Gate 1 hands the plan over and waits for the dev's reply (shopify-plan); the others ask with AskUserQuestion. Wait for the answer, and record their words. Never infer an answer. Silence is not approval.
-- **`--answer` is one line of at most 200 characters, in the dev's words, without quotes, backticks or `$`** (they break shell quoting). The full answers go in the documents.
-- **You write the task documents** in `.claude/logs/<KEY>/`. Agents return reports; you put what matters into the documents.
+- **You write the task documents** in `.claude/logs/<KEY>/`.
 - **Long verbs take minutes:** `shopify.mjs draft`, `push`, `verify` and `check`, and `compare.mjs`. The kit's settings give Bash enough time; wait for them.
-- **A refused chained command** (`a && b; c`): run its parts on their own to see which one the guard means, before blaming the rule. In the first app run, three "false positives" came from another part of the same command (a trailing CLI call, a `node -e` that wrote `.env` lines).
-- **Two failed attempts at the same thing → stop**, say what you tried and what you saw, and ask the dev.
-- **How you talk to the dev.** The documents hold the detail; chat carries what the dev has to act on.
-  - Open with what needs the dev, or "Nothing needed from you".
-  - A message between gates is at most 6 lines. Point to the document section instead of quoting it.
-  - Never repeat the ticket's criteria, a table that is already in a document, or anything the dev already answered.
-  - Report only what is new. A finding that turned out wrong gets one line: "Earlier I said X; it was Y because Z."
-  - Put "(Recommended)" only on real alternatives, never on approving or confirming your own work.
 - **Admin steps you can offer to do in the dev's Chrome.** When a step is the dev's (the kit has no verb for it) but you could click it in the admin with Claude in Chrome, add one line after the steps: "I can do this in your Chrome if you want." Do it only after a yes, then check the result with the kit's read-only verb and say what you changed. The guard doesn't see Chrome clicks, so only these qualify:
 
   | Offer | After it, check with |

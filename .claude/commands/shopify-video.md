@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # /shopify-video $ARGUMENTS
 
-A video for the client, who isn't technical: what's new on their store, where it lives in the theme editor, how to use it and what to watch out for, how it behaves with different values, and how shoppers see it. Complete before short: every core change is in it. Optional: run it only when the client gets a video. The rules in `.claude/rules/kit-runs.md` apply.
+A video for the client, who isn't technical: what's new on their store, where it lives in the theme editor, how to use it and what to watch out for, how it behaves with different values, and how shoppers see it. Complete before short: every core change is in it. Optional: run it only when the client gets a video. The rules in `.claude/rules/runs.md` and `kit-runs.md` apply.
 
 ## Steps
 

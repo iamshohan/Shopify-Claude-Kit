@@ -75,7 +75,7 @@ try {
   // ── Install and update ──
 
   const install = spawnSync(process.execPath, [join(KIT, 'install.mjs'), repo], { encoding: 'utf8' });
-  ok('installer copies the kit, rules included', install.status === 0 && existsSync(join(repo, '.claude', 'kit', 'shopify.mjs')) && existsSync(join(repo, '.claude', 'rules', 'kit-runs.md')), install.stderr);
+  ok('installer copies the kit, rules included', install.status === 0 && existsSync(join(repo, '.claude', 'kit', 'shopify.mjs')) && existsSync(join(repo, '.claude', 'rules', 'kit-runs.md')) && existsSync(join(repo, '.claude', 'rules', 'runs.md')), install.stderr);
   // settings.json is always the kit's; the dev's own entries end up in settings.local.json, never lost.
   const reinstall = () => spawnSync(process.execPath, [join(KIT, 'install.mjs'), repo], { encoding: 'utf8' });
   const settingsPath = join(repo, '.claude', 'settings.json');
