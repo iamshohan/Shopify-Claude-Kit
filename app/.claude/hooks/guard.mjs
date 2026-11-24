@@ -300,7 +300,10 @@ function decideCommand(raw, ctx, depth = 0, cwd = null) {
   const live = segs.filter((s) => !isText(s));
   const scanned = live.join(' ; ').replace(WRAPPER_PATH, ' KIT_WRAPPER ');
   // grep "app deploy" docs/ and echo "…" run nothing: the CLI's words count only where something could run them.
-  const runSegs = live.filter((s) => !onlyReadsText(s));
+  // cd into the CLI's own folder to grep its source runs nothing, but only when every other segment only reads.
+  const filters = (s) => /^(head|tail|sort|uniq|wc|cut|cat|ls)(\.exe)?$/i.test(program(stripRedirects(s)).w[program(stripRedirects(s)).i] || '') && !substitutes(s);
+  const readsOnly = live.every((s) => onlyReadsText(s) || cdArg(s) || filters(s));
+  const runSegs = live.filter((s) => !onlyReadsText(s) && !(readsOnly && cdArg(s)));
   const runnable = runSegs.join(' ; ').replace(WRAPPER_PATH, ' KIT_WRAPPER ');
   if (DEPLOY_WORDS.test(runnable) || NEVER.test(runnable.replace(/KIT_WRAPPER/g, ''))) {
     return { decision: 'deny', reason: 'Deploying, releasing, app env, app execute and bulk, and dev clean are the dev\'s steps, never the agent\'s. Handoff lists what the dev runs. If you only mentioned them in text, use the Grep tool or rephrase.' };
@@ -677,6 +680,9 @@ function selftest() {
     [bash('node x.js --header "X-Shopify-Access-Token: x" https://shop.example.com/api'), 'deny'],
     [bash('pnpm dlx @shopify/create-app'), 'deny'],
     // shared with the theme kit: text from a file, credentials, branch changes without git push
+    // reading the installed CLI's source from its folder runs nothing; running anything from there is still a CLI call
+    [bash('cd /c/Users/x/AppData/Roaming/npm/node_modules/@shopify/cli 2>/dev/null && grep -rln "default-app-home" dist | head -5'), null],
+    [bash('cd /c/Users/x/AppData/Roaming/npm/node_modules/@shopify/cli && node bin/run.js app deploy'), 'deny'],
     [bash('git commit -F .env'), 'deny'], [bash('gh auth token'), 'deny'], [bash('gh repo sync --branch main'), 'deny'], [bash('git subtree push --prefix=x origin main'), 'deny'],
     // denied: git
     [bash('git push origin main'), 'deny'], [bash('git push -u origin HEAD'), 'deny'], [bash(`git push -f origin ${ID}`), 'deny'],

@@ -854,6 +854,12 @@ try {
   const noAgreement = kit('kit.mjs', 'done', 'ABC-6', 'plan');
   writeFileSync(brief6, readFileSync(brief6, 'utf8').replace('| Spacing | AC 2 | design constant | |', '| Spacing | AC 2 | design constant | Gate 1 |'));
   const gate1 = kit('kit.mjs', 'done', 'ABC-6', 'plan');
+  // A task started before the kit added Decided for you and Independent check has neither heading: it isn't refused for them.
+  const plan6Text = readFileSync(plan6, 'utf8');
+  writeFileSync(plan6, plan6Text.replace(/### Decided for you\n[\s\S]*?(?=### Not proven yet)/, '').replace(/### Independent check\n[\s\S]*?(?=---)/, ''));
+  const olderPlan = kit('kit.mjs', 'done', 'ABC-6', 'plan');
+  writeFileSync(plan6, plan6Text);
+  ok('a plan from an older template isn\'t refused for sections the kit added later', !/Decided for you|Independent check/.test(olderPlan.all) && /Decided for you/.test(gate1.all + noAgreement.all), olderPlan.all);
   ok('a plan with no questions passes ("none"), and a design constant against an AC needs "Gate 1" or a Q#',
     /"Spacing" touches AC 2/.test(noAgreement.err) && !/Spacing/.test(gate1.err) && !/Questions and answers/.test(gate1.err), noAgreement.all + gate1.all);
 

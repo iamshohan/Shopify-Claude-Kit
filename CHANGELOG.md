@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.1 — 2026-11-24
+
+With app kit 0.2.0, from the app kit's first real run.
+- **A kit update no longer fails a task in flight.** The sections 1.14.0 and 1.15.0 added (plan → Decided for you and Independent check, report → What differs from what was asked and Client check) are required only where the task's document has the heading. A task started on an older template finishes under the rules it started with.
+- **Guard:** reading the installed Shopify CLI's own files (`cd` into its folder, then `grep`, `head`, `cat`) is allowed when every part of the command only reads; running anything from there is still a CLI call. The safety review and the app run both hit this.
+
 ## 1.15.0 — 2026-11-24
 
 **The agent decides what's clear and asks only the real calls.** Team feedback: the kit asked too many questions. VSD-354's plan asked 13; on all 12 with options, the dev picked the recommendation.

@@ -223,7 +223,17 @@ writeFileSync(outFile, JSON.stringify({ testResults: files.map((file) => ({ name
   ok('onboard writes no ledger file (the archive is the ledger) and no specs folder', !existsSync(join(repo, 'appspec', 'tests.json')) && !existsSync(join(repo, 'appspec', 'specs')), onb.all);
   ok('surfaces.json has one item per line and no kit version for parallel archives to conflict on', !/kitVersion/.test(read('appspec/surfaces.json'))
     && read('appspec/surfaces.json').split('\n').filter((l) => /^ {4}"/.test(l)).length === Object.keys(snap.items).length);
+  // A wrong baseline is redone while uncommitted (the guard keeps the agent from deleting these files itself).
+  write('appspec/surfaces.json', '{}');
+  const redo = app('onboard', '--redo');
+  ok('onboard --redo rewrites an uncommitted baseline', redo.code === 0 && JSON.parse(read('appspec/surfaces.json')).items?.['scope:read_products'], redo.all);
+  ok('onboard prints the merge link and says a change waits for it', (json(redo).next || []).some((l) => /merges it|merges kit-onboard|into main/.test(l)) && (json(redo).next || []).some((l) => /starts only after that merge/.test(l)), redo.all);
   commit('onboard the app kit');
+  const lateRedo = app('onboard', '--redo');
+  ok('onboard --redo refuses once the baseline is committed', lateRedo.code !== 0 && /is committed/.test(lateRedo.all), lateRedo.all);
+  // Before the onboarding reaches origin/main, a change would measure against an app the kit never recorded.
+  const unmerged = app('start', ID, '--type', 'change');
+  ok('start refuses until the onboarding is merged into the base branch', unmerged.code !== 0 && /isn't on origin\/main yet/.test(unmerged.all), unmerged.all);
   git('push', '-q', 'origin', 'main');
 
   // ── Start ──

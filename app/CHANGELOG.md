@@ -1,6 +1,20 @@
 # Changelog
 
-## 0.1.0 (unreleased; not yet trialled on a real app change)
+## 0.2.0 — 2026-11-24
+
+After the first real run (an extension-only A/B app: setup, onboard and a first change took about 25 dev interactions, and left 19 kit notes).
+
+- **Setup asks what kind of app first.** An untouched app template that should be extension-only gets re-initialised with the extension-only option before onboarding: onboarding the template recorded 43 surfaces, and removing them took a full change with two gates. Aim: setup and onboard take at most three things from the dev.
+- **A lone `shopify.app.toml` is treated as production.** The dev creates a dev app first (`config link`, "Create a new app"), and setup copies the production toml's sections into the new, nearly empty dev toml itself (keeping its client_id, name and handle), shows the diff and validates it.
+- **Branch protection that can't be checked** (no `gh`) is a ✗ under "Needs you", with where to set it. In the first run, a direct push to main went through.
+- **`app.mjs onboard --redo`** rewrites the baseline while `appspec/` isn't committed; the guard kept the agent from deleting those files, so the dev had to. Onboard prints the merge link, and **`app.mjs start` refuses until the onboarding is merged into the base branch**: changes measured their surfaces against a base without it.
+- **Propose validates an edited app or extension toml** with `shopify.mjs validate` before Gate 1: dropping `[auth]` from a docs reading cost a second Gate 1.
+- **A kit update no longer fails a change in flight:** `gate` asks for § Decided for you only when the proposal has that heading.
+- **Run rules:** files are written with the Write or Edit tool (a `package.json` with a deploy script or a `.gitignore` listing `.env`, written through the shell, read as commands to the guard), and each kit note is one direct `app.mjs note` call.
+- **Guard:** reading the installed CLI's source (`cd` into its folder, then grep) is allowed when every part of the command only reads; running anything from there is still refused.
+- **Handoff keeps `appspec/project.md` true** when a change adds or removes what it describes. The README says the commands are typed, not pasted.
+
+## 0.1.0 (not trialled on a real app change)
 
 The Shopify App Kit: Claude Code for Shopify apps (admin apps and extension-only apps), scenarios first. It lives in `app/` of the Shopify-Claude-Kit repo; devs install it with `node install.mjs <app-repo> --app` from that repo's root.
 

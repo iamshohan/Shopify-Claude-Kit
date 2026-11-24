@@ -111,6 +111,11 @@ function added(key, file, heading, within) {
 }
 
 const filled = (key, file, heading, within) => added(key, file, heading, within).some(Boolean);
+/**
+ * Whether a task's document has this heading at all. A section a later kit version added to the template is required
+ * only where the heading exists: a kit update mustn't fail a task already past the gate it was written for.
+ */
+const hasHeading = (key, file, heading) => read(join(LOGS, key, file)).split(/\r?\n/).some((l) => l.trim() === heading || l.trim().startsWith(`${heading} `));
 const tableRows = (key, file, heading, within) => added(key, file, heading, within).filter((l) => l.startsWith('|') && !/^\|[\s:|-]+\|?$/.test(l));
 const stageIndex = (name, st) => stagesFor(st).findIndex((s) => s.name === name);
 const ref = (r) => git(['rev-parse', '--verify', '--quiet', r], { allowFail: true });
@@ -304,7 +309,7 @@ function glanceProblems(key) {
     unnamed.length && `Needs your attention doesn't name ${unnamed.map((x) => `${x.file} (${x.reach})`).join('; ')}. For each, say what could change for what already uses it, and how the plan contains it`,
     storeWrites && !/\bstore\b|definition|metaobject|metafield/.test(said) && 'Needs your attention: name the store writes (definitions, QA values) and whether they show on live before the merge',
     !rows.length && 'fill plan.md § At a glance → ### What changes: one row per file (or file group), "What happens" in 15 words at most',
-    !/Surprises\s*:/i.test(indep) || !/Unlisted assumptions\s*:/i.test(indep)
+    hasHeading(key, 'plan.md', '### Independent check') && (!/Surprises\s*:/i.test(indep) || !/Unlisted assumptions\s*:/i.test(indep))
       ? 'plan.md § At a glance → ### Independent check needs the outcome-checker agent\'s plan pass: run it (mode plan), fix what it finds, and record its "Surprises:" and "Unlisted assumptions:" lines there'
       : false,
   ];
@@ -337,12 +342,12 @@ function handoffTextProblems(key, st) {
   const pr = added(key, 'report.md', '### PR', '## Handoff').join('\n');
   const check = added(key, 'report.md', '### Client check', '## Handoff').join('\n');
   return [
-    missing.length && `report.md § Handoff → What differs from what was asked has no row for ${missing.join(', ')} (from plan.md → Differs and brief.md's "Client's call" questions): say what the client gets instead, in their words`,
+    hasHeading(key, 'report.md', '### What differs from what was asked') && missing.length && `report.md § Handoff → What differs from what was asked has no row for ${missing.join(', ')} (from plan.md → Differs and brief.md's "Client's call" questions): say what the client gets instead, in their words`,
     filled(key, 'report.md', '## Handoff') && !jira.trim() && 'write report.md § Handoff → Jira comment',
     jira.trim() && notTold.length && `the Jira comment doesn't tell the client about ${notTold.join(', ')}: add each row of What differs from what was asked, in their words, with its AC`,
     /\.claude[\\/]logs/i.test(`${pr}\n${jira}`) && 'the PR or the Jira comment points to .claude/logs/…, which git ignores: paste what reviewers need inline',
     st.draft?.route === 'github' && jira.trim() && !/\bsav(e|ing)\b/i.test(jira) && 'the draft is GitHub-connected: the Jira comment must ask reviewers not to press Save in its theme editor (each save becomes a commit on the branch under review)',
-    filled(key, 'report.md', '## Handoff') && !/Client surprises\s*:/i.test(check) && 'report.md § Handoff → Client check needs the outcome-checker agent\'s handoff pass: run it (mode handoff), fix the Jira comment by it, and record its "Client surprises:" line',
+    hasHeading(key, 'report.md', '### Client check') && filled(key, 'report.md', '## Handoff') && !/Client surprises\s*:/i.test(check) && 'report.md § Handoff → Client check needs the outcome-checker agent\'s handoff pass: run it (mode handoff), fix the Jira comment by it, and record its "Client surprises:" line',
   ];
 }
 
@@ -407,7 +412,7 @@ const EXIT_CHECKS = {
     ...staysInCodeProblems(key),
     !tableRows(key, 'brief.md', '### Questions and answers', '## Decided').length && !saysNone(key, 'brief.md', '### Questions and answers', '## Decided')
       && 'record the questions you asked and the dev\'s answers in brief.md § Decided → Questions and answers, or "none: nothing needed the dev\'s call"',
-    !filled(key, 'plan.md', '### Decided for you', '## At a glance')
+    hasHeading(key, 'plan.md', '### Decided for you') && !filled(key, 'plan.md', '### Decided for you', '## At a glance')
       && 'fill plan.md § At a glance → ### Decided for you: one line per decision you took without asking (what, and why in a few words), most consequential first, or "none"',
     ...glanceProblems(key),
     ...unprovenProblems(key),

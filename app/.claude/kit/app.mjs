@@ -303,8 +303,10 @@ function proposeProblems(cfg, id, st) {
     type !== 'maintain' && !rows.length && 'write the scenarios in proposal.md § Scenarios: one row per behaviour, | ID | GIVEN | WHEN | THEN | Check |',
     ...scenarioProblems(rows),
     !attention.length && 'fill proposal.md § Needs your attention (or "none: …" with the reason)',
-    // What the agent decided without asking is reviewed at Gate 1 (it asks only the dev's real calls).
-    !filled(cfg, id, st, '## Decided for you') && 'fill proposal.md § Decided for you: one line per decision you took without asking (what, and why), or "none"',
+    // What the agent decided without asking is reviewed at Gate 1 (it asks only the dev's real calls). A proposal started
+    // before the section existed has no heading: a kit update mustn't fail a change already approved (asmc first run).
+    md.split(/\r?\n/).some((l) => l.trim() === '## Decided for you') && !filled(cfg, id, st, '## Decided for you')
+      && 'fill proposal.md § Decided for you: one line per decision you took without asking (what, and why), or "none"',
     attention.length && saysNone(attention) && flagged.length && `proposal.md § Needs your attention can't be "none": list what each of these declared surfaces means for the merchant: ${flagged.map((d) => `${d.op} ${d.key} (${attentionFor(d)})`).join(' · ')}`,
     ...declaredProblems(decl, rows, type, id),
     // A data model, a new webhook, extension, app proxy or config change: the decisions and the deploy order are approved at Gate 1 too.
@@ -764,9 +766,17 @@ function detect() {
   };
 }
 
-function onboard(cfg) {
+function onboard(cfg, flags = {}) {
   const P = specPaths(cfg);
   const out = [];
+  // --redo: a wrong baseline (a nearly empty dev toml, the template onboarded by mistake) is rewritten while it isn't
+  // committed. The guard keeps the agent from deleting these files itself; once committed, a change records what changed.
+  if (flags.redo) {
+    for (const rel of [P.surfaces, P.securityBaseline]) {
+      if (run('git', ['ls-files', '--error-unmatch', rel]).code === 0) fail(`${rel} is committed, so onboarding is done. Record what changed with a change (/app-maintain), not a redo.`);
+      rmSync(join(ROOT, rel), { force: true });
+    }
+  }
   for (const d of [P.changes, P.archive]) { mkdirSync(join(ROOT, d), { recursive: true }); if (!readdirSync(join(ROOT, d)).length) { writeFileSync(join(ROOT, d, '.gitkeep'), ''); out.push(`${d}/`); } }
   if (!existsSync(join(ROOT, P.project))) {
     const name = read(cfg.appConfig).match(/^name\s*=\s*"([^"]+)"/m)?.[1] || 'This app';
@@ -796,9 +806,18 @@ function onboard(cfg) {
       security = `shopify app security check didn't run (${(sec?.error || 'disabled').slice(0, 160)}). Until a baseline exists, verify treats findings in files a change didn't touch as older; run onboard again to record it, or the first handoff does`;
     }
   }
+  // The dev merges onboarding before the first change starts; give them the link, not "open a PR".
+  const remote = (run('git', ['remote', 'get-url', 'origin']).stdout || '').trim();
+  const repo = remote.match(/github\.com[:/]([^/]+\/[^/]+?)(\.git)?$/)?.[1];
+  const branch = currentBranch();
   return {
     created: out, surfaces, security,
-    next: [`fill ${P.project} (a few lines each)`, `commit ${P.dir}/ on a branch`],
+    next: [
+      `fill ${P.project} (a few lines each)`,
+      `commit ${P.dir}/ on ${branch} and push it: git push -u origin ${branch}`,
+      repo ? `the dev merges it: https://github.com/${repo}/compare/${cfg.baseBranch}...${branch}?expand=1` : `the dev merges ${branch} into ${cfg.baseBranch}`,
+      `a change starts only after that merge (app.mjs start checks origin/${cfg.baseBranch})`,
+    ],
   };
 }
 
@@ -967,7 +986,7 @@ switch (verb) {
     print(`Shopify plugin telemetry opt-out file: ${p}`);
     break;
   }
-  case 'onboard': print(onboard(cfg)); break;
+  case 'onboard': print(onboard(cfg, flags)); break;
 
   case 'list': {
     const all = listChanges(cfg);
@@ -984,6 +1003,12 @@ switch (verb) {
     const type = typeof flags.type === 'string' ? oneOf(...TYPES)(flags.type) : fail(`Name the type: --type ${TYPES.join('|')}`);
     const existing = readChange(cfg, id, { required: false });
     if (existing && existing.stage !== 'abandoned') { print(summaryLines(cfg, id, existing)); break; }
+    // Every change measures its surfaces against the base branch: without the onboarding there, it measures against an app
+    // the kit never recorded (asmc first run: 7 declared removals showed as never happening).
+    const onBase = run('git', ['cat-file', '-e', `origin/${cfg.baseBranch}:${specPaths(cfg).surfaces}`]).code === 0;
+    if (existsSync(join(ROOT, specPaths(cfg).surfaces)) && !onBase && !flags.test) {
+      fail(`${specPaths(cfg).surfaces} isn't on origin/${cfg.baseBranch} yet: the onboarding branch isn't merged. Merge it first (the link app.mjs onboard printed, or open a PR from kit-onboard), then git fetch origin and start this change from origin/${cfg.baseBranch}.`);
+    }
     if (!existsSync(join(ROOT, specPaths(cfg).surfaces))) {
       fail(`${specPaths(cfg).surfaces} isn't on this branch. Not onboarded yet: run /app-onboard. Onboarded on a branch that isn't merged yet: merge that PR, or cut this change's branch from the onboarding branch.`);
     }

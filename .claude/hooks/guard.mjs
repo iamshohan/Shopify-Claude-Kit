@@ -261,7 +261,10 @@ function decideCommand(raw, ctx, depth = 0, cwd = null) {
   const live = segs.filter((s) => !isText(s));
   const scanned = live.join(' ; ').replace(WRAPPER_PATH, ' KIT_WRAPPER ');
   // grep "shopify theme push" docs/ and echo "…" run nothing: the CLI's words count only where something could run them.
-  const runnable = live.filter((s) => !onlyReadsText(s)).join(' ; ').replace(WRAPPER_PATH, ' KIT_WRAPPER ');
+  // cd into the CLI's own folder to grep its source runs nothing, but only when every other segment only reads.
+  const filters = (s) => /^(head|tail|sort|uniq|wc|cut|cat|ls)(\.exe)?$/i.test(program(stripRedirects(s)).w[program(stripRedirects(s)).i] || '') && !substitutes(s);
+  const readsOnly = live.every((s) => onlyReadsText(s) || cdArg(s) || filters(s));
+  const runnable = live.filter((s) => !onlyReadsText(s) && !(readsOnly && cdArg(s))).join(' ; ').replace(WRAPPER_PATH, ' KIT_WRAPPER ');
   if (CLI_WORD.test(runnable) || CLI_PATH.test(runnable) || CLI_PKG.test(runnable) || CLI_ENV.test(runnable) || LIVE_THEME.test(runnable)) return { decision: 'deny', reason: USE_WRAPPER };
   if (segs.some((s) => { const { w, i } = program(s); return THEMEKIT.test(w.slice(i).join(' ')); })) {
     return { decision: 'deny', reason: 'Theme Kit (the "theme" command) can deploy to live themes. Use node .claude/kit/shopify.mjs, or ask the dev to run it.' };
@@ -845,6 +848,10 @@ function selftest() {
     [bash(`git push -q -u origin ${K}`), null],
     [bash('node C:/Users/x/.claude/plugins/cache/claude-plugins-official/shopify-ai-toolkit/2.1.2/skills/shopify/scripts/search_docs.mjs "theme push --only flag"'), null],
     [bash('node scripts/search_docs.mjs && shopify theme push'), 'deny'],
+    // reading the installed CLI's source from its folder runs nothing; running anything from there is still a CLI call
+    [bash('cd /c/Users/x/AppData/Roaming/npm/node_modules/@shopify/cli 2>/dev/null && grep -rln "default-app-home" dist | head -5'), null],
+    [bash('cd /c/Users/x/AppData/Roaming/npm/node_modules/@shopify/cli && node bin/run.js theme publish -t 1'), 'deny'],
+    [bash('cd /c/Users/x/AppData/Roaming/npm/node_modules/@shopify/cli && npm run build'), 'deny'],
     // kit-browser's run_code: only the kit's own files, and inline code without Node's APIs
     [{ tool_name: 'mcp__kit-browser__browser_run_code_unsafe', tool_input: { filename: '.claude/kit/probe.init.js' }, cwd: ROOT }, null],
     [{ tool_name: 'mcp__kit-browser__browser_run_code_unsafe', tool_input: { filename: `.claude/logs/${K}/design-audit-desktop.js` }, cwd: ROOT }, null],

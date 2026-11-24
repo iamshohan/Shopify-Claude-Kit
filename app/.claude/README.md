@@ -9,6 +9,8 @@ You approve **behaviour** as concrete scenarios, each bound to a check; Claude w
 
 ## Commands
 
+Type these commands in Claude Code's prompt. Pasting their text as a message doesn't start them: they only run when typed as a slash command.
+
 | Command | For |
 | --- | --- |
 | `/app-setup` | Once per repo and person: CLI check, `.claude/app-kit.json` (dev store, app config, verify commands, Jira URL) |
