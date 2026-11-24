@@ -1,8 +1,11 @@
 // Install-time rules both installers share (install.mjs for the theme kit, app/install.mjs for the app kit). Installers run
 // from the kit repo itself, so both import this file directly; it is never copied into a theme or app repo.
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
+import { createHash } from 'node:crypto';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+
+export const MANIFEST = '.kit-' + 'manifest.json';
 
 const git = (cwd, args) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
 
@@ -200,4 +203,167 @@ export function installAll(cloneRoot, top, { yes = false } = {}) {
   if (failed < fresh.length) console.log('\nNext, in each new repo: open Claude Code there and run /shopify-setup (theme) or /app-setup (app). The kit needs its store before it can work.');
   if (failed) console.log(`${failed} not installed; run node install.mjs <repo> there to see why.`);
   return failed ? 1 : 0;
+}
+
+// ── One install (install.mjs, app/install.mjs) ──
+// settings.json is the kit's and is replaced every time, so a new hook or deny rule always lands. Whatever the repo's file
+// has beyond the kit's moves to settings.local.json first: Claude Code merges list keys across the two files, and an allow
+// there doesn't outrank the kit's ask or deny rules.
+
+const sha = (p) => createHash('sha256').update(readFileSync(p)).digest('hex');
+const readJson = (p) => JSON.parse(readFileSync(p, 'utf8'));
+
+/** What `a` has that `b` doesn't: list items `b` lacks, and keys whose values differ, recursively. */
+export function extras(a, b) {
+  if (Array.isArray(a)) {
+    const have = new Set((Array.isArray(b) ? b : []).map((v) => JSON.stringify(v)));
+    const out = a.filter((v) => !have.has(JSON.stringify(v)));
+    return out.length ? out : undefined;
+  }
+  if (a && typeof a === 'object') {
+    const out = {};
+    for (const [k, v] of Object.entries(a)) {
+      const e = extras(v, b && typeof b === 'object' && !Array.isArray(b) ? b[k] : undefined);
+      if (e !== undefined) out[k] = e;
+    }
+    return Object.keys(out).length ? out : undefined;
+  }
+  return JSON.stringify(a) === JSON.stringify(b) ? undefined : a;
+}
+
+/** Adds `add` into `into`: lists gain the items they lack, and a value `into` already sets stays. */
+function merge(into, add) {
+  for (const [k, v] of Object.entries(add)) {
+    if (Array.isArray(v)) {
+      const list = Array.isArray(into[k]) ? into[k] : [];
+      into[k] = [...list, ...(extras(v, list) || [])];
+    } else if (v && typeof v === 'object') into[k] = merge(into[k] && typeof into[k] === 'object' ? into[k] : {}, v);
+    else if (!(k in into)) into[k] = v;
+  }
+  return into;
+}
+
+/** A guard hook merged in by hand (as older installers asked) would run twice next to the kit's own. */
+function withoutGuard(s) {
+  for (const [event, groups] of Object.entries(s.hooks || {})) {
+    if (!Array.isArray(groups)) continue;
+    s.hooks[event] = groups.map((g) => ({ ...g, hooks: (g.hooks || []).filter((h) => !/hooks[\\/]+guard\.mjs/.test(JSON.stringify(h))) })).filter((g) => g.hooks.length);
+  }
+  return s;
+}
+
+/** Every file under kitDir, except task history in its own logs/ (a deeper folder named logs is kit content). */
+function walkKit(kitDir, dir = kitDir, out = []) {
+  for (const name of readdirSync(dir)) {
+    const p = join(dir, name);
+    if (statSync(p).isDirectory()) { if (p !== join(kitDir, 'logs')) walkKit(kitDir, p, out); } else out.push(relative(kitDir, p).replaceAll('\\', '/'));
+  }
+  return out;
+}
+
+/**
+ * Installs or updates one kit's .claude/ in one repo and returns the exit code. The repo's own files (perRepo) are never
+ * copied over or removed; files an older kit shipped and this one doesn't are (tracked in the manifest).
+ *   kind      'theme' | 'app', written to the manifest and update.mjs's list; label names it in messages ('kit', 'app kit')
+ *   looksLike (repo) => why it isn't this kind of repo, or null; skipped on an update and with --force
+ *   ownRepos  paths that are the kit repo itself: installing there would end maintainer mode
+ */
+export function installKit({ kitDir, cloneRoot, kind, label, perRepo, gitignore, usage, looksLike, ownRepos, kept, next, args }) {
+  const dry = args.includes('--dry-run');
+  const force = args.includes('--force');
+  const target = args.find((a) => !a.startsWith('--'));
+  const stop = (msg) => { console.error(msg); return 1; };
+  if (!target) { console.log(usage); return 1; }
+  const repo = resolve(target);
+  const dest = join(repo, '.claude');
+  const manifestPath = join(dest, MANIFEST);
+  const firstInstall = !existsSync(manifestPath);
+  if (ownRepos.map((p) => resolve(p)).includes(repo)) return stop('That is the kit\'s own repo.');
+  // An update skips this: the repo was accepted at its first install (perhaps with --force), and update.mjs passes no flags.
+  const notThis = !force && firstInstall && looksLike(repo);
+  if (notThis) return stop(`${repo} ${notThis}. Use --force if it is one.`);
+
+  const source = kitFiles(kitDir, () => walkKit(kitDir));
+  const files = source.files.filter((f) => !perRepo.has(f));
+  let manifest = {};
+  try {
+    if (!firstInstall) manifest = readJson(manifestPath);
+  } catch {
+    console.warn(`Warning: .claude/${MANIFEST} is unreadable, so files an older kit dropped stay this time.`);
+  }
+  // Theme manifests from before 1.16.1 have no `kit` field.
+  const other = Object.keys(manifest).length && (manifest.kit === 'app' ? 'app' : 'theme');
+  if (other && other !== kind) return stop(`${dest} holds the ${other} kit. A repo gets one kit.${other === 'app' ? ' Update it with: node install.mjs <path> --app' : ''}`);
+  const stale = staleFiles(dest, manifest.files, files, perRepo);
+  const version = readFileSync(join(kitDir, 'VERSION'), 'utf8').trim();
+  const installed = existsSync(join(dest, 'VERSION')) ? readFileSync(join(dest, 'VERSION'), 'utf8').trim() : null;
+  // Going back a version would delete the newer kit's files as "stale".
+  if (installed && compareVersions(installed, version) > 0 && !force) {
+    return stop(`${dest} has ${label} ${installed}, newer than this checkout's ${version}. Update this kit repo (git pull), or pass --force to go back.`);
+  }
+  const behind = installed && compareVersions(installed, version) === 0 && olderBuild(kitDir, manifest.commit);
+  if (behind && !force) return stop(`${dest} has a newer build of ${label} ${version}: ${behind}. Or pass --force to go back.`);
+
+  const destSettings = join(dest, 'settings.json');
+  const kitSettings = join(kitDir, 'settings.json');
+  const localSettings = join(dest, 'settings.local.json');
+  // A file identical to what the installer wrote last time has nothing of the repo's in it.
+  const ownSettings = existsSync(destSettings) && sha(destSettings) !== sha(kitSettings) && sha(destSettings) !== manifest.settingsSha;
+  let moved;
+  let unreadable = false;
+  if (ownSettings) {
+    try {
+      moved = extras(withoutGuard(readJson(destSettings)), readJson(kitSettings));
+      // Carried over as is, disableAllHooks would switch the kit's guard off from settings.local.json.
+      if (moved && 'disableAllHooks' in moved) {
+        delete moved.disableAllHooks;
+        console.warn('Warning: the repo\'s settings.json had disableAllHooks; it is not carried over, so the guard stays on.');
+        if (!Object.keys(moved).length) moved = undefined;
+      }
+      if (moved && existsSync(localSettings)) readJson(localSettings);
+    } catch {
+      unreadable = true;
+    }
+  }
+
+  // Plan every step first, so --dry-run prints the same list without touching the repo.
+  const actions = [];
+  if (unreadable) {
+    actions.push(['save the repo\'s settings.json as settings.pre-kit.json (it or settings.local.json isn\'t valid JSON)', () => copyFileSync(destSettings, join(dest, 'settings.pre-kit.json'))]);
+  } else if (moved) {
+    actions.push([`move the repo's own settings to settings.local.json: ${JSON.stringify(moved)}`, () => {
+      writeFileSync(localSettings, JSON.stringify(merge(existsSync(localSettings) ? readJson(localSettings) : {}, moved), null, 2) + '\n');
+    }]);
+  }
+  // A first install would silently replace a .claude/CLAUDE.md or README.md the repo already has.
+  if (firstInstall) {
+    for (const f of files.filter((x) => x !== 'settings.json' && existsSync(join(dest, x)) && sha(join(dest, x)) !== sha(join(kitDir, x)))) {
+      actions.push([`keep the repo's ${f} as ${f}.pre-kit (the kit's replaces it)`, () => copyFileSync(join(dest, f), join(dest, `${f}.pre-kit`))]);
+    }
+  }
+  for (const f of files) {
+    actions.push([`copy ${f}`, () => {
+      mkdirSync(dirname(join(dest, f)), { recursive: true });
+      copyFileSync(join(kitDir, f), join(dest, f));
+    }]);
+  }
+  for (const f of stale) actions.push([`remove ${f} (no longer in the kit)`, () => rmSync(join(dest, f), { force: true })]);
+  if (!existsSync(join(dest, '.gitignore'))) actions.push(['write .gitignore (keeps the kit out of git)', () => writeFileSync(join(dest, '.gitignore'), gitignore)]);
+  const excludes = missingExcludes(repo);
+  if (excludes) actions.push([`add ${excludes.add.join(', ')} to .git/info/exclude (Playwright's output stays out of git; this clone only)`, () => addExcludes(excludes)]);
+  actions.push([`write ${MANIFEST}`, () => writeFileSync(manifestPath, JSON.stringify({ kit: kind, version, commit: kitCommit(kitDir), source: cloneRoot, uncommitted: source.dirty.length > 0, installedAt: new Date().toISOString(), files, settingsSha: sha(kitSettings) }, null, 2))]);
+
+  console.log(`${installed === version ? `Reinstalling ${label} ${version}` : installed ? `Updating ${label} ${installed} → ${version}` : `Installing ${label} ${version}`} in ${dest}`);
+  if (source.dirty.length) console.warn(`Warning: this kit checkout has uncommitted changes (${source.dirty.slice(0, 5).join(', ')}${source.dirty.length > 5 ? ' …' : ''}); they ship as they are, not as a release.${source.untracked.length ? ` Not shipped because git doesn't have them: ${source.untracked.slice(0, 5).join(', ')}.` : ''}`);
+  for (const [what, act] of actions) {
+    if (!dry) { mkdirSync(dest, { recursive: true }); act(); }
+    if (!what.startsWith('copy ') || dry) console.log(`${dry ? '[dry run] ' : ''}${what}`);
+  }
+  // So node update.mjs reaches this repo next time.
+  if (!dry) register(cloneRoot, repo, kind);
+  console.log(`${dry ? '[dry run] would copy' : 'Copied'} ${files.length} kit files. Kept: ${kept}.`);
+  if (moved && !unreadable) console.log('Your own permissions, hooks and env are in .claude/settings.local.json now. Add new ones there: settings.json is replaced on every update.');
+  if (unreadable) console.log('Move your own entries from .claude/settings.pre-kit.json into .claude/settings.local.json by hand.');
+  console.log(installed ? next.update : next.first);
+  return 0;
 }
