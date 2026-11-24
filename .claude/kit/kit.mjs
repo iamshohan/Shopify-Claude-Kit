@@ -326,6 +326,13 @@ function glanceProblems(key) {
   ];
 }
 
+/**
+ * Admin steps the dev said yes to once for this repo (shopify-kit.json chromeWithoutAsking). Only these two: Gate 1
+ * already approved the branch and the definitions. The checkout copy always asks (live's Publish is on that page).
+ */
+const CHROME_STEPS = { 'connect-draft': 'connecting the draft theme to the task branch on GitHub', definitions: 'creating the plan\'s definitions in Settings → Custom data' };
+const standingChrome = (cfg) => [].concat(cfg?.chromeWithoutAsking || []).filter((s) => Object.hasOwn(CHROME_STEPS, s));
+
 /** Definitions and the mutation files the plan wrote; QA data that only names existing products writes nothing. */
 function writesStore(key) {
   const mutations = join(LOGS, key, 'mutations');
@@ -818,7 +825,11 @@ function summaryLines(key, st, cfg) {
   if (qaProgress(key, st)) lines.push(qaProgress(key, st));
   if (st.type === 'abtest') lines.push(`A/B (variation and code: brief.md): tool ${st.abtest?.tool || '?'} · running ${st.abtest?.running || '?'}${st.abtest?.reference ? ` · force link ${st.abtest.reference}` : ''}`);
   if (hasDesign(st)) lines.push(`Design: Figma ${st.design.figma} (values in design.md)${st.design.mode ? ` · ${st.design.mode} mode${st.design.mode === 'exact' ? ': QA runs kit.mjs design-audit per viewport' : ': QA checks layout and visibility'}` : ''}`);
-  if (cfg?.draftRoute === 'github' && !st.test && !st.draft?.themeId) lines.push('Draft route: GitHub-connected (draftRoute in shopify-kit.json). The dev connects the task branch; the kit adopts it with shopify.mjs draft <KEY> --github.');
+  const standing = standingChrome(cfg);
+  if (cfg?.draftRoute === 'github' && !st.test && !st.draft?.themeId) {
+    lines.push(`Draft route: GitHub-connected (draftRoute in shopify-kit.json). ${standing.includes('connect-draft') ? 'Connect the task branch in the dev\'s Chrome without asking' : 'The dev connects the task branch (or you, in their Chrome, after a yes)'}; the kit adopts it with shopify.mjs draft <KEY> --github.`);
+  }
+  if (standing.length && !st.test) lines.push(`In the dev's Chrome without asking (chromeWithoutAsking): ${standing.map((s) => CHROME_STEPS[s]).join('; ')}. Say in one line that you're doing it, then check the result as kit-runs.md says.`);
   if (st.mutations?.length) lines.push(`Store mutations run: ${st.mutations.length} (ids: kit.mjs status ${key} --json)`);
   lines.push(`Logs: .claude/logs/${key}/ (brief.md, plan.md, report.md)`);
   if (st.kitVersion !== KIT_VERSION) lines.push(`Note: started with kit ${st.kitVersion}, this is kit ${KIT_VERSION}.`);
@@ -896,6 +907,7 @@ function selftest() {
   eq('ignore regex', ignore('assets/theme.js.map'), true);
   eq('ignore miss', ignore('sections/header.liquid'), false);
   eq('stages implement', stagesFor({}).map((x) => x.name), ['intake', 'analyze', 'plan', 'approve', 'build', 'draft', 'qa', 'accept', 'handoff']);
+  eq('chromeWithoutAsking keeps only the two standing steps', [standingChrome({ chromeWithoutAsking: ['connect-draft', 'checkout-copy', 'definitions'] }), standingChrome({ chromeWithoutAsking: 'definitions' }), standingChrome({})], [['connect-draft', 'definitions'], ['definitions'], []]);
   eq('implement gates', stagesFor({}).filter((x) => x.gate).map((x) => x.name), ['approve', 'accept']);
   eq('stages investigation, the gate still named conclude', stagesFor({ kind: 'investigation' }).map((x) => `${x.name}${x.gate ? '*' : ''}`), ['gather', 'conclude*']);
   eq('parseArgs takes a value that starts with -- but isn\'t a flag', parseArgs(['qa-row', 'A-1', '3', '--measured', '--gap: 16px', '--how', '__qa.css()']).flags, { measured: '--gap: 16px', how: '__qa.css()' });

@@ -741,6 +741,13 @@ try {
   writeFileSync(statePath, JSON.stringify({ ...state(), owner: { name: 'Ana', email: 'ana@example.invalid' } }));
   const theirs = kit('kit.mjs', 'status', KEY).out;
   ok('status shows the owner, and warns when git user.email is someone else', /Owner: e2e <e2e@example\.invalid>/.test(mine) && !/WARNING/.test(mine) && /Owner: Ana .*WARNING/.test(theirs), mine + theirs);
+  // The standing yes reaches the agent through status: only the two listed steps, never the checkout copy.
+  const cfgPath = join(repo, '.claude', 'shopify-kit.json');
+  const cfgText = readFileSync(cfgPath, 'utf8');
+  writeFileSync(cfgPath, JSON.stringify({ ...JSON.parse(cfgText), chromeWithoutAsking: ['definitions', 'checkout-copy'] }));
+  const standing = kit('kit.mjs', 'status', KEY).out;
+  writeFileSync(cfgPath, cfgText);
+  ok('status names the Chrome steps done without asking, and only the allowed ones', /without asking \(chromeWithoutAsking\): creating the plan's definitions/.test(standing) && !/checkout/.test(standing) && !/chromeWithoutAsking/.test(mine), standing);
 
   // ── Feasibility ──
   // A feasibility check must list the requirements and give an estimate, checked by the evidence-checker; other investigation types don't.

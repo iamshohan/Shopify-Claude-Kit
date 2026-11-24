@@ -44,6 +44,7 @@ If the file exists, show it and ask once whether it's still right. Otherwise pro
 - `draftRoute`: how the task's draft theme is made.
   - `"github"`: recon shows "Update from Shopify" commits, so the store's themes are connected to this repo through Shopify's GitHub app. Each task's draft is a theme the dev connects to the task branch (Online Store → Themes → Add theme → Connect from GitHub, about a minute per task). The draft always equals the branch, and customizer saves on it come back as commits. Recommend it when recon shows the sync commits; it needs the Themes permission and write access to the repo on GitHub.
   - `"cli"`: the kit copies the live theme with the CLI and uploads the branch's files. For a repo that isn't connected, or a dev who can't connect branches.
+- `chromeWithoutAsking`: admin steps the agent does in the dev's Chrome without asking each time (the standing yes). `"connect-draft"` when `draftRoute` is `"github"`, `"definitions"` when `adminApi` is `false`; otherwise `[]`. Only these two can be listed: Gate 1 already approved the branch and the definitions. The checkout copy always asks.
 - `adminApi`: whether the kit gets an Admin API login. This is a real choice, because `shopify store auth` installs Shopify's CLI app on the store (once per store, by someone allowed to install apps; on a client store the client may need to agree first):
 
   | Choice | Login command (the dev runs it, see step 4) | Config |
@@ -58,7 +59,7 @@ Write the file with the Write tool. The guard asks the dev first and lists each 
 ```json
 { "store": "", "storefrontUrl": "", "jiraBaseUrl": "", "ticketPrefixes": [], "baseBranch": "main",
   "protectedBranches": ["main"], "branchPattern": "{KEY}", "commitPattern": "{key}__dev: <what changed>",
-  "adminApiVersion": "2026-07", "adminApi": false, "draftRoute": "cli" }
+  "adminApiVersion": "2026-07", "adminApi": false, "draftRoute": "cli", "chromeWithoutAsking": ["definitions"] }
 ```
 Then run `auth-check` again if the store was new, for the summary. A `storeMismatch` in its output (the storefront belongs to another store than `store`) stops setup: show it to the dev and fix whichever value is wrong before going on.
 

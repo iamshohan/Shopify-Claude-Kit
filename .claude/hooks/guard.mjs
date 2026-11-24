@@ -62,7 +62,7 @@ const CONFIG_REL = '.claude/shopify-kit.json';
 const CONFIG_KEYS = {
   store: 'the store every kit command acts on', storefrontUrl: 'the site fetch and compare request', jiraBaseUrl: 'where jira.mjs sends the Jira token',
   baseBranch: 'a branch the guard protects', protectedBranches: 'the branches the guard protects', adminApi: 'whether the kit uses the Admin API',
-  draftRoute: 'how the draft theme is made',
+  draftRoute: 'how the draft theme is made', chromeWithoutAsking: 'admin steps the agent does in your Chrome without asking each time',
 };
 const STORE_VERBS = new Set(['mutate', 'delete-draft']);
 // The gates (Gate 1 approve, Gate 2 accept, an investigation's conclude): each answer is logged for the retro (the
@@ -962,6 +962,7 @@ function selftest() {
     [decide(bash(kit(`mutate ${K} ${M}/ok.graphql --vars ${M}/ok.vars.json`)), ctx()).seal?.sha === sealDigest(FILES[`${M}/ok.graphql`], FILES[`${M}/ok.vars.json`]), 'mutate seal holds the digest of file + variables'],
     [decide(bash(kit(`delete-draft ${K}`)), ctx()).seal?.themeId === 5, 'delete-draft seal holds the theme id shown'],
     [/store:.*→.*b\.myshopify\.com.*the store every kit command acts on/.test(decide(write(CONFIG_REL, '{"store":"b.myshopify.com","baseBranch":"main"}'), ctx()).reason), 'config prompt names the changed setting'],
+    [/chromeWithoutAsking:.*definitions.*without asking each time/.test(decide(write(CONFIG_REL, '{"store":"b.myshopify.com","baseBranch":"main","chromeWithoutAsking":["definitions"]}'), ctx()).reason), 'config prompt names a standing yes for Chrome steps'],
     [/echo hi/.test(decide(bash(`node .claude/kit/shopify.mjs future-verb ${K} && echo hi`), ctx()).reason), 'an unknown-verb prompt shows the whole command'],
     [logPath(join(ROOT, 'sections', 'x.liquid'), ROOT) === 'sections/x.liquid' && logPath('/elsewhere/x', ROOT) === '/elsewhere/x', 'the log shows repo files by their repo path'],
     // permission modes that hide the prompt: an ask must become a deny, never a silent allow

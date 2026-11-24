@@ -31,6 +31,7 @@ From the second five-way review (developer experience and automation quality, bo
 **From the dev's answers to the review:**
 - **Small fixes skip the outside check:** a bug fix whose plan names at most 3 files, with no store writes, nothing differing from the ticket and no "client's call", skips the outcome-checker's plan and handoff passes. The kit decides this from the plan, so the checks still refuse anything bigger. App kit: no counterpart, it has no outside reviewer yet.
 - **Handoff offers the merge commands** next to the draft PR, for teams that merge from the terminal: one `!` command per line for the dev to run (with `premerge` first on a GitHub-connected draft). Both kits.
+- **A standing yes for two Chrome steps:** `chromeWithoutAsking` in shopify-kit.json (`"connect-draft"`, `"definitions"`) lets the agent connect the draft to the task branch, or create the plan's definitions, in the dev's Chrome without asking each time; it says so in one line and checks the result as before. Setup proposes it from `draftRoute` and `adminApi`, and the guard's prompt on the file names it. The checkout copy always asks (live's Publish is on that page). App kit: no counterpart, it offers no Chrome steps.
 - **Kit 1.1's stages are gone:** a task at `clarify` or `frame` is no longer resumed (no task anywhere is at either).
 
 **Simpler, with nothing a dev sees removed** (the simplification review):
