@@ -16,6 +16,12 @@ The installer removes the old command files on update.
 
 **Level with the theme kit:** the client and CRO rule, project knowledge in the root `CLAUDE.md`, verify fixing failures inside the scenarios on its own (at most 2 rounds), `qa-row` refusing a hedged PASS, a client comment at handoff, and a shorter Gate 1 message (at most 15 lines; the first A/B Gate 1 was 39).
 
+**From the review, with the theme kit 1.16.0:**
+- Handoff offers the draft PR or the merge commands, one `!` command per line (`kit-onboard` first for a stacked change).
+- Handoff prints the retro when the run looped back, was refused or blocked; `app.mjs feedback` and `retro` are gone (`export-logs.mjs` collects the notes).
+- The guard no longer logs gate answers and waivers; change.json records the answers and handoff lists the waivers.
+- Shared with the theme kit from `shared/`: `core.mjs` (helpers, seals), the guard's hook entry, the installer's body and `rules/runs.md`; `app-runs.md` keeps only the app kit's own rules.
+
 **Fixed before release** (third review):
 - **A/B code check:** comments no longer satisfy it. Each `variation*.js` must write exactly one value, together covering every value in § Gate's "Values:" clause; helper files don't count; `control.js` is required unless § Gate says the tool can't run code in control; the extension's read is looked for only in source changed since the base, not in tests.
 - **§ Gate is part of the approved digest**, so a changed key or value after Gate 1 shows as drift. The handoff's A/B steps print only § Gate's lines.

@@ -28,7 +28,17 @@ From the second five-way review (developer experience and automation quality, bo
 
 **Smaller:** a rejected push on a GitHub-connected draft shows the incoming editor saves before pulling them; the PR offer passes `--repo` and never retries without `--draft`; a plan rule on sections that can't read their theme blocks' settings (CHE-865); the TEMPORARY kit-browser 1.7.0 lines are gone; text that still said "ask every question" is fixed.
 
-**Fixed before release** (third review, six reviewers):
+**From the dev's answers to the review:**
+- **Small fixes skip the outside check:** a bug fix whose plan names at most 3 files, with no store writes, nothing differing from the ticket and no "client's call", skips the outcome-checker's plan and handoff passes. The kit decides this from the plan, so the checks still refuse anything bigger. App kit: no counterpart, it has no outside reviewer yet.
+- **Handoff offers the merge commands** next to the draft PR, for teams that merge from the terminal: one `!` command per line for the dev to run (with `premerge` first on a GitHub-connected draft). Both kits.
+- **Kit 1.1's stages are gone:** a task at `clarify` or `frame` is no longer resumed (no task anywhere is at either).
+
+**Simpler, with nothing a dev sees removed** (the simplification review):
+- `kit.mjs feedback` and `retro` are gone: `export-logs.mjs` already collects the notes and records, and `done`, `abandon` and (now in both kits) handoff print the retro when a run went wrong.
+- The guards no longer log gate answers that nothing read; state.json records them.
+- Code both kits repeated now exists once in `shared/`: the installers' body (`installKit`), the helpers (`core.mjs`: output, arguments, `run`, CLI JSON, protected branches, GraphQL reading, seals), the guards' hook entry (`runGuard`), and the run rules both kits share (`rules/runs.md`, next to each kit's own rules). About 650 lines left the per-kit files; with the shared versions counted once, about 220 fewer to maintain, and a fix there reaches both kits.
+- The theme manifest records `kit: 'theme'`, as the app kit's does.
+
 - A FAIL or untested row counts as named only as "#7" in the dev's answer: a bare "7" matched "17" and any number in the text.
 - The hedged-PASS check no longer refuses "shown" or "limit:" in a plain measurement.
 - "client's call" also matches a curly apostrophe.
