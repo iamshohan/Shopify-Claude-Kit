@@ -5,7 +5,9 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { hostname } from 'node:os';
-import { fail, now, parseArgsWith, run as runIn, writeJsonAtomic } from './core.mjs';
+import { fail, now, parseArgsWith, run as runIn, writeJsonAtomic, protectedBranches, TEST_SUFFIX } from './core.mjs';
+
+export { protectedBranches, TEST_SUFFIX };
 
 // ── Paths ──
 // Located from this file, not from cwd: commands may run from a subfolder.
@@ -82,16 +84,6 @@ export function git(args, { allowFail = false } = {}) {
 
 export const currentBranch = () => git(['rev-parse', '--abbrev-ref', 'HEAD'], { allowFail: true });
 export const head = () => git(['rev-parse', 'HEAD'], { allowFail: true });
-
-// Branches the kit never pushes or merges into. The guard enforces the same list.
-export function protectedBranches(cfg) {
-  // "release" as a string, not a list, would spread into single letters and protect nothing.
-  const extra = [].concat(cfg?.protectedBranches || []).flatMap((b) => String(b).split(','));
-  return [...new Set(['main', 'master', cfg?.baseBranch, ...extra].map((b) => String(b || '').trim()).filter(Boolean))];
-}
-
-// A test run (app.mjs start <id> --test) names its branch with this suffix, and the guard never lets it be pushed.
-export const TEST_SUFFIX = '-kit-test';
 
 export function branchFor(cfg, id, st) {
   if (st?.test) return `${id}${TEST_SUFFIX}`;

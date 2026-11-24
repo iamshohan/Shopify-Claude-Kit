@@ -1,12 +1,15 @@
 // Shared helpers for the kit scripts (kit.mjs, shopify.mjs, jira.mjs, ...) and hooks/guard.mjs.
 // Zero dependencies, so the kit runs in any theme repo.
 // Reads .claude/shopify-kit.json, .claude/VERSION and secrets; writes only .claude/logs/<KEY>/state.json.
-import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync, mkdtempSync, copyFileSync, rmSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir, hostname, tmpdir } from 'node:os';
+import { now, print, fail, parseArgsWith, WIN, run as runIn, parseCliJson, gqlScan, sealDigest, protectedBranches, TEST_SUFFIX } from './core.mjs';
+
+// The helpers both kits share live in core.mjs (generated from shared/); the kit's scripts import them from here.
+export { now, print, fail, WIN, parseCliJson, gqlScan, sealDigest, protectedBranches, TEST_SUFFIX };
 
 // ── Paths and theme files ──
 // Located from this file, not from cwd: commands may run from a subfolder.
@@ -23,7 +26,6 @@ export const KIT_VERSION = (() => {
     return m.commit ? `${VERSION}+${String(m.commit).slice(0, 7)}${m.uncommitted ? '-dirty' : ''}` : VERSION;
   } catch { return VERSION; }
 })();
-export const WIN = process.platform === 'win32';
 
 export const THEME_DIRS = ['assets', 'blocks', 'config', 'layout', 'locales', 'sections', 'snippets', 'templates'];
 /** The CLI's --only takes the next argument even when it starts with -, so only theme paths reach it. */
@@ -58,36 +60,10 @@ export const stagesFor = (st) => (st?.kind === 'investigation' ? INVESTIGATION_S
 
 // ── Output and arguments ──
 
-export const now = () => new Date().toISOString();
-
-export function print(value) {
-  process.stdout.write((typeof value === 'string' ? value : JSON.stringify(value, null, 2)) + '\n');
-}
-
-export function fail(message, code = 1) {
-  process.stderr.write(String(message).trimEnd() + '\n');
-  process.exit(code);
-}
-
 // Flags that never take a value. Any other --flag swallows the next argument unless it looks like a flag,
 // so a new boolean flag must be listed here.
 const BOOLEAN_FLAGS = new Set(['dry-run', 'json', 'help', 'force', 'no-comments', 'selftest', 'investigate', 'live', 'github', 'none', 'all', 'adopt', 'test', 'check', 'skip-ignored']);
-// A value can start with "--" too (QA measures CSS custom properties: --measured "--gap: 16px").
-const looksLikeFlag = (a) => /^--[A-Za-z][\w-]*(=|$)/.test(a);
-
-export function parseArgs(argv) {
-  const out = { _: [], flags: {} };
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
-    if (a.startsWith('--')) {
-      const eq = a.indexOf('=');
-      if (eq !== -1) out.flags[a.slice(2, eq)] = a.slice(eq + 1);
-      else if (!BOOLEAN_FLAGS.has(a.slice(2)) && i + 1 < argv.length && !looksLikeFlag(argv[i + 1])) out.flags[a.slice(2)] = argv[++i];
-      else out.flags[a.slice(2)] = true;
-    } else out._.push(a);
-  }
-  return out;
-}
+export const parseArgs = parseArgsWith(BOOLEAN_FLAGS);
 
 export function normKey(raw) {
   const key = String(raw || '').trim().toUpperCase();
@@ -103,32 +79,8 @@ export function namesKey(name, key) {
 
 // ── Processes, git and CLI output ──
 
-/**
- * Runs a program. Real executables are spawned directly. The Shopify CLI is a .cmd shim
- * on Windows, which Node can only start through a shell, so those arguments are quoted
- * here and characters cmd.exe would interpret are refused (as a failed run, so callers report it like any CLI error).
- */
-export function run(cmd, args = [], { cwd = ROOT, env = {}, input, timeout = 600000, shell = false } = {}) {
-  // The CLI reads SHOPIFY_FLAG_* as flags (SHOPIFY_FLAG_LIVE, _THEME, _STORE…): one left in the shell would retarget a call the wrapper built.
-  const inherited = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^SHOPIFY_FLAG_/i.test(k)));
-  const opts = { cwd, env: { ...inherited, ...env }, input, encoding: 'utf8', timeout, maxBuffer: 64 * 1024 * 1024 };
-  let res;
-  if (shell && WIN) {
-    const bad = args.find((a) => /["%^&|<>!\r\n]/.test(a));
-    if (bad !== undefined) return { code: 1, stdout: '', stderr: `Refusing to pass ${JSON.stringify(bad)} through cmd.exe, which reads " % ^ & | < > ! as its own syntax. Rename the file or folder without those characters, or ask the dev to run the command with the ! prefix.`, timedOut: false };
-    const line = [cmd, ...args].map((a) => (a === '' || /[\s*?]/.test(a) ? `"${a}"` : a)).join(' ');
-    // Otherwise cmd.exe runs a shopify.cmd from the repo root before the one on PATH.
-    res = spawnSync(line, { ...opts, env: { ...opts.env, NoDefaultCurrentDirectoryInExePath: '1' }, shell: true });
-  } else {
-    res = spawnSync(cmd, args, opts);
-  }
-  return {
-    code: res.status ?? 1,
-    stdout: res.stdout || '',
-    stderr: (res.stderr || '') + (res.error ? `\n${res.error.message}` : ''),
-    timedOut: res.error?.code === 'ETIMEDOUT',
-  };
-}
+// The CLI reads SHOPIFY_FLAG_* as flags (SHOPIFY_FLAG_LIVE, _THEME, _STORE…): one left in the shell would retarget a call the wrapper built.
+export const run = (cmd, args = [], opts = {}) => runIn(cmd, args, { dropEnv: /^SHOPIFY_FLAG_/i, ...opts, cwd: opts.cwd ?? ROOT });
 
 export function git(args, { allowFail = false } = {}) {
   const r = run('git', args);
@@ -174,23 +126,6 @@ export function themeDigest() {
     const tree = run('git', ['write-tree'], { env }).stdout.trim();
     return tree ? createHash('sha256').update(run('git', ['ls-tree', tree, '--', ...dirs]).stdout).digest('hex').slice(0, 16) : null;
   } finally { rmSync(tmp, { recursive: true, force: true }); }
-}
-
-/**
- * The CLI can print hint lines and NDJSON progress events before the result,
- * so take the last top-level JSON value that isn't a progress event.
- */
-export function parseCliJson(text) {
-  const lines = String(text).split(/\r?\n/);
-  for (let i = lines.length - 1; i >= 0; i--) {
-    if (!/^[[{]/.test(lines[i])) continue;
-    try {
-      const value = JSON.parse(lines.slice(i).join('\n'));
-      if (value && value.type === 'progress') continue;
-      return value;
-    } catch { /* not a complete value from here; keep scanning upward */ }
-  }
-  return null;
 }
 
 /**
@@ -267,16 +202,6 @@ export function readConfig({ required = true } = {}) {
   return JSON.parse(readFileSync(CONFIG_PATH, 'utf8'));
 }
 
-// Branches the kit never pushes or merges into. hooks/guard.mjs enforces the same list.
-export function protectedBranches(cfg) {
-  // "release" as a string, not a list, would spread into single letters and protect nothing.
-  const extra = [].concat(cfg?.protectedBranches || []).flatMap((b) => String(b).split(','));
-  return [...new Set(['main', 'master', cfg?.baseBranch, ...extra].map((b) => String(b || '').trim()).filter(Boolean))];
-}
-
-// A test run (kit.mjs start <KEY> --test) names its branch and draft with this suffix,
-// and the guard never lets that branch be pushed.
-export const TEST_SUFFIX = '-kit-test';
 
 export function branchFor(cfg, key, st) {
   if (st?.test) return `${key}${TEST_SUFFIX}`;
@@ -480,39 +405,6 @@ export function lastVerified(last) {
   return { cliVersion: last.cliVersion, pluginVersion: last.pluginVersion, kitVersion: last.kitVersion ?? null, adminApiVersion: last.adminApiVersion ?? null };
 }
 
-/** Tokens with comments dropped and strings blanked, so neither can hide a field; code keeps strings (they hold ids). */
-export function gqlScan(text) {
-  const tokens = [];
-  let code = '';
-  const word = /[A-Za-z_]\w*|-?\d[\w.+-]*/y;
-  let i = 0;
-  while (i < text.length) {
-    const start = i;
-    // A lone CR ends a comment or a string too, as GraphQL servers read it; "#\rmutation" is a mutation.
-    if (text[i] === '#') { while (i < text.length && text[i] !== '\n' && text[i] !== '\r') i++; continue; }
-    if (text.startsWith('"""', i)) {
-      i += 3;
-      while (i < text.length && !text.startsWith('"""', i)) i += text.startsWith('\\"""', i) ? 4 : 1;
-      i += 3;
-      tokens.push('""');
-    } else if (text[i] === '"') {
-      i++;
-      while (i < text.length && text[i] !== '"' && text[i] !== '\n' && text[i] !== '\r') i += text[i] === '\\' ? 2 : 1;
-      i++;
-      tokens.push('""');
-    } else if (text.startsWith('...', i)) {
-      tokens.push('...');
-      i += 3;
-    } else {
-      word.lastIndex = i;
-      const m = word.exec(text);
-      if (m) { tokens.push(m[0]); i += m[0].length; } else { if (!/[\s,]/.test(text[i])) tokens.push(text[i]); i++; }
-    }
-    code += text.slice(start, i);
-  }
-  return { tokens, code };
-}
-
 /** Why the kit won't run this mutation file; empty if it may. The wrapper and the guard both check it. */
 export function mutationProblems(text, varsText = '', createdIds = []) {
   const { tokens: t, code } = gqlScan(text);
@@ -585,7 +477,6 @@ export function mutationProblems(text, varsText = '', createdIds = []) {
 
 // The guard records what it showed the dev in this file; the wrapper runs only that, once.
 export const SEAL_FILE = 'guard-seal.json';
-export const sealDigest = (text, varsText = '') => createHash('sha256').update(`${text}\0${varsText}`).digest('hex');
 
 /** Absolute path, and true only if it sits inside this task's log folder. */
 export function inTaskFolder(key, file) {

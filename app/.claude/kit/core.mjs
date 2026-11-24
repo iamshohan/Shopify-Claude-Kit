@@ -1,6 +1,6 @@
-// Generic helpers for the app kit's scripts: output, argv, processes, CLI output, state files, GraphQL reading.
-// Zero dependencies and no repo paths. run, parseCliJson and the GraphQL scanner are copied from the theme kit
-// (shopify-claude-kit 1.0.0, kit/lib.mjs), where they are battle-tested; a bug fixed in one kit likely needs fixing in the other.
+// Generated from shared/core.mjs by scripts/sync-shared.mjs: edit that file, then run node scripts/sync-shared.mjs.
+// Generic helpers both kits' scripts and guards use: output, argv, processes, CLI output, state files, branches, GraphQL
+// reading. Zero dependencies and no repo paths: each kit adds its own (the theme kit's lib.mjs, the app kit's repo.mjs).
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { writeFileSync, renameSync, mkdirSync } from 'node:fs';
@@ -63,7 +63,7 @@ export function run(cmd, args = [], { cwd = process.cwd(), env = {}, input, time
   let res;
   if (shell && WIN) {
     const refused = cmdExeProblem(args);
-    if (refused) return { code: 1, stdout: '', stderr: refused };
+    if (refused) return { code: 1, stdout: '', stderr: refused, timedOut: false };
     const line = [cmd, ...args].map((a) => (a === '' || /[\s*?]/.test(a) ? `"${a}"` : a)).join(' ');
     // Otherwise cmd.exe runs a shopify.cmd from the repo root before the one on PATH.
     res = spawnSync(line, { ...opts, env: { ...opts.env, NoDefaultCurrentDirectoryInExePath: '1' }, shell: true });
@@ -74,6 +74,7 @@ export function run(cmd, args = [], { cwd = process.cwd(), env = {}, input, time
     code: res.status ?? 1,
     stdout: res.stdout || '',
     stderr: (res.stderr || '') + (res.error ? `\n${res.error.message}` : ''),
+    timedOut: res.error?.code === 'ETIMEDOUT',
   };
 }
 
@@ -94,6 +95,17 @@ export function parseCliJson(text) {
   return null;
 }
 
+// ── Branches ──
+
+/** The branches the kit never commits to, pushes to or merges into. */
+export function protectedBranches(cfg) {
+  // "release" as a string, not a list, would spread into single letters and protect nothing.
+  const extra = [].concat(cfg?.protectedBranches || []).flatMap((b) => String(b).split(','));
+  return [...new Set(['main', 'master', cfg?.baseBranch, ...extra].map((b) => String(b || '').trim()).filter(Boolean))];
+}
+
+/** A test run's branch suffix: the guard lets nothing on such a branch be pushed. */
+export const TEST_SUFFIX = '-kit-test';
 
 // ── State files ──
 
