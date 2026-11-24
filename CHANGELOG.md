@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.16.1 — 2026-11-25
+
+- **The standing yes is on by default:** `/shopify-setup` sets `chromeWithoutAsking` to `["connect-draft", "definitions"]` without asking, also on a re-run that finds it missing, and says so in its summary. The dev removes the setting to be asked again; the checkout copy still always asks. Repos updated to this version get it the next time `/shopify-setup` runs. App kit: no counterpart, it offers no Chrome steps.
+
 ## 1.16.0 — 2026-11-25
 
 From the second five-way review (developer experience and automation quality, both kits) and the dev's answers: fix QA failures without asking, more autonomy where it's safe, and stricter checks where the agent now decides alone.

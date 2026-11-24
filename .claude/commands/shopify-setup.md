@@ -30,7 +30,7 @@ Run these and keep the results for later steps:
 
 ## 2. Config (`.claude/shopify-kit.json`): the dev confirms
 
-If the file exists, show it and ask once whether it's still right. Otherwise propose every value and confirm them in **one** AskUserQuestion round (up to 4 questions: the values as a whole, plus only what you can't decide: the store when nothing names it, the draft route, the Admin API login).
+If the file exists, show it and ask once whether it's still right (add `chromeWithoutAsking` if it's missing, without asking). Otherwise propose every value and confirm them in **one** AskUserQuestion round (up to 4 questions: the values as a whole, plus only what you can't decide: the store when nothing names it, the draft route, the Admin API login).
 
 - `store`: the store's `*.myshopify.com` domain. **Ask the dev; never take it from the CLI.** auth-check's `cliLastStore` is only the store the CLI was last used with, often the previous project's. Show it as a hint, next to any store this repo names itself (`shopify.theme.toml`, `package.json` scripts with `--store`), and say so when they differ.
 - `storefrontUrl`: the primary domain, from auth-check's `shop.primaryDomain` once the Admin login works. Optional.
@@ -44,7 +44,7 @@ If the file exists, show it and ask once whether it's still right. Otherwise pro
 - `draftRoute`: how the task's draft theme is made.
   - `"github"`: recon shows "Update from Shopify" commits, so the store's themes are connected to this repo through Shopify's GitHub app. Each task's draft is a theme the dev connects to the task branch (Online Store → Themes → Add theme → Connect from GitHub, about a minute per task). The draft always equals the branch, and customizer saves on it come back as commits. Recommend it when recon shows the sync commits; it needs the Themes permission and write access to the repo on GitHub.
   - `"cli"`: the kit copies the live theme with the CLI and uploads the branch's files. For a repo that isn't connected, or a dev who can't connect branches.
-- `chromeWithoutAsking`: admin steps the agent does in the dev's Chrome without asking each time (the standing yes). `"connect-draft"` when `draftRoute` is `"github"`, `"definitions"` when `adminApi` is `false`; otherwise `[]`. Only these two can be listed: Gate 1 already approved the branch and the definitions. The checkout copy always asks.
+- `chromeWithoutAsking`: always `["connect-draft", "definitions"]`, the admin steps the agent does in the dev's Chrome without asking each time (Gate 1 already approved the branch and the definitions; each applies only where the repo uses it). Don't ask about it: set it, also when a re-run finds an existing file without it, and say so in the summary. The dev removes it from the file to be asked again. Only these two can be listed; the checkout copy always asks.
 - `adminApi`: whether the kit gets an Admin API login. This is a real choice, because `shopify store auth` installs Shopify's CLI app on the store (once per store, by someone allowed to install apps; on a client store the client may need to agree first):
 
   | Choice | Login command (the dev runs it, see step 4) | Config |
@@ -59,7 +59,7 @@ Write the file with the Write tool. The guard asks the dev first and lists each 
 ```json
 { "store": "", "storefrontUrl": "", "jiraBaseUrl": "", "ticketPrefixes": [], "baseBranch": "main",
   "protectedBranches": ["main"], "branchPattern": "{KEY}", "commitPattern": "{key}__dev: <what changed>",
-  "adminApiVersion": "2026-07", "adminApi": false, "draftRoute": "cli", "chromeWithoutAsking": ["definitions"] }
+  "adminApiVersion": "2026-07", "adminApi": false, "draftRoute": "cli", "chromeWithoutAsking": ["connect-draft", "definitions"] }
 ```
 Then run `auth-check` again if the store was new, for the summary. A `storeMismatch` in its output (the storefront belongs to another store than `store`) stops setup: show it to the dev and fix whichever value is wrong before going on.
 
@@ -87,6 +87,7 @@ Nothing to install → skip this step without a question.
 One compact block:
 
 - **Ready** (✓, one line each): the guard, CLI, logins, config, and what was installed.
+- **Applied for you** (one line): "In your Chrome without asking each time: connecting the draft theme to the task branch, and creating the plan's definitions (both approved at Gate 1). Remove `chromeWithoutAsking` from `.claude/shopify-kit.json` to be asked again."
 - **Needs you** (only what can't be done for the dev, each with its exact command; leave out the section when it's empty):
   - **Restart Claude Code** once, if step 3 installed the plugin or `kit-browser`: new tools load at startup. No need to run `/shopify-setup` again.
   - **Theme login** missing → `! shopify theme list --store <store>` (a browser login: the guard blocks the agent from running it). The `!` prefix runs it here; any terminal works without it.
