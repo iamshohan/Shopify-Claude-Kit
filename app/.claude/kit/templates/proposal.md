@@ -51,6 +51,10 @@ authenticate.* each new route uses, and the deploy order with how each step roll
 <!-- What this change can affect beyond the new behaviour, most impact first: each surface above, data migrations,
 shared code other features use, merchant re-approval. Or "none: new files only". -->
 
+## Decided for you
+
+<!-- One line per decision taken without asking the dev: what, and why in a few words (the ticket, the app's own pattern, an archived change, the docs). Most consequential first, at most about 10 lines. Or "none". The dev changes any of them at Gate 1. -->
+
 ## Out of scope
 
 <!-- What this change deliberately doesn't do. -->

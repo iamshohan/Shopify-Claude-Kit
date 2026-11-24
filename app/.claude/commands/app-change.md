@@ -10,14 +10,14 @@ You are running the Shopify App Kit for one change. A script keeps track of wher
 
 ## Every time, before anything else
 
-1. No ID given → run `node .claude/kit/app.mjs list`, ask the dev which change to continue or what to start, and stop until they answer. A description without an ID: propose a short kebab-case ID (e.g. `gift-label`) and use it once the dev agrees. A Jira key is the ID itself.
+1. No ID given → run `node .claude/kit/app.mjs list`, ask the dev which change to continue or what to start, and stop until they answer. A description without an ID: pick a short kebab-case ID (e.g. `gift-label`), say it in one line, and go on; the dev can rename it before the first commit. A Jira key is the ID itself.
 2. `.claude/app-kit.json` missing → tell the dev to run `/app-setup`, and stop. `appspec/surfaces.json` missing → `/app-onboard`, and stop.
 3. Once per session: `node .claude/kit/shopify.mjs cli-check`. If it reports problems, show them and stop: the kit may no longer match the CLI.
 4. Run `node .claude/kit/app.mjs status <ID>`.
    - **Archived:** status says what's left (commit, push, the handoff). Do that. Only if the dev says the ticket was reopened, start it again below.
    - **Not started:** status names the branch to create.
      1. Run `git status --porcelain`. Uncommitted app changes → ask the dev what to do with them. Never stash or discard without asking.
-     2. `git fetch origin`, then the `git switch -c <branch> --no-track origin/<baseBranch>` status printed (`--no-track`: a branch that tracks the base can send a push there). If the branch exists locally or on origin, ask the dev whether to reuse it.
+     2. `git fetch origin`, then the `git switch -c <branch> --no-track origin/<baseBranch>` status printed (`--no-track`: a branch that tracks the base can send a push there). If the branch exists locally or on origin: reuse it when it holds only this change's own commits (named for the ID, nothing merged in from elsewhere), and say so; ask the dev only otherwise.
      3. `node .claude/kit/app.mjs start <ID> --type <type> --title "<one line>"`, adding `--test` when the arguments include it or the dev calls it a test run (the branch is then `<ID>-kit-test`).
 5. The status names the current stage and the skill that owns it. **Load that skill with the Skill tool and do only that stage.**
 6. When the stage's "Done when" holds, run `node .claude/kit/app.mjs done <ID> <stage>`. Gate stages also need `--answer "<the dev's words>"`. The script refuses while the stage's output is missing: read its message, fix the gap, and run it again.

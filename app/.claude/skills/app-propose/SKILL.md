@@ -13,7 +13,7 @@ The dev approves behaviour, not code. Everything you write here is read by someo
 - Read `appspec/project.md` and the ticket (`node .claude/kit/jira.mjs <KEY>` for a Jira key). Read this repo's `CLAUDE.md`, `AGENTS.md` or `.cursor/rules/`.
 - Map the code with the `app-recon` agent: the routes, webhooks, extensions, Prisma models, GraphQL operations and tests that implement the area, and the archived changes that touched it (`appspec/archive/*/proposal.md`). Ask it for `file:line` evidence.
 - Shopify facts (scopes, API fields, Function targets and limits, extension targets and components) come from `shopify-plugin:shopify`, not memory. Choose the **narrowest scope** that does the job.
-- An open question whose answer changes the behaviour → ask the dev now (AskUserQuestion), before writing the scenarios.
+- **Open questions:** decide what the ticket, the app's code, the archived changes or the docs answer, and write each decision in § Decided for you (one line, with why). Ask the dev, in one AskUserQuestion round before writing the scenarios, only what `.claude/rules/app-runs.md` lists: a departure from the ticket, a new scope or something the merchant must maintain, money, real alternatives, a contradiction, something costly to undo.
 - **A new extension:** generating it is the dev's step. Ask them to run `! shopify app generate extension` (on the change branch) before you write § Surfaces, then copy the rows `node .claude/kit/app.mjs surfaces <ID>` prints, changed to the targets and capabilities the change will use, not the template's defaults (build edits the generated toml to match). Its API version and its own dependencies come with the declared extension; its targets and capabilities need rows.
 
 ## 2. proposal.md
@@ -46,6 +46,7 @@ By type:
    - the surfaces: `surfaces`, `pcdScopes` first
    - `design` when there is one, in a line or two
    - `attention`, and `retires` if any
+   - `decided`: what you decided without asking, one line each, so the dev can change any of it
    - fix: `reproduce`; A/B: `abGate` and `sunset`
    - anything you are unsure of
    End with: "Review it and tell me: approve, what to change, or any question." Then stop and wait; no AskUserQuestion. Questions → answer and wait. Changes → edit the proposal, run gate again, say what changed, wait.

@@ -49,7 +49,7 @@ const check = (r, name) => (json(r).checks || []).find((c) => c.slice(5).startsW
 
 const ID = 'GIFT-1';
 const T1 = 'test: extensions/gift/tests/gift.test.js › gift added at threshold';
-const proposal = ({ id = ID, scenarios, surfaces = 'none', design = 'none', retires = 'none', attention = 'none: new files only.', extra = '', tasks = '- [ ] The work (S1)' }) => `# ${id} · Proposal
+const proposal = ({ id = ID, scenarios, surfaces = 'none', design = 'none', retires = 'none', attention = 'none: new files only.', decided = '- The gift is added as a free line by the cart transform: the ticket names it.', extra = '', tasks = '- [ ] The work (S1)' }) => `# ${id} · Proposal
 
 ## Why
 
@@ -80,6 +80,10 @@ ${retires}
 ## Needs your attention
 
 ${attention}
+
+## Decided for you
+
+${decided}
 
 ## Out of scope
 
@@ -252,6 +256,10 @@ writeFileSync(outFile, JSON.stringify({ testResults: files.map((file) => ({ name
   ok('the Gate 1 view shows each scenario with its values and check, the surfaces and the check counts in one go',
     gate.scenarios?.includes(`S1: GIVEN a cart with a subtotal of 50 EUR · WHEN the cart transform runs · THEN the gift is added → ${T1}`)
     && gate.surfaces?.some((a) => /^\+ scope:write_cart_transforms: new access scope/.test(a)) && gate.checks?.test === 1 && gate.checks?.qa === 1 && gate.attention?.length === 1, JSON.stringify(gate));
+  // What the agent decided without asking is shown at Gate 1, and the gate wants it written (or "none").
+  write(C(ID, 'proposal.md'), PROPOSAL.replace('- The gift is added as a free line by the cart transform: the ticket names it.', ''));
+  const noDecided = app('gate', ID);
+  ok('gate wants § Decided for you, and the Gate 1 view shows it', json(noDecided).problems?.some((p) => /Decided for you/.test(p)) && gate.decided?.length === 1, noDecided.all + JSON.stringify(gate.decided));
   write(C(ID, 'proposal.md'), PROPOSAL.replace('- New scope write_cart_transforms: stores approve it again on the next open.', 'none'));
   const noneAttn = app('gate', ID);
   ok('§ Needs your attention can\'t be "none" when a declared surface needs attention', noneAttn.code !== 0 && json(noneAttn).problems?.some((p) => /can't be "none".*scope:write_cart_transforms/.test(p)), noneAttn.all);

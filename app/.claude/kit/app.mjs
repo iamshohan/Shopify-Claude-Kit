@@ -303,6 +303,8 @@ function proposeProblems(cfg, id, st) {
     type !== 'maintain' && !rows.length && 'write the scenarios in proposal.md § Scenarios: one row per behaviour, | ID | GIVEN | WHEN | THEN | Check |',
     ...scenarioProblems(rows),
     !attention.length && 'fill proposal.md § Needs your attention (or "none: …" with the reason)',
+    // What the agent decided without asking is reviewed at Gate 1 (it asks only the dev's real calls).
+    !filled(cfg, id, st, '## Decided for you') && 'fill proposal.md § Decided for you: one line per decision you took without asking (what, and why), or "none"',
     attention.length && saysNone(attention) && flagged.length && `proposal.md § Needs your attention can't be "none": list what each of these declared surfaces means for the merchant: ${flagged.map((d) => `${d.op} ${d.key} (${attentionFor(d)})`).join(' · ')}`,
     ...declaredProblems(decl, rows, type, id),
     // A data model, a new webhook, extension, app proxy or config change: the decisions and the deploy order are approved at Gate 1 too.
@@ -587,6 +589,7 @@ function gateView(cfg, id, st) {
       pcdScopes: decl === 'none' ? [] : decl.filter((d) => d.op === '+' && /^scope:/.test(d.key) && PCD_SCOPE.test(d.key.slice(6))).map((d) => d.key),
       design: isHeavy(decl) ? sectionLines(md, '## Design') : undefined,
       attention: sectionLines(md, '## Needs your attention'),
+      decided: sectionLines(md, '## Decided for you'),
       retires: retiresFrom(md).map(checkKey),
       ...(typeOf(st) === 'fix' ? { reproduce: sectionLines(md, '## Reproduce') } : {}),
       ...(typeOf(st) === 'ab' ? { abGate: sectionLines(md, '## Gate'), sunset: sectionLines(md, '## Sunset') } : {}),
