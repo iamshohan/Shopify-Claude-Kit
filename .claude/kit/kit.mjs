@@ -203,6 +203,14 @@ function sinceApproval(key, st) {
 // ── Brief and plan checks ──
 // Helpers for the plan exit below; reach() also backs the reach verb.
 
+/**
+ * An exit finding that doesn't stop the stage: how a document is worded (a reviewer's line, a phrase, a name it should
+ * mention), not a missing fact. done prints it under "Worth a look"; a refusal needs something unrecorded or untrue.
+ */
+const warn = (msg) => (msg ? { warn: msg } : false);
+/** An outcome-checker pass recorded as skipped ("Skipped: small fix."): a fact about the run, not wording. */
+const SKIPPED = /\bskipped\b[^\n]*\bsmall fix\b/i;
+
 /** The hard-coded list: each entry that touches an editability AC must have been asked on its own. */
 function staysInCodeProblems(key) {
   const within = '## Decided';
@@ -215,11 +223,11 @@ function staysInCodeProblems(key) {
     if (!why) return [`Stays in code → "${value}": say why it stays in code`];
     // A design constant (spacing, a breakpoint) is listed under Decided for you and approved with the plan; content the
     // merchant would change (text, images, links, which items show) is asked as its own question (Q#).
-    if (!/^none\b/i.test(ac) && !/Q\s*\d+|Gate 1|Decided for you/i.test(agreed)) return [`Stays in code → "${value}" touches ${ac}. A design constant: list it under plan.md → Decided for you and write "Gate 1" in "Dev agreed". Content the merchant would change: ask it as its own question (Q#), or make it editable`];
+    if (!/^none\b/i.test(ac) && !/Q\s*\d+|Gate 1|Decided for you/i.test(agreed)) return [warn(`Stays in code → "${value}" touches ${ac}. A design constant: list it under plan.md → Decided for you and write "Gate 1" in "Dev agreed". Content the merchant would change: ask it as its own question (Q#), or make it editable`)];
     // "Gate 1" counts only when the dev can see it there: the value is named under Decided for you.
     if (!/^none\b/i.test(ac) && !/Q\s*\d+/i.test(agreed) && hasHeading(key, 'plan.md', '### Decided for you')
       && !decided.includes(value.replace(/[*`]/g, '').trim().toLowerCase().split(/[\s(,]/)[0])) {
-      return [`Stays in code → "${value}" says Gate 1, but plan.md → Decided for you doesn't name it: list it there, so the dev sees it before approving`];
+      return [warn(`Stays in code → "${value}" says Gate 1, but plan.md → Decided for you doesn't name it: list it there, so the dev sees it before approving`)];
     }
     return [];
   });
@@ -314,14 +322,16 @@ function glanceProblems(key) {
   const indep = added(key, 'plan.md', '### Independent check', '## At a glance').join('\n');
   const unnamed = reach(key).filter((x) => !said.includes(x.file.toLowerCase()) && !said.includes(x.file.split('/').pop().toLowerCase()));
   const storeWrites = writesStore(key);
+  const checkDue = hasHeading(key, 'plan.md', '### Independent check') && !smallFix(key, readState(key));
   return [
     !attention.length && 'fill plan.md § At a glance → ### Needs your attention: what this change can affect beyond the new feature, most impact first, or "none: only new files the feature owns"',
-    unnamed.length && `Needs your attention doesn't name ${unnamed.map((x) => `${x.file} (${x.reach})`).join('; ')}. For each, say what could change for what already uses it, and how the plan contains it`,
-    storeWrites && !/\bstore\b|definition|metaobject|metafield/.test(said) && 'Needs your attention: name the store writes (definitions, QA values) and whether they show on live before the merge',
+    unnamed.length && warn(`Needs your attention doesn't name ${unnamed.map((x) => `${x.file} (${x.reach})`).join('; ')}. For each, say what could change for what already uses it, and how the plan contains it`),
+    storeWrites && !/\bstore\b|definition|metaobject|metafield/.test(said) && warn('Needs your attention: name the store writes (definitions, QA values) and whether they show on live before the merge'),
     !rows.length && 'fill plan.md § At a glance → ### What changes: one row per file (or file group), "What happens" in 15 words at most',
-    hasHeading(key, 'plan.md', '### Independent check') && !smallFix(key, readState(key)) && (!/Surprises\s*:/i.test(indep) || !/Unlisted assumptions\s*:/i.test(indep))
-      ? 'plan.md § At a glance → ### Independent check needs the outcome-checker agent\'s plan pass: run it (mode plan), fix what it finds, and record its "Surprises:" and "Unlisted assumptions:" lines there'
-      : false,
+    // That the outcome-checker ran is a fact (its result is recorded, not skipped); the exact lines it ends with are wording.
+    checkDue && (!indep.trim() || SKIPPED.test(indep)) && `plan.md § At a glance → ### Independent check ${indep.trim() ? 'says it was skipped as a small fix, but this plan isn\'t one (more than 3 files, a store write, something differing from the ticket, or a client\'s call)' : 'is empty'}: run the outcome-checker agent (mode plan), fix what it finds, and record its result there`,
+    checkDue && indep.trim() && !SKIPPED.test(indep) && (!/Surprises\s*:/i.test(indep) || !/Unlisted assumptions\s*:/i.test(indep))
+      && warn('plan.md § At a glance → ### Independent check has no "Surprises:" or "Unlisted assumptions:" line: if that isn\'t the outcome-checker\'s plan pass, run it (mode plan) and record its lines'),
   ];
 }
 
@@ -389,13 +399,17 @@ function handoffTextProblems(key, st) {
   const unnamed = notVerified.filter((n) => !new RegExp(`#${n}\\b`).test(pr));
   return [
     hasHeading(key, 'report.md', '### What differs from what was asked') && missing.length && `report.md § Handoff → What differs from what was asked has no row for ${missing.join(', ')} (from plan.md → Differs and brief.md's "Client's call" questions): say what the client gets instead, in their words`,
-    hasHeading(key, 'report.md', '### What differs from what was asked') && clientRows < decidedForClient && `plan.md → Decided for you has ${decidedForClient} decision(s) marked "(client's call)", and What differs from what was asked has ${clientRows} row(s) with "client's call" as its Ref: give each its own row, in the client's words, so the Jira comment tells them`,
+    hasHeading(key, 'report.md', '### What differs from what was asked') && clientRows < decidedForClient && warn(`plan.md → Decided for you has ${decidedForClient} decision(s) marked "(client's call)", and What differs from what was asked has ${clientRows} row(s) with "client's call" as its Ref: give each its own row, in the client's words, so the Jira comment tells them`),
     unnamed.length && `the PR doesn't name the QA rows that weren't verified (${unnamed.map((n) => `#${n}`).join(', ')}): list each with its verdict, so the PR claims nothing QA didn't show`,
     filled(key, 'report.md', '## Handoff') && !jira.trim() && 'write report.md § Handoff → Jira comment',
     jira.trim() && notTold.length && `the Jira comment doesn't tell the client about ${notTold.join(', ')}: add each row of What differs from what was asked, in their words, with its AC`,
-    /\.claude[\\/]logs|\b(report|plan|brief)\.md\b/i.test(`${pr}\n${jira}`) && 'the PR or the Jira comment points to the kit\'s files (.claude/logs/…, report.md, plan.md), which git ignores: paste what reviewers need inline',
-    st.draft?.route === 'github' && jira.trim() && !/\bsav(e|ing)\b/i.test(jira) && 'the draft is GitHub-connected: the Jira comment must ask reviewers not to press Save in its theme editor (each save becomes a commit on the branch under review)',
-    hasHeading(key, 'report.md', '### Client check') && !smallFix(key, st) && filled(key, 'report.md', '## Handoff') && !/Client surprises\s*:/i.test(check) && 'report.md § Handoff → Client check needs the outcome-checker agent\'s handoff pass: run it (mode handoff), fix the Jira comment by it, and record its "Client surprises:" line',
+    /\.claude[\\/]logs|\b(report|plan|brief)\.md\b/i.test(`${pr}\n${jira}`) && warn('the PR or the Jira comment points to the kit\'s files (.claude/logs/…, report.md, plan.md), which git ignores: paste what reviewers need inline'),
+    st.draft?.route === 'github' && jira.trim() && !/\bsav(e|ing)\b/i.test(jira) && warn('the draft is GitHub-connected: the Jira comment should ask reviewers not to press Save in its theme editor (each save becomes a commit on the branch under review)'),
+    // That the outcome-checker ran is a fact (its result is recorded); its "Client surprises:" line is wording.
+    ...(hasHeading(key, 'report.md', '### Client check') && !smallFix(key, st) && filled(key, 'report.md', '## Handoff') ? [
+      (!check.trim() || SKIPPED.test(check)) && `report.md § Handoff → Client check ${check.trim() ? 'says it was skipped as a small fix, but this task isn\'t one' : 'is empty'}: run the outcome-checker agent (mode handoff), fix the Jira comment by it, and record its result there`,
+      check.trim() && !SKIPPED.test(check) && !/Client surprises\s*:/i.test(check) && warn('report.md § Handoff → Client check has no "Client surprises:" line: if that isn\'t the outcome-checker\'s handoff pass, run it (mode handoff) and record its line'),
+    ] : []),
   ];
 }
 
@@ -482,7 +496,7 @@ const EXIT_CHECKS = {
     const stale = check && check.content !== themeDigest();
     const refs = ahead > 0 ? ticketRefs(key, st) : [];
     return [
-      refs.length && `code comments name the ticket, an AC or a plan question (${refs.slice(0, 6).join(', ')}${refs.length > 6 ? ` and ${refs.length - 6} more` : ''}). The PR and plan.md hold those: keep the comment's why and drop the reference, then commit and run check again`,
+      refs.length && warn(`code comments name the ticket, an AC or a plan question (${refs.slice(0, 6).join(', ')}${refs.length > 6 ? ` and ${refs.length - 6} more` : ''}). The PR and plan.md hold those: keep the comment's why and drop the reference, then commit and run check again`),
       currentBranch() !== st.branch && `check out the task branch ${st.branch}`,
       dirty && 'commit the theme changes on the task branch',
       ahead === 0 && 'the branch has no commits beyond its base yet',
@@ -571,7 +585,8 @@ const EXIT_CHECKS = {
         && 'list each requirement in investigation.md § Requirements (quoted, its owner, clear or not, and the answer to each open one)',
       noOwner.length && `give each requirement an owner in investigation.md § Requirements' Owner column (${noOwner.join(', ')}): Dev for how it's built, Client for what customers see. Client rows the ticket doesn't settle go to the Jira comment as questions`,
       uncovered.length && `investigation.md § Client gets has no row for ${uncovered.join(', ')}: say what the client will get on every surface the requirement touches (position, look, width, behaviour, where it's edited) and how that differs from what they expect`,
-      surfaceGaps.length && `the requirement names a surface § Client gets has no row for: ${surfaceGaps.join(', ')}. Add a row per surface, with its Surface cell naming it`,
+      // By keyword: "checkout" in a requirement may only mention it. Worth a look, not a refusal.
+      surfaceGaps.length && warn(`the requirement names a surface § Client gets has no row for: ${surfaceGaps.join(', ')}. Add a row per surface, with its Surface cell naming it`),
       !confirmed.length && 'no Confirmed evidence yet: read or observe something that settles a claim',
       unsourced.length && `Confirmed evidence without a Source (${unsourced.join(', ')}): cite the file:line, query, fetched page or docs URL with the quoted sentence`,
       st.type === 'debug' && tableRows(key, 'investigation.md', '## Hypotheses').length < 2
@@ -589,7 +604,7 @@ const EXIT_CHECKS = {
       st.type === 'feasibility' && !filled(key, 'investigation.md', '## Jira comment')
         && 'write investigation.md § Jira comment for the client: the verdict per part, every way the result differs from what they expect, the limitations, and the open Client questions',
       st.type === 'feasibility' && filled(key, 'investigation.md', '## Review') && !added(key, 'investigation.md', '## Review').some((l) => /Client surprises\s*:/i.test(l))
-        && 'investigation.md § Review has no "Client surprises:" line: the evidence-checker\'s client pass is missing. Run it again (it reads the ticket, § Answer and § Jira comment as the client first) and record that line',
+        && warn('investigation.md § Review has no "Client surprises:" line: if the evidence-checker\'s client pass didn\'t run, run it again (it reads the ticket, § Answer and § Jira comment as the client first) and record that line'),
       !filled(key, 'investigation.md', '## Could not determine') && 'fill investigation.md § Could not determine ("Nothing material" only if that is true)',
       !filled(key, 'investigation.md', '## Next step') && 'write investigation.md § Next step',
       st.type === 'feasibility' && !filled(key, 'investigation.md', '## Review') && 'run the evidence-checker agent and record its result in investigation.md § Review',
@@ -1111,23 +1126,27 @@ switch (verb) {
     const def = stages[stageIndex(stage, st)];
     const answer = typeof flags.answer === 'string' ? flags.answer.trim() : '';
     if (def.gate && !answer) fail(`"${stage}" is a gate (${def.gate}). Ask the dev, then record their words: --answer "..."`);
-    const missing = [...(EXIT_CHECKS[stage]?.(key, st) || []), stage === 'accept' && unprovenUntested(key, st, answer), stage === 'accept' && openFails(st, answer)].filter(Boolean);
+    const found = [...(EXIT_CHECKS[stage]?.(key, st) || []), stage === 'accept' && unprovenUntested(key, st, answer), stage === 'accept' && openFails(st, answer)].filter(Boolean);
+    const missing = found.filter((m) => typeof m === 'string');
+    const warnings = found.filter((m) => m.warn).map((m) => m.warn.replaceAll('<KEY>', key));
+    const worth = (title) => (warnings.length ? `\n${title}\n${warnings.map((w) => `- ${w}`).join('\n')}` : '');
     if (missing.length) {
       // Kept for the retro: repeated refusals at one stage point at a skill that doesn't say what the check wants.
       st.history.push({ at: now(), event: 'refused', stage, missing: missing.map((m) => m.slice(0, 160)) });
       writeState(key, st);
-      fail(`"${stage}" isn't finished:\n${missing.map((m) => `- ${m.replaceAll('<KEY>', key)}`).join('\n')}`);
+      fail(`"${stage}" isn't finished:\n${missing.map((m) => `- ${m.replaceAll('<KEY>', key)}`).join('\n')}${worth('Also worth a look (not blocking):')}`);
     }
     if (def.gate) st.gates[stage] = { answer, at: now() };
     // The plan as Gate 1 approved it, so Gate 2 can show what changed since.
     if (stage === 'approve') writeFileSync(join(LOGS, key, APPROVED_PLAN), planBody(read(join(LOGS, key, 'plan.md'))));
     // The commit QA measured: handoff checks that the branch it pushes is still this one.
     if (stage === 'qa') st.qa = { ...st.qa, commit: ref(`refs/heads/${st.branch}`) };
-    st.history.push({ at: now(), event: 'done', stage, answer: answer || undefined });
+    st.history.push({ at: now(), event: 'done', stage, answer: answer || undefined, warnings: warnings.length ? warnings.map((w) => w.slice(0, 160)) : undefined });
     const next = stages[stageIndex(stage, st) + 1];
     st.stage = next ? next.name : 'done';
     writeState(key, st);
     print(summaryLines(key, st, readConfig({ required: false })));
+    if (warnings.length) print(worth('Worth a look before you go on:').trimStart());
     if (stage === 'build') {
       const shared = reach(key, branchDiff(st));
       if (shared.length) print(`Shared files this branch changes (QA's regression check covers what uses them): ${shared.map((x) => `${x.file} (${x.reach})`).join('; ')}`);

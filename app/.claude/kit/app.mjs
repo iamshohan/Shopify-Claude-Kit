@@ -291,6 +291,14 @@ function reproProblems(rows) {
   return [`fix: no bound test fails on the unfixed code (${tests.map((t) => `${t.id}: ${results.get(t.key)?.verdict || 'NOT RUN'}`).join(', ')}), so none reproduces the bug. Bind a scenario to a test that fails now, with the failure § Reproduce describes`];
 }
 
+/**
+ * An exit finding that doesn't stop the stage: how the proposal is worded (a phrase, a name it should mention), not a
+ * missing fact. done and gate list it under "Worth a look"; a refusal needs something unrecorded or untrue.
+ */
+const warn = (msg) => (msg ? { warn: msg } : false);
+const refusals = (found) => found.filter((m) => typeof m === 'string');
+const warningsOf = (found) => found.filter((m) => m?.warn).map((m) => m.warn);
+
 function proposeProblems(cfg, id, st) {
   const md = proposalOf(cfg, id);
   const type = typeOf(st);
@@ -311,7 +319,7 @@ function proposeProblems(cfg, id, st) {
     // before the section existed has no heading: a kit update mustn't fail a change already approved (asmc first run).
     md.split(/\r?\n/).some((l) => l.trim() === '## Decided for you') && !filled(cfg, id, st, '## Decided for you')
       && 'fill proposal.md § Decided for you: one line per decision you took without asking (what, and why), or "none"',
-    attention.length && saysNone(attention) && flagged.length && `proposal.md § Needs your attention can't be "none": list what each of these declared surfaces means for the merchant: ${flagged.map((d) => `${d.op} ${d.key} (${attentionFor(d)})`).join(' · ')}`,
+    attention.length && saysNone(attention) && flagged.length && warn(`proposal.md § Needs your attention can't be "none": list what each of these declared surfaces means for the merchant: ${flagged.map((d) => `${d.op} ${d.key} (${attentionFor(d)})`).join(' · ')}`),
     ...declaredProblems(decl, rows, type, id),
     // A data model, a new webhook, extension, app proxy or config change: the decisions and the deploy order are approved at Gate 1 too.
     isHeavy(decl) && (!design.length || saysNone(design)) && `fill proposal.md § Design: § Surfaces declares ${decl.filter((d) => d.op !== '-' && HEAVY.test(d.key)).map((d) => d.key).join(', ')}. Say the decisions, the data model and migration, which authenticate.* each new route uses, and the deploy order`,
@@ -322,9 +330,10 @@ function proposeProblems(cfg, id, st) {
     // A proposal from before the rename has § Sunset; it counts.
     type === 'ab' && !filled(cfg, id, st, '## A/B test completion') && !filled(cfg, id, st, '## Sunset') && 'fill proposal.md § A/B test completion: when the test ends and how the extension is removed',
     // The test code is measured too: verify records its checks as qa: rows, and qa-row takes only declared scenarios.
+    // Found by wording, so a warning; verify's gate-key check is the fact behind it.
     type === 'ab' && !(rows.some((s) => /variation/i.test(JSON.stringify(s)) && /cart\.js|attribute|propert/i.test(JSON.stringify(s)))
       && rows.some((s) => /control/i.test(JSON.stringify(s)) && /clear|remov|delet|absent/i.test(JSON.stringify(s))))
-      && 'an A/B change measures its own test code: add qa: scenarios for "the variation code writes the key and value to /cart.js (once, no update loop)" and "the control code clears it"',
+      && warn('an A/B change measures its own test code: add qa: scenarios for "the variation code writes the key and value to /cart.js (once, no update loop)" and "the control code clears it"'),
     ...retiresFrom(md).filter((c) => !ledger.has(testKey(c.file, c.name))).map((c) => `§ Retires → ${checkKey(c)} isn't a test an archived change bound; list only those there`),
     !sectionLines(md, '## Tasks').some((l) => /^- \[[ x]\] \S/.test(l)) && 'fill proposal.md § Tasks: one "- [ ] …" line per task, each naming the scenarios it satisfies',
   ].filter(Boolean);
@@ -1210,8 +1219,10 @@ switch (verb) {
     const st = atStage(id, 'propose', 'accept');
     if (st.stage === 'accept') { print(gateView(cfg, id, st)); break; }
     // Gate 1 is asked only once the proposal is complete: the problems come first.
-    const problems = proposeProblems(cfg, id, st);
-    print({ ok: !problems.length, problems, ...gateView(cfg, id, st) });
+    const found = proposeProblems(cfg, id, st);
+    const problems = refusals(found);
+    const warnings = warningsOf(found);
+    print({ ok: !problems.length, problems, ...(warnings.length ? { warnings } : {}), ...gateView(cfg, id, st) });
     if (problems.length) process.exit(1);
     break;
   }
@@ -1241,19 +1252,23 @@ switch (verb) {
     const def = STAGES[stageIndex(stage)];
     const answer = typeof flags.answer === 'string' ? flags.answer.trim() : '';
     if (def.gate && !answer) fail(`"${stage}" is a gate (${def.gate}). Ask the dev, then record their words: --answer "..."`);
-    const missing = (EXIT_CHECKS[stage]?.(cfg, id, st) || []).filter(Boolean);
+    const found = (EXIT_CHECKS[stage]?.(cfg, id, st) || []).filter(Boolean);
+    const missing = refusals(found);
+    const warnings = warningsOf(found);
+    const worth = (title) => (warnings.length ? `\n${title}\n${warnings.map((w) => `- ${w}`).join('\n')}` : '');
     if (missing.length) {
       st.history.push({ at: now(), event: 'refused', stage, missing: missing.map((x) => x.slice(0, 160)) });
       writeChange(cfg, id, st);
-      fail(`"${stage}" isn't finished:\n${missing.map((x) => `- ${x}`).join('\n')}`);
+      fail(`"${stage}" isn't finished:\n${missing.map((x) => `- ${x}`).join('\n')}${worth('Also worth a look (not blocking):')}`);
     }
     if (def.gate) st.gates[stage] = { answer, at: now(), by: owner().name };
     // What Gate 1 approved: Gate 2 lists what changed since, instead of refusing it.
     if (stage === 'propose') Object.assign(st, approvedOf(proposalOf(cfg, id)));
-    st.history.push({ at: now(), event: 'done', stage, answer: answer || undefined, note: flags.note || undefined });
+    st.history.push({ at: now(), event: 'done', stage, answer: answer || undefined, note: flags.note || undefined, warnings: warnings.length ? warnings.map((w) => w.slice(0, 160)) : undefined });
     st.stage = STAGES[stageIndex(stage) + 1].name;
     writeChange(cfg, id, st);
     print(summaryLines(cfg, id, st));
+    if (warnings.length) print(worth('Worth a look before you go on:').trimStart());
     break;
   }
 

@@ -1,5 +1,36 @@
 # Changelog
 
+## 1.17.0 — 2026-11-25
+
+**A lighter guard.** It exists for two things only: never leak a secret or do something sensitive (store writes the dev hasn't seen, the live theme, merging or pushing into main), and catch the mistakes an agent makes without knowing. Rules that only stopped an agent working around the guard on purpose are gone; rules that blocked harmless work in real runs now judge what actually happens. From two outside reviews and a replay of 75 logged guard decisions in 12 client repos. With app kit 0.4.0.
+
+**Cut** (both kits): denies on setting a git alias, a push refspec, `push.default` or a branch's upstream (a refspec or `push.default` the repo already has is still read at push time), `git subtree push` / `send-pack`, the guess that an inline script writes Claude Code's settings, `cat .e*`-style globs, `dotenv` / `--env-file`, `JIRA_*=` in front of a command (jira.mjs already sends the token only to atlassian.net from the environment), the manifest and seal-name denies (the seal is still protected by path), `git add -f` parsing (a staged secret is still refused at the commit), and the "git setting that runs a program" log.
+
+**Now judged by what happens:**
+- **The Shopify CLI** is refused where it runs: its words in a runnable command, the program itself, `node …/@shopify/cli/bin/run.js`, `npx`/`dlx` of its packages (now also `@shopify/create-app`). Its package name or folder in a read (`CLI=$(npm root -g)/@shopify/cli; ls $CLI`, `node -e` reading a file there, checking whether `SHOPIFY_*` is set) passes. `shopify version` stays refused: `/shopify-setup` uses it to prove the hook is live.
+- **A recursive search** is refused only where a secret file really exists (a root `.env` or Theme Kit `config.yml`, `.claude/.env.local`, `~/.claude/.env`) and the search doesn't skip it (`--exclude-dir=.claude`, `--exclude=config.yml`, `--include`). 6 real blocks were harmless theme searches.
+- **"Can discard work"** asks only when there is something to lose: a stash or a branch always, files only with uncommitted changes (`git checkout <sha> -- file` on a clean file passes; 6 real asks).
+- **Settings:** a change to `shopify-kit.json` asks only for the store, the protected branches, `jiraBaseUrl` or `chromeWithoutAsking`; others are logged. Invalid JSON is refused.
+- **Smaller:** `.git/info/exclude` no longer asks (only `.git/config` and hooks do); `.claude/*.json` no longer counts as reaching `.env.local`; `env | cut -d= -f1` (names only) passes; a `*.shopifypreview.com` link may be fetched with `curl`; reading the seal passes.
+
+**Bypass mode works.** In a mode that hides prompts, store writes, deleting the draft, picking a theme, the kit's safety settings, Claude Code's and git's settings and discarding uncommitted work stay refused; the other prompts (a kit skill edited in a theme repo, merchant JSON outside the plan, moving a task's logs) pass and are logged. `/shopify-setup` notes the mode instead of stopping.
+
+**Kept, deliberately:** the wrapper's own-draft check and live-theme block, the mutation allowlist with its sealed approval, the one push form (`--no-verify` still refused), secret files and printing the environment, `gh` merges, workflow runs and releases, refusing to run a script that calls the CLI (an agent wrote one in a real run), and the guard reading through `timeout`/`env` prefixes, `bash -c` and Windows short paths.
+
+**Wording checks are warnings.** A stage exit that only disliked the wording (a missing "Surprises:" or "Client surprises:" line, ticket numbers in code comments, the "client's call" row count, report.md named in the PR, the GitHub-draft "Save" line, investigation keyword gaps, the stays-in-code phrasing) now passes and prints "Worth a look before you go on". Fact checks stay refusals: QA rows recorded and fresh, draft at HEAD, branch pushed, theme check, repro with both sides, AC coverage, and an outside check skipped on a task that isn't a small fix. 1 of 14 real refusals was a wording check.
+
+**Video: editor scenes are stills.** Theme-editor and admin scenes are one still per sentence with a slow zoom, taken with Claude in Chrome's zoom screenshot (`video.mjs still`). No screen recording, no Windows-only capture, no corner marks, no minutes away from the computer. Storefront scenes still record. Scenes already recorded the old way still assemble.
+
+**Fixed from the reviews:**
+- `summary`, the retro and the QA exit read each row's Verdict cell, not the first verdict word in it.
+- A script file is read when it runs (`bash deploy.sh`, `./x.sh`, `node scripts/x.mjs`) and refused if it calls the CLI; writing one stays logged.
+- `git switch -` before a commit or merge asks (the guard can't see which branch that is).
+- `update.mjs` refuses a clone off main or with uncommitted changes (`--force` overrides).
+- The investigation's read-only check reads non-ASCII paths; `video start` warns about unaccepted code on GitHub-connected drafts too; design-audit measures the right gutter without the scrollbar.
+- Stale comments and docs (gate answers aren't logged since 1.16.0; the QA skill's "you don't fix").
+
+Net size: 22 files, about 40 lines fewer; the cut rules' code went, and each new allow got a test.
+
 ## 1.16.1 — 2026-11-25
 
 - **The standing yes is on by default:** `/shopify-setup` sets `chromeWithoutAsking` to `["connect-draft", "definitions"]` without asking, also on a re-run that finds it missing, and says so in its summary. The dev removes the setting to be asked again; the checkout copy still always asks. Repos updated to this version get it the next time `/shopify-setup` runs. App kit: no counterpart, it offers no Chrome steps.

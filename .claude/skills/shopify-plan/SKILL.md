@@ -52,7 +52,7 @@ user-invocable: false
    Ask everything that needs asking in as few AskUserQuestion calls as possible (up to 4 questions each), before writing the plan. Give each question 2–4 concrete options, with your recommendation first, marked "(Recommended)". An option that contradicts a quoted editability line is never the recommendation, and says so ("conflicts with AC 18"). Before the first call, write 3–6 lines in chat: what you decided (one line each, the most consequential first), and what you're asking and why. Nothing to ask: say what you decided and go on to the plan; Gate 1 is where the dev confirms it.
 4. **Write § Decided:**
    - **Merchant can change:** one row per value, or "none".
-   - **Stays in code:** one row per value. Name the editability AC it touches, or "none". When it touches one: a design constant you decided gets "Gate 1" in "Dev agreed" and a line under Decided for you; anything else cites the question in which the dev agreed (Q#). `kit.mjs done` refuses a row that touches an AC with neither.
+   - **Stays in code:** one row per value. Name the editability AC it touches, or "none". When it touches one: a design constant you decided gets "Gate 1" in "Dev agreed" and a line under Decided for you; anything else cites the question in which the dev agreed (Q#). `kit.mjs done` flags a row that touches an AC with neither.
    - **Questions and answers:** the dev's choice verbatim, or "none: nothing needed the dev's call". How you apply it goes in "Applied as". If "Applied as" stretches the choice beyond what the option said, ask again instead.
 
 A task investigated first has its § Requirements answers in § Decided already: don't ask them again.
@@ -65,7 +65,7 @@ Aim for 300 lines or fewer. A small fix gets a short plan: write "none" under a 
   - **Needs your attention** comes first. It lists where this change can affect what already exists, most impact first, in about 6 points at most. Most of a plan is new code only the feature uses; these points are what the dev actually has to weigh. Each point, in about 30 words: what's touched, what could go wrong for what already uses it, and how the plan contains it or what to watch.
     - **Store writes:** what gets created or set on the shared store, and whether it shows on live before the merge.
     - **Merchant-owned JSON** (`templates/*.json`, section groups, `settings_data.json`): the merge overwrites admin edits made on live since the base.
-    - **Shared code:** the layout, theme settings, and snippets, sections and assets used beyond this feature. After writing § Files, run `node .claude/kit/kit.mjs reach <KEY>`: it lists these files and how far each reaches, and `done plan` refuses until each one is named here. It also lists planned files the repo's `.shopifyignore` excludes: push can't upload them, so say how each reaches the store (an admin step, or out of `.shopifyignore`).
+    - **Shared code:** the layout, theme settings, and snippets, sections and assets used beyond this feature. After writing § Files, run `node .claude/kit/kit.mjs reach <KEY>`: it lists these files and how far each reaches, and `done plan` flags each one not named here. It also lists planned files the repo's `.shopifyignore` excludes: push can't upload them, so say how each reaches the store (an admin step, or out of `.shopifyignore`).
     - **Behaviour that changes for what exists today:** a removed fallback, a changed default, markup that other code or an app reads.
     - **Apps, the A/B tool or third-party scripts** the change touches, and anything else the dev must act on or watch.
 
@@ -122,7 +122,7 @@ Aim for 300 lines or fewer. A small fix gets a short plan: write "none" under a 
 Otherwise spawn the `outcome-checker` agent with the key and mode `plan`. It reads the ticket and the theme first, writes its own expectations, then compares them with the plan, so it doesn't inherit the plan's blind spots.
 - Fix what it finds: add Differs rows, Not proven yet rows, QA criteria with live baselines; move shared-file overrides into the feature's files; rewrite merchant text.
 - A finding you disagree with stays, with one line on why.
-- Record its lines (`Surprises:`, `Unlisted assumptions:`, `Convention:` and the rest) and your changes under At a glance → **Independent check**. The dev reads them at Gate 1. `done plan` refuses without the `Surprises:` and `Unlisted assumptions:` lines.
+- Record its lines (`Surprises:`, `Unlisted assumptions:`, `Convention:` and the rest) and your changes under At a glance → **Independent check**. The dev reads them at Gate 1. `done plan` refuses an empty Independent check and flags one without the `Surprises:` and `Unlisted assumptions:` lines.
 
 **Done when:** § Decided records the answers, every plan heading is filled, and the independent check is recorded. Then run `kit.mjs done <KEY> plan`.
 

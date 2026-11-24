@@ -607,9 +607,9 @@ try {
   commit('refs');
   const refsBuild = kit('kit.mjs', 'done', KEY, 'build');
   git('reset', '-q', '--hard', beforeRefs);
-  const named = /code comments name the ticket[^(]*\(([^)]*)\)/.exec(refsBuild.err)?.[1].split(', ').sort().join(' ');
-  ok('build refuses added code that names the ticket, or a comment with an AC or Q number; "Q4" outside a comment is fine',
-    refsBuild.code === 1 && named === 'assets/e2e-ref.js:2 snippets/e2e-ref.liquid:1 snippets/e2e-ref.liquid:3', refsBuild.all);
+  const named = /code comments name the ticket[^(]*\(([^)]*)\)/.exec(refsBuild.all)?.[1].split(', ').sort().join(' ');
+  ok('build flags (not blocking) added code that names the ticket, or a comment with an AC or Q number; "Q4" outside a comment is fine',
+    /worth a look/i.test(refsBuild.all) && named === 'assets/e2e-ref.js:2 snippets/e2e-ref.liquid:1 snippets/e2e-ref.liquid:3', refsBuild.all);
   edit(KEY, 'plan.md', '## Approach\n', '## Approach\n\nRewritten after approval.\n');
   const build2 =kit('kit.mjs', 'done', KEY, 'build');
   ok('build passes, listing unplanned files, the plan\'s changes since approval, the shared files and the crashed check',
@@ -706,18 +706,23 @@ try {
   edit(KEY, 'report.md', 'Checks: .claude/logs/ABC-1/report.md.', 'AC 2: the product title is plain text, not a link. Checks: the section shows on product pages.');
   edit(KEY, 'report.md', '### Client check\n', '### Client check\n\nClient surprises: AC 2, the plain title; the Jira comment says it.\n');
   writeFileSync(statePath, JSON.stringify({ ...state(), history: historyBefore }));
-  ok('handoff needs each deviation in its table and the Jira comment, no .claude/logs paths, and the client check',
+  ok('handoff needs each deviation in its table and the Jira comment, and the client check; .claude/logs paths are flagged, not refused',
     /no row for AC 2/.test(noText.err) && /Jira comment/.test(noText.err) && /Client check/.test(noText.err)
-      && /doesn't tell the client about AC 2/.test(notTold.err) && /\.claude\/logs/.test(notTold.err) && !/no row for/.test(notTold.err), noText.all + notTold.all);
+      && /doesn't tell the client about AC 2/.test(notTold.err) && /not blocking\):\n[^]*\.claude\/logs/.test(notTold.err) && !/no row for/.test(notTold.err), noText.all + notTold.all);
   git('push', '-q', '-u', 'origin', KEY);
   write('sections/feature.liquid', '<div class="e2e-feature" data-v="3"></div>\n');
   commit('after QA');
   const lateHandoff = kit('kit.mjs', 'done', KEY, 'handoff');
   ok('handoff refuses commits QA didn\'t check', lateHandoff.code === 1 && /commits QA didn't check/.test(lateHandoff.err) && /draft isn't at the branch head/.test(lateHandoff.err), lateHandoff.all);
   git('reset', '-q', '--hard', 'HEAD~1');
+  // Wording alone doesn't stop a stage: a PR that points at report.md passes, and the point is shown and recorded.
+  edit(KEY, 'report.md', 'merge after AC review.', 'merge after AC review. Details: report.md.');
   const handoff = kit('kit.mjs', 'done', KEY, 'handoff');
   ok('handoff passes on the QA\'d commit and shows the retro for the refused handoff',
     handoff.code === 0 && state().stage === 'done' && /handoff ×1/.test(handoff.out) && /kit\.mjs note/.test(handoff.out) && state().history.some((e) => e.event === 'retro'), handoff.all);
+  ok('a stage with only wording to fix passes, printing and recording it under "Worth a look"',
+    /Worth a look before you go on:\n- the PR or the Jira comment points to the kit's files/.test(handoff.out)
+      && state().history.some((e) => e.event === 'done' && e.stage === 'handoff' && e.warnings?.some((w) => /kit's files/.test(w))), handoff.all);
 
   // premerge: commits on the remote branch after QA, such as editor saves on a GitHub-connected draft (CHE-865).
   const cleanMerge = kit('kit.mjs', 'premerge', KEY);
@@ -783,8 +788,8 @@ try {
   const noCheckoutRow = kit('kit.mjs', 'done', 'ABC-3', 'gather');
   fill('ABC-3', '## Client gets', '| R2 | Checkout | Not possible: checkout can\'t render theme sections | the chart is missing in checkout |');
   const withCheckoutRow = kit('kit.mjs', 'done', 'ABC-3', 'gather');
-  ok('feasibility gather wants a § Client gets row for each surface a requirement names',
-    /R2 on checkout/.test(noCheckoutRow.err) && !/R2 on checkout/.test(withCheckoutRow.all), noCheckoutRow.all + withCheckoutRow.all);
+  ok('feasibility gather flags (not blocking) a surface a requirement names that § Client gets has no row for',
+    /worth a look[^]*R2 on checkout/i.test(noCheckoutRow.all) && !/R2 on checkout/.test(withCheckoutRow.all), noCheckoutRow.all + withCheckoutRow.all);
   const invState = join(repo, '.claude', 'logs', 'ABC-3', 'state.json');
   writeFileSync(invState, JSON.stringify({ ...JSON.parse(readFileSync(invState, 'utf8')), stage: 'conclude' }));
   const noEstimate = kit('kit.mjs', 'done', 'ABC-3', 'conclude', '--answer', 'Accept');
@@ -794,9 +799,9 @@ try {
   const noClientPass = kit('kit.mjs', 'done', 'ABC-3', 'conclude', '--answer', 'Accept');
   fill('ABC-3', '## Review', '\nClient surprises: none (checked position, where it is edited).');
   const withEstimate = kit('kit.mjs', 'done', 'ABC-3', 'conclude', '--answer', 'Accept');
-  ok('feasibility conclude waits for § Estimate, § Jira comment and the evidence-checker with its client pass',
+  ok('feasibility conclude waits for § Estimate, § Jira comment and the evidence-checker; a missing client-pass line is flagged, not refused',
     /Estimate/.test(noEstimate.all) && /evidence-checker/.test(noEstimate.all) && /Jira comment/.test(noEstimate.all)
-      && /Client surprises/.test(noClientPass.all) && !/§ Estimate:|§ Jira comment for/.test(noClientPass.all)
+      && /not blocking\):\n[^]*Client surprises/.test(noClientPass.err) && !/^- [^\n]*Client surprises/m.test(noClientPass.err.split('Also worth a look')[0]) && !/§ Estimate:|§ Jira comment for/.test(noClientPass.all)
       && !/§ Estimate:|§ Jira comment for|Client surprises|evidence-checker/.test(withEstimate.all), noEstimate.all + noClientPass.all + withEstimate.all);
   kit('kit.mjs', 'start', 'ABC-4', '--investigate');
   kit('kit.mjs', 'set', 'ABC-4', 'type=debug');
@@ -853,7 +858,7 @@ try {
   writeFileSync(join(repo, '.claude', 'logs', 'ABC-6', 'mutations', '01-value.graphql'), 'mutation { metafieldsSet(metafields: []) { userErrors { message } } }\n');
   const withWrites = kit('kit.mjs', 'done', 'ABC-6', 'plan');
   ok('QA data on existing products isn\'t a store write to name; a mutation file the plan wrote is',
-    !/store writes/.test(withRepro.err) && /name the store writes/.test(withWrites.err), withRepro.all + withWrites.all);
+    !/store writes/.test(withRepro.all) && /name the store writes/.test(withWrites.all), withRepro.all + withWrites.all);
   // No questions at all, and a design constant kept in code against an editability AC, approved at Gate 1: both pass.
   const brief6 = join(repo, '.claude', 'logs', 'ABC-6', 'brief.md');
   const stays = '| Value | Editability AC it touches (AC #, or none) | Why it stays in code | Dev agreed (Q #) |\n| --- | --- | --- | --- |\n';
@@ -865,7 +870,7 @@ try {
   const gate1Unlisted = kit('kit.mjs', 'done', 'ABC-6', 'plan');
   writeFileSync(plan6, readFileSync(plan6, 'utf8').replace('### Decided for you\n', '### Decided for you\n\n- Spacing stays in code: a design constant of the theme.\n'));
   const gate1 = kit('kit.mjs', 'done', 'ABC-6', 'plan');
-  ok('"Gate 1" for a value kept in code needs the value named under Decided for you', /says Gate 1, but plan\.md → Decided for you doesn't name it/.test(gate1Unlisted.err), gate1Unlisted.all);
+  ok('"Gate 1" for a value kept in code is flagged when Decided for you doesn\'t name the value', /says Gate 1, but plan\.md → Decided for you doesn't name it/.test(gate1Unlisted.all), gate1Unlisted.all);
   // A small fix (a bug fix in at most 3 files, no store writes, nothing differing, no client's call) skips the outcome-checker.
   const filesHeader = '| Path | Create / modify | Exact change | Anchor (symbol, never a line number) | Data flow |\n| --- | --- | --- | --- | --- |\n';
   const beforeSmall = readFileSync(plan6, 'utf8');
@@ -877,10 +882,14 @@ try {
   const small = kit('kit.mjs', 'done', 'ABC-6', 'plan');
   writeFileSync(plan6, readFileSync(plan6, 'utf8').replace('- **Differs from the ticket or the A/B test:**', '- **Differs from the ticket or the A/B test:** AC 2 keeps the old rounding'));
   const smallDiffers = kit('kit.mjs', 'done', 'ABC-6', 'plan');
+  // "Skipped" on a plan that isn't a small fix: the reviewer never ran, which is a fact, so it's refused.
+  writeFileSync(plan6, readFileSync(plan6, 'utf8').replace('### Independent check\n', '### Independent check\n\nSkipped: small fix.\n'));
+  const falseSkip = kit('kit.mjs', 'done', 'ABC-6', 'plan');
   writeFileSync(plan6, beforeSmall);
   writeFileSync(mutation6, mutationText);
-  ok('a small fix skips the outcome-checker; store writes or a difference from the ticket bring it back',
-    /Independent check/.test(smallWithWrites.err) && !/Independent check/.test(small.err) && /Independent check/.test(smallDiffers.err), smallWithWrites.all + small.all + smallDiffers.all);
+  ok('a small fix skips the outcome-checker; store writes or a difference from the ticket bring it back, and a "Skipped" there is refused',
+    /Independent check/.test(smallWithWrites.err) && !/Independent check/.test(small.err) && /Independent check/.test(smallDiffers.err)
+      && falseSkip.code === 1 && /Independent check says it was skipped as a small fix, but this plan isn't one/.test(falseSkip.err), smallWithWrites.all + small.all + smallDiffers.all + falseSkip.all);
   // A task started before the kit added Decided for you and Independent check has neither heading: it isn't refused for them.
   const plan6Text = readFileSync(plan6, 'utf8');
   writeFileSync(plan6, plan6Text.replace(/### Decided for you\n[\s\S]*?(?=### Not proven yet)/, '').replace(/### Independent check\n[\s\S]*?(?=---)/, ''));
@@ -888,7 +897,7 @@ try {
   writeFileSync(plan6, plan6Text);
   ok('a plan from an older template isn\'t refused for sections the kit added later', !/Decided for you|Independent check/.test(olderPlan.all) && /Decided for you/.test(gate1.all + noAgreement.all), olderPlan.all);
   ok('a plan with no questions passes ("none"), and a design constant against an AC needs "Gate 1" or a Q#',
-    /"Spacing" touches AC 2/.test(noAgreement.err) && !/Spacing/.test(gate1.err) && !/Questions and answers/.test(gate1.err), noAgreement.all + gate1.all);
+    /"Spacing" touches AC 2/.test(noAgreement.all) && !/Spacing/.test(gate1.all) && !/Questions and answers/.test(gate1.err), noAgreement.all + gate1.all);
   // QA fixes failures on its own for at most 2 rounds after approval; a third round needs the dev's words.
   const s6 = JSON.parse(readFileSync(st6, 'utf8'));
   const t0 = '2026-11-01T10:00:00.000Z';

@@ -43,7 +43,7 @@ user-invocable: false
       - CSS is scoped to the feature prefix. No `!important` unless the neighbouring code uses it.
       - No edits to minified vendor files. Merchant JSON is touched only where the plan says so.
       - Nothing unrelated changed.
-      - Comments: short, and only the why. Cut ones that restate the code or tell the task's history. No ticket keys, AC or Q numbers (`done build` refuses those).
+      - Comments: short, and only the why. Cut ones that restate the code or tell the task's history. No ticket keys, AC or Q numbers (`done build` flags those).
    3. Send real problems back to `theme-builder` in `mode: fix`, with the list. After two rounds, if problems remain, show them to the dev and ask how to proceed.
 5. **Commit** on the task branch:
    - Use the "Stage with:" line from `kit.mjs status <KEY>`. It lists only the theme folders this repo has; `git add` fails on a missing folder.

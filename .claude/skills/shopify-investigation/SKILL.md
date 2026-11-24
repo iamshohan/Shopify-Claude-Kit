@@ -177,7 +177,7 @@ Check the size against the theme's code, not the ticket's length: count the file
    - **First, as the client:** it reads only the ticket, § Answer and § Jira comment, and lists what would surprise the client after delivery. It checks for any requirement and surface § Client gets skips, and any Client decision recorded as decided.
    - **Then, as a reviewer:** it re-checks every Confirmed claim against its source and looks for an explanation that fits the evidence better.
    - Apply what it finds: add the missing § Client gets rows, put the surprises in the Jira comment, downgrade labels it couldn't confirm, and change the answer if it found a better one.
-   - Record its verdict, its `Client surprises:` line and your changes in § Review. `done conclude` refuses a feasibility § Review without that line.
+   - Record its verdict, its `Client surprises:` line and your changes in § Review. `done conclude` flags a feasibility § Review without that line.
 3. **Gate.** Show the dev the answer, what it rests on ("rests on 4 Confirmed, 2 Inferred: #3, #5"), the evidence-checker's verdict for a feasibility check, and the next step. For a feasibility check, also show the § Client gets rows that differ and the open Client questions, so the dev reviews what the client will get, not only the verdict. Then ask with AskUserQuestion:
    - Accept
    - Dig further (what?)

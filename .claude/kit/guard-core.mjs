@@ -196,7 +196,8 @@ export const cliPackage = (names) => new RegExp(`@shopify\\/(${names})(?=$|[\\s@
 /** The Shopify CLI as the program a segment runs (shopify, npx shopify, pnpm dlx @shopify/cli, a full path), whatever follows. */
 export function runsShopifyCli(segment) {
   const { w, i } = program(stripRedirects(segment));
-  const name = (x) => /^shopify(\.cmd|\.exe|\.ps1)?$/i.test(programName(x || '')) || /^@shopify\/cli(@\S*)?$/i.test(x || '');
+  // The CLI and its scaffolders by package (npx @shopify/cli, pnpm dlx @shopify/create-app); @shopify/app-bridge is a library.
+  const name = (x) => /^shopify(\.cmd|\.exe|\.ps1)?$/i.test(programName(x || '')) || /^@shopify\/(cli|create-app|theme|app)(@\S*)?$/i.test(x || '');
   if (name(w[i])) return true;
   const runner = (w[i] || '').replace(/\.(cmd|exe)$/i, '').toLowerCase();
   if (['npx', 'pnpx', 'bunx'].includes(runner)) return name(w.slice(i + 1).find((a) => !a.startsWith('-')));
@@ -256,17 +257,9 @@ export function ghMerges(segment) {
   if (rest[at] === 'repo') return rest[at + 1] === 'sync';
   const args = rest.slice(at + 1);
   if (args.some((x) => /\/merges?\b|\/pulls\/\d+\/merge|git\/refs|mergePullRequest/.test(x))) return true;
-  // GraphQL moves refs and commits files too (createCommitOnBranch on main). A query read from a file can't be checked.
-  if (args.includes('graphql') && args.some((x) => /\b(createCommitOnBranch|createRef|updateRefs?|deleteRef|mergeBranch|enablePullRequestAutoMerge)\b|^query=@|^--input$/.test(x))) return true;
   // gh api sends GET unless a method or a field says otherwise.
   const writes = args.some((x, i) => (/^(-X|--method)$/.test(x) && !/^GET$/i.test(args[i + 1] || '')) || /^(-X|--method=)(?!GET$)\w+$/i.test(x) || /^(-f|-F|--field|--raw-field|--input)$/.test(x));
   return writes && args.some((x) => /\/contents\/|\/git\/(commits|trees|blobs)\b/.test(x));
-}
-
-/** Pushes that bypass git push's own form: git subtree push, git send-pack. */
-export function pushesOtherwise(segment) {
-  const g = gitCommand(segment);
-  return Boolean(g && ((g.sub === 'subtree' && g.args.includes('push')) || g.sub === 'send-pack'));
 }
 
 /**
@@ -302,29 +295,7 @@ export function ghReleases(segment) {
   return writes && rest.slice(at + 1).some((x) => /\/(releases|deployments)\b/.test(x));
 }
 
-// ── git: settings that route a push or run a program ──
-
-// git config's subcommand words (git 2.46+: git config set <key> <value>) and the options that take a value.
-const CONFIG_SUBS = new Set(['set', 'unset', 'get', 'list', 'rename-section', 'remove-section', 'edit', 'get-color', 'get-colorbool']);
-const CONFIG_VALUE_FLAGS = new Set(['-f', '--file', '--blob', '--type', '--default', '--comment', '--value']);
-
-/**
- * What a git config write does: 'push' when it routes pushes (an alias, a push refspec, push.default, a branch's upstream,
- * an include that can carry any of these), 'program' when it makes git run a program, else null. Reads are null.
- */
-export function gitConfigRisk(args) {
-  if (args.some((a) => /^(--get(-all|-regexp|-urlmatch|-color)?|-l|--list|--show-origin|--show-scope)$/.test(a))) return null;
-  const pos = [];
-  for (let k = 0; k < args.length; k++) {
-    if (CONFIG_VALUE_FLAGS.has(args[k])) k++;
-    else if (!args[k].startsWith('-')) pos.push(args[k]);
-  }
-  if (CONFIG_SUBS.has(pos[0]) && !['set', 'unset'].includes(pos[0])) return null;
-  const key = (CONFIG_SUBS.has(pos[0]) ? pos[1] : pos[0]) || '';
-  if (/^(alias\.|remote\.[^.]+\.(push|pushurl)$|push\.default$|remote\.pushdefault$|branch\.[^.]+\.(merge|remote|pushremote)$|include\.|includeif\.|url\.)/i.test(key)) return 'push';
-  if (/^(core\.(hookspath|fsmonitor|pager|sshcommand|editor|askpass|gitproxy)$|filter\.|diff\.|merge\.|credential\.|sequence\.editor$|gpg\.|ssh\.|uploadpack\.|receive\.)/i.test(key)) return 'program';
-  return null;
-}
+// ── git: settings the repo already has that route a push ──
 
 /**
  * Why git would send "git push <remote> <branch>" somewhere other than <branch>: a push refspec in the config, or
@@ -346,19 +317,43 @@ export function pushRouting(args, config) {
 }
 
 /**
- * git checkout/switch/reset/clean/restore/stash/branch forms that throw away uncommitted work or a branch, and the ones
- * that overwrite a branch where it stands (git branch -M x main, git update-ref refs/heads/main).
+ * What a git command can throw away: 'always' (a stash, a branch, a ref moved where it stands), 'tree' (every uncommitted
+ * change: reset --hard, clean -f, checkout -- .), { paths } (those files' uncommitted changes), or null. Callers ask only
+ * when there is something to lose: git checkout <sha> -- a.liquid on a clean a.liquid loses nothing.
  */
 export function discardsWork(g, isPath) {
   const a = g.args;
-  return (g.sub === 'reset' && a.includes('--hard'))
-    || (g.sub === 'clean' && a.some((x) => x === '--force' || /^-[a-z]*f/i.test(x)))
-    || (g.sub === 'checkout' && (['--', '.', '-B', '-f', '--force'].some((f) => a.includes(f)) || a.some((x) => !x.startsWith('-') && isPath(x))))
-    || (g.sub === 'switch' && ['-C', '--force-create', '--discard-changes', '-f', '--force'].some((f) => a.includes(f)))
-    || (g.sub === 'restore' && !a.includes('--staged'))
-    || (g.sub === 'stash' && ['drop', 'clear'].includes(a[0]))
-    || (g.sub === 'branch' && a.some((x) => ['-D', '-f', '--force', '-M', '-C'].includes(x)))
-    || g.sub === 'update-ref';
+  const named = (from) => { const p = a.slice(from).filter((x) => !x.startsWith('-')); return p.includes('.') || !p.length ? 'tree' : { paths: p }; };
+  if (g.sub === 'update-ref' || (g.sub === 'stash' && ['drop', 'clear'].includes(a[0]))) return 'always';
+  if (g.sub === 'branch' && a.some((x) => ['-D', '-f', '--force', '-M', '-C'].includes(x))) return 'always';
+  if (g.sub === 'switch' && ['-C', '--force-create'].some((f) => a.includes(f))) return 'always';
+  if ((g.sub === 'reset' && a.includes('--hard')) || (g.sub === 'clean' && a.some((x) => x === '--force' || /^-[a-z]*f/i.test(x)))) return 'tree';
+  if (g.sub === 'switch' && ['--discard-changes', '-f', '--force'].some((f) => a.includes(f))) return 'tree';
+  if (g.sub === 'checkout') {
+    if (['-B', '-f', '--force'].some((f) => a.includes(f))) return a.includes('-B') ? 'always' : 'tree';
+    const dd = a.indexOf('--');
+    if (dd !== -1) return named(dd + 1);
+    if (a.includes('.')) return 'tree';
+    const paths = a.filter((x) => !x.startsWith('-') && isPath(x));
+    return paths.length ? { paths } : null;
+  }
+  if (g.sub === 'restore' && !a.includes('--staged')) return named(0);
+  return null;
+}
+
+/** A shell glob as a regex over one path segment: * and ? don't cross a slash; [!x] is [^x]. */
+const globRe = (g) => new RegExp(`^${g.replace(/[.+^${}()|\\]/g, '\\$&').replace(/\[!/g, '[^').replace(/\*/g, '[^/]*').replace(/\?/g, '[^/]')}$`, 'i');
+
+/**
+ * True if a .claude/<pattern> outside quotes could reach .claude/.env.local: .claude/*, .claude/.e* and .claude/** can,
+ * .claude/*.json and .claude/logs/* can't.
+ */
+export function claudeGlobReachesSecret(text) {
+  for (const m of text.matchAll(/\.claude[\\/]([^\s'"`;&|)]*[*?[][^\s'"`;&|)]*)/gi)) {
+    const [first, ...rest] = m[1].split(/[\\/]/);
+    if (first === '**' || (!rest.filter(Boolean).length && globRe(first).test('.env.local'))) return true;
+  }
+  return false;
 }
 
 // ── The repo's git state ──
@@ -396,6 +391,10 @@ export function repoGit(root) {
     staged() {
       if (!staged) { try { staged = git(['diff', '--cached', '--name-only']).split(/\r?\n/).filter(Boolean); } catch { staged = []; } }
       return staged;
+    },
+    /** Uncommitted changes (untracked included) under paths, from dir; all of the tree for none. Unreadable counts as changed. */
+    dirty(paths = [], dir = root) {
+      try { return Boolean(execFileSync('git', ['status', '--porcelain', '--untracked-files=all', '--', ...paths], { cwd: dir || root, encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] }).trim()); } catch { return true; }
     },
     isTag(name) {
       try { git(['show-ref', '--verify', '--quiet', `refs/tags/${name}`]); return true; } catch { return false; }
@@ -625,12 +624,11 @@ export function pushIn(text, check) {
 const holds = (t, s) => { const rel = relative(t, s); return !rel.startsWith('..') && !isAbsolute(rel); };
 
 /**
- * grep -r, rg --hidden/--no-ignore, findstr /s, find -exec grep, Get-ChildItem -Recurse | Select-String over a folder that holds a secret
- * file: the repo root (its .env), .claude/ (.env.local), ~ or ~/.claude (the global .env), or a parent of these. dir is
- * where the command runs after any cd (null: unknown, so only absolute paths are judged). --include, rg -g/-t and
- * --exclude=.env* keep the secrets out.
+ * grep -r, rg --hidden/--no-ignore, findstr /s, find -exec grep, Get-ChildItem -Recurse | Select-String over a folder that holds
+ * one of secrets (secretFiles(root): the ones that really exist) and doesn't skip it. dir is where the command runs after
+ * any cd (null: unknown, so only absolute paths are judged). --include, --exclude, --exclude-dir and rg -g/-t keep files out.
  */
-export function searchesSecrets(w, i, root, dir, segs = []) {
+export function searchesSecrets(w, i, root, dir, segs = [], secrets = []) {
   const prog = (w[i] || '').replace(/\.exe$/i, '').toLowerCase();
   const args = w.slice(i + 1);
   const flags = args.filter((a) => a.startsWith('-') || (prog === 'findstr' && a.startsWith('/')));
@@ -651,7 +649,6 @@ export function searchesSecrets(w, i, root, dir, segs = []) {
   let paths = findReads ? args.slice(0, args.findIndex((a) => /^[-(!]/.test(a)))
     : pwshRecurse || flags.some((f) => /^(-e|--regexp|-f)/.test(f)) ? rest : rest.slice(1);
   if (!paths.length) paths = ['.'];
-  const secrets = [join(root, '.claude'), join(homedir(), '.claude')];
   // findstr globs itself (and PowerShell passes * through unexpanded): /s with * walks every folder for files the name matches.
   const folder = (p) => {
     if (prog !== 'findstr' || !/[*?]/.test(p)) return p;
@@ -659,7 +656,20 @@ export function searchesSecrets(w, i, root, dir, segs = []) {
     const glob = new RegExp(`^${name.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')}$`, 'i');
     return ['.env', '.env.local'].some((f) => glob.test(f)) ? dirname(p.replace(/\\/g, '/')) : p;
   };
-  return paths.some((p) => { const t = dirAfter(folder(p), dir); return t !== null && secrets.some((s) => holds(t, s)); });
+  // Only the secret files really there count, minus what the search skips (--exclude-dir=.claude, --exclude=config.yml).
+  const values = (flag) => args.flatMap((a, k) => (a.startsWith(`--${flag}=`) ? [a.slice(flag.length + 3)] : a === `--${flag}` ? [args[k + 1] || ''] : []))
+    .map((v) => v.replace(/^['"]|['"]$/g, ''));
+  const [exDirs, exFiles, incl] = ['exclude-dir', 'exclude', 'include'].map(values);
+  const skipped = (f) => exFiles.some((g) => globRe(g).test(basename(f))) || exDirs.some((g) => globRe(g).test(basename(dirname(f))))
+    || (incl.length > 0 && !incl.some((g) => globRe(g).test(basename(f))));
+  return paths.some((p) => { const t = dirAfter(folder(p), dir); return t !== null && secrets.some((f) => holds(t, f) && !skipped(f)); });
+}
+
+/** The secret files a recursive search could read, where they really exist: the root's .env* and config.yml, .claude/.env.local, ~/.claude/.env. */
+export function secretFiles(root) {
+  let top = [];
+  try { top = readdirSync(root).filter((n) => /^\.env(?!\.(example|sample|template|dist)$)(rc|[._-].*)?$/i.test(n) || /^config\.yml$/i.test(n)); } catch { /* unreadable: none */ }
+  return [...top.map((n) => join(root, n)), join(root, '.claude', '.env.local'), join(homedir(), '.claude', '.env')].filter((f) => existsSync(f));
 }
 
 // ── Secrets ──
@@ -668,15 +678,9 @@ export function searchesSecrets(w, i, root, dir, segs = []) {
 // Examples and templates (.env.example) hold no secrets.
 // After .env comes rc, a separator or the end: .environment.ts is code, not a secret.
 const ENV_NAME = /(^|[\s'"=\\/:])\.env(?!\.(example|sample|template|dist)(?=$|[\s'"`;&|)]))(rc|[.*?[_-][\w.*?[\]-]*)?(?=$|[\s'"`;&|)])|\*\.env\b/i;
-// Globs that reach them (cat .e*, cat .en?, cat .*, .claude/.en?.local), only outside quotes, where the shell expands them:
-// in grep -n "done .*--answer" the .* is a regex.
-// The letters before the glob must start ".env": cat .eslintrc* can't reach one.
-const ENV_GLOB = /(^|\s)\.(en?|env[\w.-]*)?[*?[][^\s'"`;&|)]*|(^|[\s=\\/:])\.(en?|env[\w.-]*)[*?[]/i;
 // The Shopify CLI's login folders (shopify-cli-kit-nodejs and friends), with or without a path after them, and a glob that
 // reaches them (~/AppData/Roaming/shopify*/Config).
 export const CLI_LOGIN = /shopify-cli-[\w-]+|[\\/]shopify[*?[]/i;
-// Loading .env into a process the agent runs prints it as surely as cat.
-export const DOTENV = /\brequire\(\s*['"]dotenv\b|\bdotenv\/config\b|--env-file\b|\bload_dotenv\b|\b(npx|bunx|dlx)\s+dotenv\b/i;
 // Environment variables that hold a token or secret.
 const SECRET_VARS = String.raw`JIRA_API_TOKEN|JIRA_USER|DATABASE_URL|SHOPIFY_\w*(?:TOKEN|SECRET|PASSWORD|KEY)\w*|\w*API_SECRET\w*`;
 // A token or secret printed from the environment.
@@ -725,7 +729,7 @@ export function secretText(segs) {
 }
 
 /** True if the text names a secret .env file, or (outside quotes) a glob that reaches one. */
-export const envFileIn = (text) => ENV_NAME.test(text) || ENV_GLOB.test(text.replace(/"(?:[^"\\]|\\.)*"|'[^']*'/g, '""'));
+export const envFileIn = (text) => ENV_NAME.test(text);
 
 /**
  * A command that prints the whole environment, or a secret variable by name: env, printenv, set, export -p,
@@ -736,8 +740,6 @@ export function dumpsEnv(segment) {
   const drive = s.match(/^\s*(Get-ChildItem|gci|dir|ls|Get-Item|gi)\s+(-Path\s+)?['"]?env:([^\s'"]*)/i);
   if ((drive && (!drive[3] || /[*?]/.test(drive[3]) || SECRET_NAME.test(drive[3]))) ||/\[(System\.)?Environment\]::GetEnvironmentVariables\(/i.test(s)) return true;
   if (/\bconsole\.(log|dir|table)\(\s*process\.env\s*\)|JSON\.stringify\(\s*process\.env\s*[,)]|\bnode(\.exe)?\s+(-p|--print)\s+["']?process\.env["']?(?=\s|$)|\bp?print\(\s*(dict\()?os\.environ\s*\)?\s*\)/.test(s)) return true;
-  // The whole environment as a copy (Object.entries, a spread) that is then printed; a copy passed on to spawn prints nothing.
-  if (/Object\.(entries|values|assign)\([^()]*process\.env\s*\)|\.\.\.process\.env\b/.test(s) && /\bconsole\.\w+\(|JSON\.stringify\(|\bnode(\.exe)?\s+(-p|--print)\b|process\.stdout\.write\(/.test(s)) return true;
   // Only assignments before the program are prefixes: `export FOO=bar` sets a variable, it doesn't print them.
   const assign = (x) => /^[A-Za-z_]\w*=/.test(x);
   const all = words(s);
@@ -774,11 +776,6 @@ export const redact = (text) => String(text ?? '')
   .replace(/(["']\w*(token|secret|password|passwd|api_?key)\w*["']\s*:\s*)("[^"]*"|'[^']*')/gi, '$1"[redacted]"')
   .replace(/\b(\w*(TOKEN|SECRET|PASSWORD|PASSWD|API_KEY)\w*)(\s*[=:]\s*)("[^"]*"|'[^']*'|[^\s"']+)/gi, '$1$3[redacted]');
 
-/** git add -f/--force: it stages files .gitignore keeps out, which in a kit repo means .claude/.env.local. */
-export function forceAdd(g) {
-  return g?.sub === 'add' && g.args.some((a) => a === '--force' || /^-[a-zA-Z]*f[a-zA-Z]*$/.test(a));
-}
-
 // ── The guard log ──
 
 /** A path as the log shows it: repo-relative inside the repo (no user name in the feedback file), as given outside it. */
@@ -796,12 +793,17 @@ export function logPath(p, root) {
 // A mode that isn't listed (including a future one) is treated like bypassPermissions.
 export const ASK_SHOWN = new Set(['default', 'auto', 'acceptEdits']);
 
-/** In a mode that hides prompts, an "ask" is a silent allow. Turn it into a deny that says how to get the prompt back. */
+/**
+ * In a mode that hides prompts, an "ask" is a silent allow. A soft ask (a mistake whose damage is fixable or reviewed
+ * later: a kit file edited, merchant JSON outside the plan) then passes and is logged; every other ask, the ones that
+ * reach the store, the live theme or the guard itself, becomes a deny that says how to get the prompt back.
+ */
 export function enforceMode(result, input) {
   const mode = input.permission_mode;
   if (typeof mode !== 'string' || ASK_SHOWN.has(mode)) return result; // no field: an older Claude Code, nothing to compare
   const probe = /guard\.mjs\s+--mode-probe\b/.test(String(input.tool_input?.command || ''));
   if (result?.decision !== 'ask' && !probe) return result;
+  if (result?.soft && !probe) return { decision: 'log', reason: `${result.reason.split('\n')[0].slice(0, 160)} (passed without a prompt in mode "${mode}")` };
   const would = result?.reason ? ` It would have asked: ${result.reason.slice(0, 300)}` : '';
   return {
     decision: 'deny',

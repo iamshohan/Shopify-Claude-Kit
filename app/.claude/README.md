@@ -31,9 +31,11 @@ Checks: `test:` a vitest test (new or changed on the branch, or its fixture), `q
 
 ## What the guard does
 
-- **Asks** (hard to undo): store mutations, database migrations, the kit's settings, files that turn the guard or git's safety off, git commands that discard work.
-- **Refuses with the reason:** deploys and releases, the CLI outside `shopify.mjs`, any store but `devStore`, secrets (`.env*`, SQLite, the Session table), pushes to main, code edits outside build.
-- **Logs** (`.claude/logs/_guard.jsonl`): new dependencies, code edits with no change open. Gate answers pass without a second prompt (you answered in the skill) and are recorded in the change's `change.json`.
+The guard is for honest mistakes, not for an agent working around it on purpose.
+- **Asks** (hard to undo): store mutations, database migrations, a change to the dev store, the app config, the protected branches, the verify commands or the Jira URL in `app-kit.json`, Claude Code's or git's settings (`.claude/settings*.json`, hooks, `.mcp.json`, `.git/config`), git commands that would discard uncommitted work.
+- **Refuses with the reason:** deploys and releases, the CLI outside `shopify.mjs` (also a script that runs it), any store but `devStore`, secrets (`.env*`, SQLite, the Session table), pushes to main, app code before Gate 1.
+- **Logs** (`.claude/logs/_guard.jsonl`): new dependencies, code edits with no change open or after the build stage (verify refuses results measured on other code), other settings changes. Gate answers pass without a second prompt (you answered in the skill) and are recorded in the change's `change.json`.
+- **Bypass mode works:** mutations, migrations, safety settings and the guard's own files stay refused (switch with Shift+Tab to auto for those steps); a kit skill edited here passes and is logged.
 
 It catches a well-meaning agent's mistakes; branch protection, Partner Dashboard roles and code review are the real limits.
 

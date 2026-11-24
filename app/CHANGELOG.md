@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.4.0 — 2026-11-25
+
+**A lighter guard**, with the theme kit 1.17.0 (same principle and the same cuts): it's for secrets, sensitive actions and honest mistakes, not for an agent working around it on purpose.
+- **change.json is read and committed freely** (`cat`, `git add` were refused); it's still written only by `app.mjs`.
+- **App code after the build stage is logged**, not refused: verify's code digest and build's surface check already refuse results measured on other code. Before Gate 1 it's still refused (scenarios first).
+- **A recursive search** is refused only where a `.env` (or `.claude/.env.local`, `~/.claude/.env`) really exists and isn't excluded.
+- **Settings:** a change to `app-kit.json` asks only for the dev store, the app config, the protected branches, the verify commands or the Jira URL; others are logged.
+- **Discards** ask only with something to lose; `.git/info/exclude` no longer asks; `node --env-file` / dotenv in code no longer counts as reading `.env` (printing it still does).
+- **The seal is protected by path** (writing it is refused, reading it passes); the seal now goes under the normalised change id the wrapper reads.
+- **Bypass mode works:** mutations, migrations, safety settings and the guard's own files stay refused; a kit skill edited here passes and is logged. `/app-setup` notes the mode instead of stopping.
+- **Wording checks are warnings:** § Needs your attention saying "none" beside flagged surfaces, and the A/B variation/control scenario wording, pass with "Worth a look". `gate` prints them as `warnings` and fails only on refusals.
+
+**Fixed from the reviews:** handoff prints `gh pr create --draft`; `generate-extension` runs without a prompt; the TOML reader takes only own keys and refuses a table defined twice (parity with the CLI checked on two real apps); `app-toml-parity` fails when it compared nothing; README, proposal template and app-implement corrected.
+
 ## 0.3.0 — 2026-11-25
 
 **Three commands instead of eight**, like the theme kit's:

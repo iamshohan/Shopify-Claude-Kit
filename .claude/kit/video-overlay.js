@@ -1,8 +1,8 @@
-// Walkthrough video overlay: a drawn cursor, a click ripple, a highlight box and the corner marks video.mjs uses to
-// find the tab on screen. Playwright's clicks don't move a visible pointer, so storefront viewers would otherwise not
-// see what was clicked. In Chrome scenes the cursor stays hidden: Claude in Chrome draws its own, in a closed shadow
-// root no page can style, and two pointers showed (CHE-865). Runs in the top frame only: the theme editor is a
-// cross-origin iframe, and the overlay sits above it. Safe to run twice.
+// Walkthrough video overlay: a drawn cursor, a click ripple and a highlight box for storefront recordings (Playwright's
+// clicks don't move a visible pointer, so viewers would otherwise not see what was clicked), and for chrome scenes'
+// stills the theme editor laid out in a 16:9 box. In Chrome the cursor stays hidden: Claude in Chrome draws its own, in a
+// closed shadow root no page can style, and two pointers showed (CHE-865). Runs in the top frame only: the theme editor
+// is a cross-origin iframe, and the overlay sits above it. Safe to run twice.
 (function kitOverlay() {
   if (window.top !== window || window.__kc) return 'ready';
   // As a Playwright init script it runs before the page has an <html> element to attach to: wait for it.
@@ -16,7 +16,7 @@
   document.documentElement.appendChild(root);
   // The top layer sits above anything the page stacks, however high its z-index: an open settings panel hid the marks.
   try { root.popover = 'manual'; root.showPopover(); } catch { /* older browser: the z-index has to do */ }
-  // Shopify's "You are previewing" bar: not for the client's eyes, and it covers the bottom corner marks.
+  // Shopify's "You are previewing" bar: not for the client's eyes.
   const hide = document.createElement('style');
   hide.textContent = '#PBarNextFrameWrapper,#preview-bar-iframe{display:none!important}';
   document.documentElement.appendChild(hide);
@@ -33,7 +33,7 @@
   const STAGE = { width: 1760, height: 990 };
   const stageCss = document.createElement('style');
   document.documentElement.appendChild(stageCss);
-  // The recorded box: 28 px in from the tab's edge, because Claude in Chrome tints about 26 px of it.
+  // What a still shows: 28 px in from the tab's edge, because Claude in Chrome tints about 26 px of it.
   const area = () => {
     const iw = innerWidth - 56, ih = innerHeight - 56;
     if (!document.querySelector(EDITOR)) return { left: 28, top: 28, width: iw, height: ih, scale: 0 };
@@ -41,53 +41,31 @@
     const width = Math.floor(STAGE.width * s), height = Math.floor(STAGE.height * s);
     return { left: Math.round((innerWidth - width) / 2), top: Math.round((innerHeight - height) / 2), width, height, scale: s };
   };
-  // Pure magenta squares in the box's corners: video.mjs looks for them in a screen grab and records the box between
-  // their outer edges. Hidden until frame() (Chrome scenes): a storefront click that opened a new page re-ran the overlay
-  // and showed them for the rest of the scene.
-  const marks = [0, 1, 2, 3].map(() => el('left:0;top:0;width:14px;height:14px;background:#ff00ff'));
-  for (const m of marks) m.style.setProperty('display', 'none', 'important');
-  // The screen is recorded, not the tab: while another tab or window is in front, that gets filmed, and the agent's
-  // screenshots (from the tab) still look right. Chrome reports a background, minimised or fully covered tab as hidden.
-  let away = false;
-  document.addEventListener('visibilitychange', () => { if (document.hidden) away = true; });
-  const stamp = () => {
-    const t = Date.now();
-    if (!away && !document.hidden) return t;
-    away = false;
-    return `OFF SCREEN ${t}: the tab was hidden at some point since the last mark (another tab or window in front), so a stretch ending here filmed that. Ask the dev to bring the Claude window to the front, then redo the stretch.`;
-  };
   const layout = () => {
     const b = area();
     stageCss.textContent = b.scale ? `${EDITOR}{position:fixed!important;left:${b.left}px!important;top:${b.top}px!important;width:${STAGE.width}px!important;height:${STAGE.height}px!important;max-width:none!important;max-height:none!important;margin:0!important;transform:scale(${b.scale})!important;transform-origin:0 0!important}` : '';
-    marks.forEach((m, i) => { m.style.left = `${b.left + (i % 2 ? b.width - 14 : 0)}px`; m.style.top = `${b.top + (i > 1 ? b.height - 14 : 0)}px`; });
     return b;
   };
   layout();
   addEventListener('resize', layout);
-  // For the dev, not the viewer: it sits in the strip above the top marks, which the screen recording leaves out.
-  const badge = el('display:none;top:4px;left:50%;transform:translateX(-50%);height:20px;line-height:20px;padding:0 10px;border-radius:10px;background:#d72c0d;color:#fff;font:600 12px/20px system-ui,sans-serif;white-space:nowrap',
-    '● Recording');
-  badge.style.setProperty('display', 'none', 'important');
+  let chrome = false;
   let x = innerWidth / 2;
   let y = innerHeight / 2;
   let scale = 1;
-  let chrome = false;
   const place = () => { cursor.style.transform = `translate(${x - 4}px,${y - 2}px)`; };
   place();
   window.__kc = {
     /**
-     * Screenshot coordinates → CSS pixels: pass the width of the screenshot's coordinate frame once. Only Chrome scenes
-     * call it, so it also shows the recording badge, hides the drawn cursor and lays the editor out (it may load after
-     * the overlay ran). Storefront scenes record the whole page and never call it.
+     * Screenshot coordinates → CSS pixels: pass the width of the screenshot's coordinate frame once. Only chrome scenes
+     * call it, so it also hides the drawn cursor and lays the editor out (it may load after the overlay ran). Returns
+     * region, the box a still shows, in screenshot coordinates: the zoom action's region.
      */
     frame(shotWidth) {
       scale = innerWidth / shotWidth;
       chrome = true;
-      badge.style.setProperty('display', 'block', 'important');
       cursor.style.setProperty('display', 'none', 'important');
-      layout();
-      for (const m of marks) m.style.setProperty('display', 'block', 'important');
-      return scale;
+      const b = layout();
+      return { scale, region: [b.left, b.top, b.left + b.width, b.top + b.height].map((v) => Math.round(v / scale)) };
     },
     move(tx, ty, ms = 650) {
       const [sx, sy, ex, ey, t0] = [x, y, tx * scale, ty * scale, performance.now()];
@@ -116,7 +94,7 @@
       box.style.setProperty('display', 'block', 'important');
       return true;
     },
-    /** A rect in screenshot coordinates → "@x,y,w,h", its place in the box between the marks: append it to that stretch in --keep. */
+    /** A rect in screenshot coordinates → "@x,y,w,h", its place in frame()'s box: append it to that beat's image in --shots. */
     focus({ left, top, width, height }) {
       const b = area();
       const f = [(left * scale - b.left) / b.width, (top * scale - b.top) / b.height, (width * scale) / b.width, (height * scale) / b.height].map((v) => Math.min(1, Math.max(0, v)).toFixed(3));
@@ -130,13 +108,6 @@
       const f = el('left:0;top:0;right:0;bottom:0;background:#ff00ff');
       return new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(() => { done(Date.now()); setTimeout(() => f.remove(), 300); })));
     },
-    marks(on) {
-      if (on) layout();
-      for (const m of marks) m.style.setProperty('display', on ? 'block' : 'none', 'important');
-      return stamp();
-    },
-    /** A stretch's mark for --keep, or an "OFF SCREEN" warning when the tab wasn't on screen since the last one. */
-    now: stamp,
   };
   return 'ready';
 })();
