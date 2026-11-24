@@ -67,7 +67,6 @@ const CONFIG_KEYS = {
 const STORE_VERBS = new Set(['mutate', 'delete-draft']);
 // The gates (Gate 1 approve, Gate 2 accept, an investigation's conclude): each answer is logged for the retro (the
 // skill already asked the dev; the guard doesn't ask a second time).
-const GATE_STAGES = new Set(['approve', 'accept', 'conclude']);
 // Wrapper verbs that run without asking. Anything else, including verbs added later, asks the dev.
 const SAFE_VERBS = new Set(['cli-check', 'auth-check', 'query', 'pull-live', 'check', 'draft', 'push', 'preview', 'fetch', 'verify', 'help', '--help']);
 // Without the cookie the redirect sets, ?preview_theme_id silently serves the live theme.
@@ -173,20 +172,16 @@ function wrapperDecision(segs, ctx) {
 }
 
 /**
- * kit.mjs done <KEY> <gate> --answer "…": the gate is the dev's decision, logged (with gate set, so the retro can tell it
- * from a block). kit.mjs set <KEY> draft.themeId=N: every later push goes to that theme, so the dev confirms it's this task's.
+ * kit.mjs set <KEY> draft.themeId=N: every later push goes to that theme, so the dev confirms it's this task's.
+ * Gate answers (done <KEY> approve --answer …) pass: the skill asked the dev, and state.json records the answer.
  */
-function gateDecision(segs) {
+function themePickDecision(segs) {
   for (const seg of segs) {
     const { w, i } = program(stripRedirects(seg));
     if (!/^node(\.exe)?$/i.test(w[i] || '') || !/(^|[\\/])kit\.mjs$/i.test(w[i + 1] || '')) {
       // node --no-warnings kit.mjs set … draft.themeId=: the guard can't read which theme, and every push goes there.
       if (/kit\.mjs/i.test(seg) && /(draft\.themeId|baseTheme)=/.test(seg)) {
         return { decision: 'ask', reason: `This picks the draft theme in a form the guard can't read. Run it as node .claude/kit/kit.mjs set <KEY> draft.themeId=<id> so you see the id, or allow it as is? (${seg.slice(0, 300)})` };
-      }
-      const g = [...GATE_STAGES].find((s) => new RegExp(`\\b${s}\\b`).test(seg));
-      if (/kit\.mjs/i.test(seg) && /\bdone\b/.test(seg) && g) {
-        return { decision: 'log', gate: g, reason: `A gate recorded in a form the guard can't read (${seg.slice(0, 160)})` };
       }
       continue;
     }
@@ -196,12 +191,6 @@ function gateDecision(segs) {
     // baseTheme replaces live as what the drift check protects, so a wrong id would let a merchant's live edits through.
     const baseTheme = call._[0] === 'set' && call._.find((a) => /^baseTheme=/.test(a));
     if (baseTheme) return { decision: 'ask', reason: `Use theme ${baseTheme.split('=')[1]} instead of live as ${call._[1]}'s base theme (the theme that follows the base branch, when live is a campaign theme)? The drift check, the draft copy and QA's comparison then use it, so check it's the right one.` };
-    const answer = typeof call.flags.answer === 'string' ? call.flags.answer : '';
-    // Without --answer the kit refuses on its own.
-    if (call._[0] !== 'done' || !GATE_STAGES.has(call._[2]) || !answer) continue;
-    // The skill asks the dev at each gate; asking again here only doubled the prompt. The answer is logged for the retro,
-    // and what a gate unlocks that matters (every store write) is confirmed one by one.
-    return { decision: 'log', gate: call._[2], reason: `Gate "${call._[2]}" of ${call._[1]} recorded with the answer: "${answer.slice(0, 120)}"` };
   }
   return null;
 }
@@ -402,9 +391,7 @@ function decideCommand(raw, ctx, depth = 0, cwd = null) {
   const kit = wrapperDecision(segs, ctx);
   if (kit?.decision === 'deny') return kit;
   hold(kit);
-  const gate = gateDecision(segs);
-  if (gate?.decision === 'deny') return gate;
-  hold(gate);
+  hold(themePickDecision(segs));
 
   for (const seg of segs) {
     const g = gitCommand(seg);
@@ -556,7 +543,7 @@ function logBlock(input, result) {
     const ti = input.tool_input || {};
     // Redacted before it's cut: the log reaches retro output and the feedback file the maintainer receives.
     const entry = {
-      at: new Date().toISOString(), kind: result.decision, tool: input.tool_name, branch: git.branch(), ...(result.gate ? { gate: result.gate } : {}),
+      at: new Date().toISOString(), kind: result.decision, tool: input.tool_name, branch: git.branch(),
       reason: redact(result.reason).slice(0, 200), command: redact(ti.command || logPath(ti.file_path || ti.notebook_path, ROOT)).slice(0, 200),
     };
     mkdirSync(join(ROOT, '.claude', 'logs'), { recursive: true });
@@ -737,13 +724,12 @@ function selftest() {
     [bash(`echo ok; node .claude/kit/kit.mjs note ${K} --note x; cat .env`), 'deny'],
     [bash('git commit -m "$(cat .env)"'), 'deny'],
     // Gates: the skill asks the dev; the guard logs the answer instead of asking a second time
-    [bash(`node .claude/kit/kit.mjs done ${K} approve --answer "Approve"`), 'log'],
-    [bash(`node .claude/kit/kit.mjs done ${K} approve --answer "Approve" 2>&1`), 'log'],
-    [bash(`bash -c "node .claude/kit/kit.mjs done ${K} approve --answer x"`), 'log'],
-    [bash(`node .claude/kit/kit.mjs done ${K} clarify --answer "Mobile menu; seed all"`), null],
-    [bash(`node .claude/kit/kit.mjs done ${K} accept --answer "Accept"`), 'log'],
-    [bash(`node .claude/kit/kit.mjs done ${K} conclude --answer "Answered"`), 'log'],
-    [bash(`node .claude/kit/kit.mjs done ${K} approve --answer "Approved: $50 threshold, the shopify theme push goes after review"`), 'log'],
+    [bash(`node .claude/kit/kit.mjs done ${K} approve --answer "Approve"`), null],
+    [bash(`node .claude/kit/kit.mjs done ${K} approve --answer "Approve" 2>&1`), null],
+    [bash(`bash -c "node .claude/kit/kit.mjs done ${K} approve --answer x"`), null],
+    [bash(`node .claude/kit/kit.mjs done ${K} accept --answer "Accept"`), null],
+    [bash(`node .claude/kit/kit.mjs done ${K} conclude --answer "Answered"`), null],
+    [bash(`node .claude/kit/kit.mjs done ${K} approve --answer "Approved: $50 threshold, the shopify theme push goes after review"`), null],
     [bash(`node .claude/kit/kit.mjs done ${K} build`), null],
     [bash(`node .claude/kit/kit.mjs done ${K} qa --note "28 criteria"`), null],
     [bash(`node .claude/kit/kit.mjs done ${K} accept`), null],
@@ -896,7 +882,7 @@ function selftest() {
       .map((c) => [bash(c), 'deny']),
     [bash('env git commit -m x'), 'deny', ctx('main')],
     // a gate the guard can't read as a plain call is logged; a redirect on a kit.mjs call is scanned
-    [bash(`node --no-warnings .claude/kit/kit.mjs done ${K} approve --answer "Approve"`), 'log'], [bash(`env node .claude/kit/kit.mjs done ${K} approve --answer "Approve"`), 'log'],
+    [bash(`node --no-warnings .claude/kit/kit.mjs done ${K} approve --answer "Approve"`), null], [bash(`env node .claude/kit/kit.mjs done ${K} approve --answer "Approve"`), null],
     [bash(`node --no-warnings .claude/kit/kit.mjs set ${K} draft.themeId=9`), 'ask'],
     [bash(`node .claude/kit/kit.mjs set ${K} baseTheme=9`), 'ask'],
     [bash(`node --no-warnings .claude/kit/kit.mjs set ${K} baseTheme=9`), 'ask'],
@@ -1017,9 +1003,6 @@ function selftest() {
     [decide(bash(kit(`delete-draft ${K}`)), ctx()).seal?.themeId === 5, 'delete-draft seal holds the theme id shown'],
     [/store:.*→.*b\.myshopify\.com.*the store every kit command acts on/.test(decide(write(CONFIG_REL, '{"store":"b.myshopify.com","baseBranch":"main"}'), ctx()).reason), 'config prompt names the changed setting'],
     [/echo hi/.test(decide(bash(`node .claude/kit/shopify.mjs future-verb ${K} && echo hi`), ctx()).reason), 'an unknown-verb prompt shows the whole command'],
-    // gate answers are marked, so the retro doesn't count them as blocks
-    [decide(bash(`node .claude/kit/kit.mjs done ${K} approve --answer "Approve"`), ctx()).gate === 'approve', 'a gate answer is logged as a gate'],
-    [decide(bash('git add -f assets/a.css'), ctx()).gate === undefined, 'an ordinary log note is not a gate'],
     [logPath(join(ROOT, 'sections', 'x.liquid'), ROOT) === 'sections/x.liquid' && logPath('/elsewhere/x', ROOT) === '/elsewhere/x', 'the log shows repo files by their repo path'],
     // permission modes that hide the prompt: an ask must become a deny, never a silent allow
     ...['bypassPermissions', 'plan', 'dontAsk', 'someFutureMode'].map((m) => [enforceMode({ decision: 'ask', reason: 'Run it?' }, { permission_mode: m }).decision === 'deny', `an ask becomes a deny in mode ${m}`]),

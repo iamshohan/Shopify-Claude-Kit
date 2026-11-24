@@ -49,9 +49,6 @@ const HELP = `Usage: node .claude/kit/app.mjs <verb> ...
 Kit feedback (problems with the kit, not the change)
   note <ID> "TEXT" [--kind friction|mistake|kit-bug|missing|idea]
   note <ID> --none                       nothing the kit caused
-  retro <ID>                             what went wrong in this run, from the record
-  feedback                               every change's signals and notes, with the kit version, for the kit maintainer
-                                         (.claude/logs/kit-feedback.md)
   --selftest                             test the pure helpers`;
 
 const oneOf = (...allowed) => (v) => (allowed.includes(v) ? v : fail(`Expected one of: ${allowed.join(', ')}`));
@@ -824,6 +821,8 @@ function archivedNext(cfg, id, st, to) {
 
 // ── Retro and summary ──
 
+const RETRO_ASK = 'For each signal, decide whether the kit caused it (a misleading instruction, a missing verb, an unclear check, a guard block on a harmless command) or the change did. Record each kit cause: app.mjs note <ID> "<what happened> → <what would have prevented it>" --kind <kind>.';
+
 function retroSignals(st) {
   const events = st.history || [];
   const refused = {};
@@ -1349,7 +1348,14 @@ switch (verb) {
   case 'handoff': {
     const id = normId(rawId);
     const st = readChange(cfg, id, { required: false });
-    if (st) { print(runHandoff(cfg, id, st)); break; }
+    if (st) {
+      const out = runHandoff(cfg, id, st);
+      // Shown only when something went wrong, as in the theme kit: a clean run isn't asked about the kit.
+      const s = retroSignals(st);
+      if (s.loopsBack.length || s.refusedStages.length || s.guardBlocks.some((g) => g.includes('[deny]'))) out.retro = { ...s, ask: RETRO_ASK.replaceAll('<ID>', id) };
+      print(out);
+      break;
+    }
     const old = archivedChange(cfg, id);
     if (old?.st.stage === 'handoff') { print(finishArchive(cfg, id, old.st, old.to)); break; }
     if (old) { print({ archived: old.to, next: archivedNext(cfg, id, old.st, old.to) }); break; }
@@ -1395,37 +1401,6 @@ switch (verb) {
     writeFileSync(p, `${readFileSync(p, 'utf8').trimEnd()}\n| ${now().slice(0, 16)} | ${st.stage} | ${kind} | ${text.replace(/\r?\n/g, ' ').replace(/\|/g, '\\|')} |\n`);
     if (live) { st.history.push({ at: now(), event: 'note', kind }); writeChange(cfg, id, st); }
     print(`Noted in .claude/logs/${id}/kit-notes.md`);
-    break;
-  }
-
-  case 'retro': {
-    const id = normId(rawId);
-    const st = readChange(cfg, id, { required: false }) || archivedChange(cfg, id)?.st || fail(`No change "${id}".`);
-    print({ ...retroSignals(st), ask: 'For each signal, decide whether the kit caused it (a misleading instruction, a missing verb, an unclear check, a guard block on a harmless command) or the change did. Record each kit cause: app.mjs note <ID> "<what happened> → <what would have prevented it>" --kind <kind>.' });
-    break;
-  }
-
-  case 'feedback': {
-    // Notes say what the agent noticed; the record says what happened (loops back, refusals, guard blocks), noticed or not.
-    const runs = new Map();
-    for (const { id, st } of listChanges(cfg)) runs.set(id, st);
-    const arch = join(ROOT, specPaths(cfg).archive);
-    for (const d of existsSync(arch) ? readdirSync(arch) : []) {
-      try { const st = JSON.parse(readFileSync(join(arch, d, 'change.json'), 'utf8')); if (st.id && !runs.has(st.id)) runs.set(st.id, st); } catch { /* not a change */ }
-    }
-    const noted = existsSync(LOGS) ? readdirSync(LOGS).filter((d) => existsSync(join(LOGS, d, 'kit-notes.md'))) : [];
-    const parts = [];
-    for (const k of [...new Set([...runs.keys(), ...noted])].sort()) {
-      const st = runs.get(k);
-      const s = st ? retroSignals(st) : null;
-      const signals = s ? [...s.loopsBack.map((x) => `- back: ${x}`), ...s.refusedStages.map((x) => `- refused: ${x}`), ...s.guardBlocks.map((x) => `- guard: ${x}`)] : [];
-      const notes = noted.includes(k) ? readFileSync(join(LOGS, k, 'kit-notes.md'), 'utf8').split(/\r?\n/).filter((l) => l.startsWith('|')) : [];
-      if (!signals.length && !notes.length) continue;
-      parts.push([`## ${k}${st ? ` (${typeOf(st)}, ${st.stage}, started with kit ${st.kitVersion || '?'})` : ''}`, '', ...(signals.length ? ['Signals from the record:', ...signals, ''] : []), ...notes].join('\n').trimEnd());
-    }
-    mkdirSync(LOGS, { recursive: true });
-    writeFileSync(join(LOGS, 'kit-feedback.md'), `# App kit feedback · ${now().slice(0, 10)} · kit ${KIT_VERSION}\n\n${parts.join('\n\n')}\n`);
-    print(`${parts.length} changes with signals or notes → .claude/logs/kit-feedback.md (kit ${KIT_VERSION})`);
     break;
   }
 

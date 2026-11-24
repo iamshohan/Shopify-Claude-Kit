@@ -703,7 +703,7 @@ export function dumpsEnv(segment) {
 export const ENV_DUMP_WHY = 'That prints the environment or a git/GitHub credential, which hold tokens (Jira, Shopify, GitHub, DATABASE_URL). For a failed push, git push\'s own error says what is wrong. To check that one variable is set without printing it: node -e "console.log(Boolean(process.env.NAME))". jira.mjs --check and shopify.mjs check the logins the kit needs.';
 
 /**
- * Text with tokens blanked, for the guard log: it reaches retro output and the kit-feedback file sent to the maintainer.
+ * Text with tokens blanked, for the guard log: it reaches the retro output and the logs exported to the maintainer.
  * Atlassian, Shopify, GitHub, npm, Stripe and Slack tokens, Bearer/Basic/token headers, user:pass in -u or a URL,
  * --token/--password values, NAME_TOKEN=… assignments and "token": "…" in JSON.
  */

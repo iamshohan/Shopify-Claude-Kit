@@ -64,6 +64,6 @@ The kit prepares everything and merges nothing. Merging, posting to Jira and goi
    - The branch is pushed.
    - The PR text, admin steps and Jira comment are in `.claude/logs/<KEY>/report.md`.
    - The next steps are theirs: the PR (or its URL, if the kit created it), `kit.mjs premerge <KEY>` right before merging on a GitHub-connected draft, the merge, and the go-live order.
-   - If you recorded kit notes: they're in `.claude/logs/<KEY>/kit-notes.md`, and `node .claude/kit/kit.mjs feedback` collects all tasks' notes into one file for the kit maintainer.
+   - If you recorded kit notes: they're in `.claude/logs/<KEY>/kit-notes.md`, and `node Shopify-Claude-Kit/export-logs.mjs` shares every repo's task logs, notes included, with the kit maintainer.
    - **A walkthrough video for the client:** `/shopify-video <KEY>`, while the draft exists.
    - **Client or AC feedback later:** run `/shopify-implement <KEY>` with the feedback. A defect goes back to build; a changed requirement goes back to plan, so it's approved again.

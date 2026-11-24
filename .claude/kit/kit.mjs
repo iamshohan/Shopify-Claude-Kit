@@ -3,7 +3,7 @@
 // the checks a stage must pass before it can be marked done.
 // Usage: node .claude/kit/kit.mjs <verb> [<KEY>] ...   (--help lists the verbs)
 // One folder per ticket: .claude/logs/<KEY>/ (state.json, brief.md, plan.md, report.md or investigation.md,
-// kit-notes.md). Also reads the guard's _guard.jsonl and writes logs/kit-feedback.md and kit/probe.*.js.
+// kit-notes.md). Also reads the guard's _guard.jsonl and writes kit/probe.*.js.
 import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, mkdtempSync, rmSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join, dirname, relative } from 'node:path';
@@ -41,9 +41,7 @@ const HELP = `Usage: node .claude/kit/kit.mjs <verb> ...
   abandon <KEY> --reason "TEXT"          stop a task and list what to clean up (draft theme, store changes)
 Kit feedback (problems with the kit itself, not the ticket)
   note <KEY> "TEXT" [--kind K]           record one; K: friction, mistake, kit-bug, missing, idea. Creates kit-notes.md on first use
-  retro <KEY>                            what went wrong in this run, from the record: loops back, refused stages, guard blocks (optional)
   note <KEY> --none                      nothing the kit caused
-  feedback                               every task's notes and signals in .claude/logs/kit-feedback.md, for the kit maintainer
   optout                                 create the Shopify plugin's telemetry opt-out file for this machine
   build-probe [--check]                  maintainers: regenerate kit/probe.inject.js and probe.init.js after changing
                                          kit/probe.js; --check exits 1 if they don't match it
@@ -1349,44 +1347,12 @@ switch (verb) {
     const kind = typeof flags.kind === 'string' ? oneOf('friction', 'mistake', 'kit-bug', 'missing', 'idea')(flags.kind) : 'friction';
     const p = join(LOGS, key, 'kit-notes.md');
     if (!existsSync(p)) {
-      writeFileSync(p, `# ${key} · Kit notes\n\n> Problems with the kit itself, not the ticket: for the kit maintainer. kit.mjs feedback collects these from every task.\n\n| When | Stage | Kind | Note |\n| --- | --- | --- | --- |\n`);
+      writeFileSync(p, `# ${key} · Kit notes\n\n> Problems with the kit itself, not the ticket: for the kit maintainer, who collects them with export-logs.mjs.\n\n| When | Stage | Kind | Note |\n| --- | --- | --- | --- |\n`);
     }
     writeFileSync(p, `${read(p).trimEnd()}\n| ${now().slice(0, 16)} | ${st.stage} | ${kind} | ${text.replace(/\r?\n/g, ' ').replace(/\|/g, '\\|')} |\n`);
     st.history.push({ at: now(), event: 'note', kind });
     writeState(key, st);
     print(`Noted in .claude/logs/${key}/kit-notes.md`);
-    break;
-  }
-
-  case 'retro': {
-    const key = normKey(rawKey);
-    const st = readState(key);
-    const signals = retroSignals(key, st);
-    st.history.push({ at: now(), event: 'retro' });
-    writeState(key, st);
-    print({ ...signals, ask: RETRO_ASK });
-    break;
-  }
-
-  case 'feedback': {
-    const keys = existsSync(LOGS) ? readdirSync(LOGS).filter((d) => existsSync(join(LOGS, d, 'state.json'))) : [];
-    const parts = [];
-    for (const k of keys) {
-      const st = readState(k);
-      const s = retroSignals(k, st);
-      const notes = read(join(LOGS, k, 'kit-notes.md')).split(/\r?\n/).filter((l) => /^\| \d{4}-/.test(l));
-      if (!notes.length && !s.loopsBack.length && !s.refusedStages.length && !s.guardBlocks.length) continue;
-      parts.push([
-        `## ${k} · ${st.kind === 'investigation' ? 'investigation' : st.type || '-'} · kit ${st.kitVersion} · ${st.stage} · ${st.updatedAt.slice(0, 10)}`,
-        ...(notes.length ? ['', '| When | Stage | Kind | Note |', '| --- | --- | --- | --- |', ...notes] : []),
-        ...(s.loopsBack.length ? ['', '**Loops back:**', ...s.loopsBack.map((x) => `- ${x}`)] : []),
-        ...(s.refusedStages.length ? ['', '**Refused stage exits:**', ...s.refusedStages.map((x) => `- ${x}`)] : []),
-        ...(s.guardBlocks.length ? ['', '**Guard blocks:**', ...s.guardBlocks.map((x) => `- ${x}`)] : []),
-      ].join('\n'));
-    }
-    const out = join(LOGS, 'kit-feedback.md');
-    writeFileSync(out, `# Kit feedback · ${now().slice(0, 10)}\n\n> From ${parts.length} of ${keys.length} tasks in this repo. Give this file to whoever maintains the kit.\n\n${parts.join('\n\n')}\n`);
-    print(`${parts.length} tasks with notes or signals → .claude/logs/kit-feedback.md`);
     break;
   }
 

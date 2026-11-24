@@ -69,7 +69,6 @@ const CONFIG_KEYS = {
 const SAFE_VERBS = new Set(['cli-check', 'info', 'validate', 'generate-extension', 'build', 'function-build', 'function-typegen', 'function-run', 'security', 'query', 'help', '--help']);
 // The gates: Gate 1 approves the proposal, Gate 2 accepts the result. Each answer is logged for the retro (the skill
 // already asked the dev; the guard doesn't ask a second time).
-const GATE_STAGES = new Set(['propose', 'accept']);
 // Source, config and data the app runs on; other files (logs, notes) are free to write.
 const APP_CODE = /^(app|extensions|prisma|web|src|server|lib|shared|public)\/|\.(m?[jt]sx?|cjs|liquid|graphql|gql|prisma|toml|json|ya?ml|html|css|scss)$/i;
 // Files that can switch the guard or git's safety off: settings.local.json can disable hooks, .mcp.json adds servers,
@@ -222,28 +221,6 @@ function wrapperDecision(segs, ctx) {
       reason: `Run this mutation on the dev store ${store}, with the app's own token (${parsed.ops[0].fields.join(', ')})?\n${file}\n---\n${shown}`,
       seal: { id, verb: 'mutate', sha: sealDigest(text, varsText), store },
     };
-  }
-  return null;
-}
-
-/** Gates and waivers are logged (gate set on a gate answer, so the retro can tell it from a block). */
-function gateDecision(segs) {
-  for (const seg of segs) {
-    const call = kitCall(seg, 'app');
-    if (!call) {
-      const g = [...GATE_STAGES].find((s) => new RegExp(`\\b${s}\\b`).test(seg));
-      if (/app\.mjs/i.test(seg) && (/\bwaive\b/.test(seg) || (/\bdone\b/.test(seg) && g))) {
-        return { decision: 'log', ...(g && !/\bwaive\b/.test(seg) ? { gate: g } : {}), reason: `A gate or a waiver recorded in a form the guard can't read (${seg.slice(0, 160)})` };
-      }
-      continue;
-    }
-    const [verb, id, stage] = call._;
-    // The skills ask the dev at each gate and before a waiver; asking again here only doubled the prompt. The answer is
-    // logged for the retro, waivers are listed in the handoff, and the store writes a gate unlocks are confirmed one by one.
-    if (verb === 'waive') return { decision: 'log', reason: `QA row ${stage} of ${id} waived: "${String(call.flags.reason ?? '').slice(0, 120)}"` };
-    const answer = typeof call.flags.answer === 'string' ? call.flags.answer : '';
-    if (verb !== 'done' || !GATE_STAGES.has(stage) || !answer) continue;
-    return { decision: 'log', gate: stage, reason: `Gate "${stage}" of ${id} recorded with the answer: "${answer.slice(0, 120)}"` };
   }
   return null;
 }
@@ -442,9 +419,6 @@ function decideCommand(raw, ctx, depth = 0, cwd = null) {
   const kit = wrapperDecision(segs, ctx);
   if (kit?.decision === 'deny') return kit;
   hold(kit);
-  const gate = gateDecision(segs);
-  if (gate?.decision === 'deny') return gate;
-  hold(gate);
 
   if (writesTo(scanned, /app-kit\.json/) || kinds.some((k) => k.kind === 'config')) {
     hold({ decision: 'ask', reason: `This command may change ${CONFIG_REL}, which sets the only store the kit acts on, the branches it protects and the commands verify runs. Allow it? (${cmd.slice(0, 300)})` });
@@ -602,7 +576,7 @@ function logBlock(input, result) {
     mkdirSync(join(ROOT, '.claude', 'logs'), { recursive: true });
     // Redacted before it's cut: the log reaches retro output and the feedback file the maintainer receives.
     const entry = {
-      at: new Date().toISOString(), kind: result.decision, tool: input.tool_name, branch: git.branch(), ...(result.gate ? { gate: result.gate } : {}),
+      at: new Date().toISOString(), kind: result.decision, tool: input.tool_name, branch: git.branch(),
       reason: redact(result.reason).slice(0, 200), command: redact(ti.command || logPath(ti.file_path || ti.notebook_path, ROOT)).slice(0, 200),
     };
     appendFileSync(join(ROOT, '.claude', 'logs', '_guard.jsonl'), `${JSON.stringify(entry)}\n`);
@@ -717,9 +691,9 @@ function selftest() {
     // an ask is held: a deny later in the same command still wins
     [bash(`${kit('querry x')} && npx prisma migrate deploy`), 'deny'], [bash('npx prisma migrate dev --name x && git push origin main'), 'deny'],
     // gates and waivers: the skill asks the dev; the guard logs the answer instead of asking a second time
-    [bash(`node .claude/kit/app.mjs done ${ID} propose --answer "Approved"`), 'log'], [bash(`node .claude/kit/app.mjs done ${ID} accept --answer "ok"`), 'log'],
-    [bash(`node .claude/kit/app.mjs waive ${ID} 2 --reason "needs a real card"`), 'log'],
-    [bash(`node .claude/kit/app.mjs done ${ID} propose --answer "Approved: gift at $50, after the dev's app deploy"`), 'log'],
+    [bash(`node .claude/kit/app.mjs done ${ID} propose --answer "Approved"`), null], [bash(`node .claude/kit/app.mjs done ${ID} accept --answer "ok"`), null],
+    [bash(`node .claude/kit/app.mjs waive ${ID} 2 --reason "needs a real card"`), null],
+    [bash(`node .claude/kit/app.mjs done ${ID} propose --answer "Approved: gift at $50, after the dev's app deploy"`), null],
     // new dependencies are logged (build compares them with the proposal); database changes still ask
     [bash('npm install zod'), 'log'], [bash('pnpm add -D vitest'), 'log'], [bash('npm install @shopify/app-bridge-react'), 'log'],
     [bash('npx prisma migrate dev --name x'), 'ask'], [bash('npx prisma migrate deploy'), 'deny'],
@@ -786,7 +760,7 @@ function selftest() {
     [bash(`npx tsx -e "import db from './app/db.server'; db.session.findMany().then(console.log)"`), 'deny'],
     [bash('npx prisma db execute --stdin <<< "SELECT * FROM Session"'), 'deny'], [bash(`npx tsx -e "import db from './app/db.server'; db.gift.findMany().then(console.log)"`), null],
     // gates the guard can't read as a plain call are logged
-    [bash(`node --no-warnings .claude/kit/app.mjs done ${ID} propose --answer "Approved"`), 'log'], [bash(`env node .claude/kit/app.mjs done ${ID} propose --answer "Approved"`), 'log'],
+    [bash(`node --no-warnings .claude/kit/app.mjs done ${ID} propose --answer "Approved"`), null], [bash(`env node .claude/kit/app.mjs done ${ID} propose --answer "Approved"`), null],
     // files that change what git, Claude Code or the kit allow; the security baseline; spellings of change.json
     [file('Write', '.claude/settings.local.json'), 'ask'], [file('Write', '.mcp.json'), 'ask'], [file('Edit', '.git/config'), 'ask'],
     [file('Write', 'appspec/security-baseline.json'), 'deny'], [file('Write', '.claude/.kit-manifest.json'), 'deny'],
@@ -900,10 +874,8 @@ function selftest() {
     [/devStore: "dev\.myshopify\.com" → "x\.myshopify\.com" \(the only store the kit acts on\)/.test(decide(write(CONFIG_REL, '{"devStore":"x.myshopify.com","baseBranch":"main"}'), ctx()).reason), 'config prompt names the setting and what it controls'],
     [/jiraBaseUrl: .*→ "https:\/\/evil\.example" \(where jira\.mjs sends the Jira token\)/.test(decide(write(CONFIG_REL, '{"devStore":"dev.myshopify.com","baseBranch":"main","jiraBaseUrl":"https://evil.example"}'), ctx()).reason), 'config prompt names a changed Jira URL as where the token goes'],
     [/echo hi/.test(decide(bash(`${kit('future-verb')} && echo hi`), ctx()).reason), 'an unknown-verb prompt shows the whole command'],
-    [decide(bash(`node .claude/kit/app.mjs done ${ID} propose --answer "ok"`), ctx()).gate === 'propose', 'a gate answer is logged as a gate'],
     [/live in \.claude\/logs\/ABC-123\//.test(decide(bash(kit(`mutate ${ID} m2.graphql`)), ctx()).reason), 'a mutation file outside the change\'s log folder is refused before the prompt'],
     [/no change "NEW-9"/.test(decide(bash(kit('mutate NEW-9 .claude/logs/NEW-9/ok.graphql')), ctx()).reason), 'a mutation for a change that doesn\'t exist is refused before the prompt'],
-    [decide(bash(`node .claude/kit/app.mjs waive ${ID} 2 --reason x`), ctx()).gate === undefined, 'a waiver is not a gate'],
     ...['bypassPermissions', 'plan', 'dontAsk', 'someFutureMode'].map((m) => [enforceMode({ decision: 'ask', reason: 'x' }, { permission_mode: m }).decision === 'deny', `an ask becomes a deny in mode ${m}`]),
     ...['default', 'auto', 'acceptEdits', undefined].map((m) => [enforceMode({ decision: 'ask', reason: 'x' }, { permission_mode: m }).decision === 'ask', `an ask stays an ask in mode ${m ?? '(none)'}`]),
     [enforceMode({ decision: 'deny', reason: 'No.' }, { permission_mode: 'bypassPermissions' }).reason === 'No.', 'a deny keeps its own reason in bypass mode'],

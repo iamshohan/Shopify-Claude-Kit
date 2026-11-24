@@ -299,9 +299,8 @@ writeFileSync(outFile, JSON.stringify({ testResults: files.map((file) => ({ name
   const g1 = app('done', ID, 'propose', '--answer', 'Approved: gift at 50 EUR, new scope ok');
   ok('Gate 1 opens the build, and prints no handover commit', g1.code === 0 && /build/.test(g1.out) && !/git commit/.test(g1.out), g1.all);
   ok('qa-row measures only in verify', /verify stage/.test(app('qa-row', ID, 'S2', '--verdict', 'BLOCKED').err));
-  // The skill asked the dev; the guard doesn't ask a second time, it logs the answer for the retro.
-  ok('guard: a gate answer runs without a second prompt and is logged', decision('Bash', { command: `node .claude/kit/app.mjs done ${ID} accept --answer "ok"` }) === 'allow'
-    && /"kind":"log".*accept/.test(readFileSync(join(repo, '.claude', 'logs', '_guard.jsonl'), 'utf8')));
+  // The skill asked the dev; the guard doesn't ask a second time (change.json records the answer).
+  ok('guard: a gate answer runs without a second prompt', [undefined, 'allow'].includes(decision('Bash', { command: `node .claude/kit/app.mjs done ${ID} accept --answer "ok"` })));
 
   // ── Build ──
   ok('guard: app code is open in build', [undefined, 'allow'].includes(decision('Edit', { file_path: join(repo, 'extensions/gift/src/run.js') })));
@@ -384,6 +383,7 @@ writeFileSync(outFile, JSON.stringify({ testResults: files.map((file) => ({ name
   const ar = app('handoff', ID);
   const archived = readdirSync(join(repo, 'appspec', 'archive')).find((d) => d.endsWith(ID));
   ok('archive moves the change and writes the handoff, with no retro required', ar.code === 0 && archived && !existsSync(join(repo, 'appspec/changes', ID)) && /Deploy checklist/.test(read(`appspec/archive/${archived}/handoff.md`)), ar.all);
+  ok('handoff shows the retro when the run was refused somewhere', json(ar).retro?.refusedStages?.length > 0 && /app\.mjs note GIFT-1/.test(json(ar).retro?.ask || ''), ar.all);
   ok('the archived change\'s bound test joins the ledger', /^not run \(1 ledgered tests/.test(json(app('drift')).regression || ''), app('drift').out);
   ok('archive records why the new scope exists', JSON.parse(read('appspec/surfaces.json')).items['scope:write_cart_transforms']?.scenario === 'S1');
   const handoffText = read(`appspec/archive/${archived}/handoff.md`);
@@ -591,12 +591,6 @@ writeFileSync(outFile, JSON.stringify({ testResults: files.map((file) => ({ name
     && calls().filter((c) => c.cmd === 'app build').length === before, unsafeBuild.all);
   rmSync(join(repo, 'shopify.web.toml'));
 
-  // ── Feedback carries the record, not only the notes ──
-  app('feedback');
-  const fb = read('.claude/logs/kit-feedback.md');
-  const kitVersion = readFileSync(join(KIT, '.claude', 'VERSION'), 'utf8').trim();
-  ok('feedback names the kit build (VERSION and the installed commit) and each run\'s signals (refused stages), even with no notes', new RegExp(`kit ${kitVersion.replaceAll('.', '\\.')}\\+[0-9a-f]{7}`).test(fb)
-    && /## GIFT-1 \(change, done, started with kit /.test(fb) && /- refused: propose ×/.test(fb), fb);
 } catch (e) {
   ok('e2e harness', false, e.stack);
 } finally {

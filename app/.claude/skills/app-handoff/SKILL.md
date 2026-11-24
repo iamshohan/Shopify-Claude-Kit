@@ -18,6 +18,6 @@ user-invocable: false
    - the PR text is in `appspec/archive/<date>-<ID>/handoff.md` § PR description. Offer in one AskUserQuestion: **Open the PR as a draft** (only with `gh` logged in: `gh pr create --draft --repo <owner/repo of origin> --base <base> --head <branch> --body-file <handoff.md's PR text>`; never retry without `--draft`), **Give me the merge commands** (print one per line for the dev to run: `! git switch <base>`, `! git pull --ff-only`, `! git merge --no-ff <branch>`, `! git push origin <base>`; a change stacked on `kit-onboard` merges `kit-onboard` first, the same way), or **I'll handle it myself**. Never run a merge or a push to the base yourself.
    - the deploy checklist in the same file: the dev deploys, in that order; the kit never does
    - the manual checks the reviewer still does
-6. If the run had friction the kit caused, `app.mjs retro <ID>` lists the signals; record each kit cause with `app.mjs note <ID> "…" --kind <kind>`. Optional.
+6. If `handoff` printed a `retro` (the run looped back, was refused or blocked), record each kit cause with `app.mjs note <ID> "…" --kind <kind>`.
 
 **Done when:** the handoff ran, the result is committed and pushed (not in a test run), and the dev has the PR text and checklist. `app.mjs status <ID>` says what's left if you're unsure.

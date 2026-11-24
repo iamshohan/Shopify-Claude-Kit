@@ -33,7 +33,7 @@ Checks: `test:` a vitest test (new or changed on the branch, or its fixture), `q
 
 - **Asks** (hard to undo): store mutations, database migrations, the kit's settings, files that turn the guard or git's safety off, git commands that discard work.
 - **Refuses with the reason:** deploys and releases, the CLI outside `shopify.mjs`, any store but `devStore`, secrets (`.env*`, SQLite, the Session table), pushes to main, code edits outside build.
-- **Logs** (`app.mjs retro`): gate answers, new dependencies, code edits with no change open.
+- **Logs** (`.claude/logs/_guard.jsonl`): gate answers, new dependencies, code edits with no change open.
 
 It catches a well-meaning agent's mistakes; branch protection, Partner Dashboard roles and code review are the real limits.
 
@@ -50,4 +50,4 @@ Commit `appspec/changes/<ID>/` with the work and `git push -u origin <branch>`. 
 - Install from the kit repo: `node install.mjs <path-to-app-repo> --app`. It never touches `appspec/` or `app-kit.json`.
 - Update every kit repo on your machine (theme and app): `node update.mjs` from the kit repo. Repos installed before it existed: `node update.mjs --scan <folder>` once. Every 15 days, a session mentions it once when a newer kit is out.
 - Jira: put `JIRA_USER` and `JIRA_API_TOKEN` in `~/.claude/.env` once per machine (unreadable to Claude; it covers every kit repo). `.claude/.env.local` (git-ignored, also unreadable) overrides it for one repo; keep `JIRA_BASE_URL` there, not in `~/.claude/.env`, where it would apply to every repo. Without credentials, paste the ticket text.
-- Kit problems: `node .claude/kit/app.mjs feedback` writes `.claude/logs/kit-feedback.md` for the kit's maintainer.
+- Kit problems: the agent notes them in `kit-notes.md`; `node Shopify-Claude-Kit/export-logs.mjs` shares every repo's task logs, notes included, with the kit maintainer.
