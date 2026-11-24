@@ -33,15 +33,13 @@ user-invocable: false
 5. **Which theme.** The kit builds on the theme that follows the base branch, normally the **live** theme.
    - **Live is a campaign theme** on another branch, and the ticket is for the regular theme: ask the dev for the theme that follows the base branch, and record it with `kit.mjs set <KEY> baseTheme=<id>` (the guard asks the dev). The drift check, `pull-live`, the draft copy and QA's regression comparison then use it instead of live.
    - **The ticket targets the campaign theme itself:** say that it's out of scope for the kit, and stop.
-6. **A/B ports only.** Ask in one AskUserQuestion round, skipping anything the tickets already state:
-   - Which variation won? (offer the variations named in the ticket)
-   - Where is the A/B code? If you already found a copy on this machine, the first option is "Use the copy at <path>" (Recommended): copy it into `.claude/logs/<KEY>/abtest/` yourself instead of waiting for the dev. Other options:
-     - "I'll put the files in .claude/logs/<KEY>/abtest/"
-     - "It's in shadow-drip-exps: src/<Client>/<TEST-KEY>/<variation>/"
-   - Which testing tool runs it, and is it still running? This is needed for the go-live order at handoff.
+6. **A/B ports only.** Look things up first, and ask only what's still open, in one AskUserQuestion round:
+   - **The winner:** from the ticket and its comments. Ask only when they don't name it, or name more than one.
+   - **The A/B code:** look for it yourself with Glob: `shadow-drip-exps/src/*/<TEST-KEY>/` and `DripExperiments/` one and two folders above this repo (`../`, `../../`), and the paths the ticket names. Read only; never write there. Found → copy it into `.claude/logs/<KEY>/abtest/` and say where it came from. Not found → ask: "I'll put the files in .claude/logs/<KEY>/abtest/" or "It's at <path>".
+   - **The testing tool:** from recon's `experimentTools` and the ticket. **Still running:** fetch a page the test targets live (`shopify.mjs fetch <KEY> <path> --live`) and look for its markers (the body class or element the code adds). Ask only when neither settles it. The go-live order at handoff needs both.
    - **If it still runs:** QA compares the draft with the live winner, and the tool must stay off the draft.
-     - Targeting by country or audience: is there a link or cookie that forces the variation (the tool's preview or QA link)? Without one, QA can't see the winner from outside the targeted markets. Record it: `kit.mjs set <KEY> abtest.reference=<link>`.
-     - Does the experiment exclude `preview_theme_id` URLs? If not, it rewrites the draft's new markup during QA. Ask the dev to exclude them, or record that QA must check for it.
+     - Targeting by country or audience: a link or cookie that forces the variation (the tool's preview or QA link), from the ticket or the code. Not found → ask; without one, QA can't see the winner from outside the targeted markets. Record it: `kit.mjs set <KEY> abtest.reference=<link>`.
+     - Whether the experiment excludes `preview_theme_id` URLs: ask the dev to exclude them, or record that QA must check for it. This one stays a question: only the dev can see the tool's settings.
 
    Prefer the built bundle (`build/*.js`, `build/*.css`), because that's what actually ran. Note whether only source code was provided.
 

@@ -5,6 +5,14 @@ paths:
 
 # Kit runs (/shopify-implement and /shopify-investigate)
 
+- **Decide what's clear; ask only what's the dev's call.** When the ticket, the A/B winner, the theme's own pattern or a clear convention answers a question, decide it, record it, and tell the dev in one line ("Decided: … because …"). The dev reviews those at the next gate and can change any of them. **Ask** (all at once, each with 2–4 options and your recommendation first) only when:
+  - the work would depart from a quoted acceptance criterion or from the A/B winner;
+  - it creates something the client or merchant must maintain: a metafield or metaobject definition, data entry per product, a new app or integration;
+  - it touches money: prices, discounts, checkout, shipping or payments;
+  - there are real alternatives with different trade-offs in effort, risk or what the merchant controls, and nothing in the ticket picks one;
+  - the ticket and the A/B test, or two tickets, contradict each other, or the code can't settle it;
+  - it can't be undone cheaply later.
+  A question whose recommended option you'd have taken anyway, with nothing in this list behind it, is a decision: take it and report it.
 - **Gates are the dev's decisions.** Gate 1 hands the plan over and waits for the dev's reply (shopify-plan); the others ask with AskUserQuestion. Wait for the answer, and record their words. Never infer an answer. Silence is not approval.
 - **`--answer` is one line of at most 200 characters, in the dev's words, without quotes, backticks or `$`** (they break shell quoting). The full answers go in the documents.
 - **You write the task documents** in `.claude/logs/<KEY>/`. Agents return reports; you put what matters into the documents.

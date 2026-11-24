@@ -200,7 +200,9 @@ function staysInCodeProblems(key) {
     const [value, ac = '', why = '', agreed = ''] = cells(r);
     if (!ac) return [`Stays in code → "${value}": name the editability AC it touches, or "none"`];
     if (!why) return [`Stays in code → "${value}": say why it stays in code`];
-    if (!/^none\b/i.test(ac) && !/Q\s*\d+/i.test(agreed)) return [`Stays in code → "${value}" touches ${ac}. Ask the dev about it as its own question and cite it (Q#) in "Dev agreed", or make it editable`];
+    // A design constant (spacing, a breakpoint) is listed under Decided for you and approved with the plan; content the
+    // merchant would change (text, images, links, which items show) is asked as its own question (Q#).
+    if (!/^none\b/i.test(ac) && !/Q\s*\d+|Gate 1|Decided for you/i.test(agreed)) return [`Stays in code → "${value}" touches ${ac}. A design constant: list it under plan.md → Decided for you and write "Gate 1" in "Dev agreed". Content the merchant would change: ask it as its own question (Q#), or make it editable`];
     return [];
   });
 }
@@ -270,7 +272,19 @@ function reach(key, given) {
     }
   };
   for (const d of THEME_DIRS) if (existsSync(join(ROOT, d))) walk(d);
-  return [...skipped, ...paths.map((file) => ({ file, reach: reachOf(file, texts) })).filter((x) => x.reach)];
+  // Templates git ignores (VSD-354: templates/*.json) aren't on disk, so a section's uses would be missed: read the copies
+  // pull-live saved instead, and say so when there are none.
+  const live = join(LOGS, key, 'live');
+  const walkLive = (dir) => {
+    for (const e of readdirSync(join(live, dir), { withFileTypes: true })) {
+      if (e.isDirectory()) walkLive(`${dir}/${e.name}`);
+      else if (/\.json$/.test(e.name) && !texts.has(`${dir}/${e.name}`)) texts.set(`${dir}/${e.name}`, read(join(live, dir, e.name)));
+    }
+  };
+  for (const d of ['templates', 'sections']) if (existsSync(join(live, d))) walkLive(d);
+  const noTemplates = ![...texts.keys()].some((p) => /^templates\/.+\.json$/.test(p))
+    ? [{ file: 'templates/*.json', reach: 'no JSON templates in the repo or in logs/<KEY>/live, so where sections are used is unknown: shopify.mjs pull-live <KEY> "templates/*.json", then run reach again' }] : [];
+  return [...skipped, ...noTemplates, ...paths.map((file) => ({ file, reach: reachOf(file, texts) })).filter((x) => x.reach)];
 }
 
 /** At a glance opens with what can affect what already exists. */
@@ -391,8 +405,10 @@ const EXIT_CHECKS = {
     !tableRows(key, 'brief.md', '### Control surface', '## Decided').length && !/no dynamic|none/i.test(added(key, 'brief.md', '### Control surface', '## Decided').join(' '))
       && 'fill brief.md § Decided → Control surface (one row per value, or say "none")',
     ...staysInCodeProblems(key),
-    !tableRows(key, 'brief.md', '### Questions and answers', '## Decided').length
-      && 'record the questions you asked and the dev\'s answers in brief.md § Decided → Questions and answers (at least the control-surface confirmation)',
+    !tableRows(key, 'brief.md', '### Questions and answers', '## Decided').length && !saysNone(key, 'brief.md', '### Questions and answers', '## Decided')
+      && 'record the questions you asked and the dev\'s answers in brief.md § Decided → Questions and answers, or "none: nothing needed the dev\'s call"',
+    !filled(key, 'plan.md', '### Decided for you', '## At a glance')
+      && 'fill plan.md § At a glance → ### Decided for you: one line per decision you took without asking (what, and why in a few words), most consequential first, or "none"',
     ...glanceProblems(key),
     ...unprovenProblems(key),
     ...acCoverageProblems(key),

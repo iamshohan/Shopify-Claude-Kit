@@ -5,7 +5,7 @@
 // Reads .claude/shopify-kit.json; writes .claude/logs/<KEY>/ (state.json, pulls, fetches) and .claude/cli-check.json.
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 import { tmpdir, homedir } from 'node:os';
 import { createHash } from 'node:crypto';
 import {
@@ -1015,7 +1015,11 @@ switch (verb) {
     const key = normKey(pos[0]);
     const st = writableTask(key);
     if (!st.draft?.themeId) fail(`No draft yet. Run: shopify.mjs draft ${key}`);
-    const { abs, ok } = inTaskFolder(key, pos[1] || '');
+    // A path from the repo root, or from where the shell is (VSD-354 ran it from the logs folder). Previews write nothing
+    // to the store, so this looser lookup stays here and not in inTaskFolder, which mutate shares with the guard.
+    const fromRoot = inTaskFolder(key, pos[1] || '');
+    const fromCwd = inTaskFolder(key, relative(ROOT, resolve(process.cwd(), pos[1] || '')));
+    const { abs, ok } = fromRoot.ok && existsSync(fromRoot.abs) ? fromRoot : fromCwd.ok ? fromCwd : fromRoot;
     if (!pos[1] || !ok) fail(`Put the overrides file in .claude/logs/${key}/previews/ and pass its path.`);
     let overrides;
     try { overrides = JSON.parse(readFileSync(abs, 'utf8')); } catch (e) { fail(`Overrides file isn't valid JSON: ${e.message}`); }

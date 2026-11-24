@@ -8,11 +8,11 @@ user-invocable: false
 
 ## Stage: plan
 
-**Goal:** every open question answered by the dev and recorded in `brief.md` § Decided, then a `plan.md` that the dev can approve from At a glance, and that the builder can follow without guessing.
+**Goal:** every open point decided by you or, when it is the dev's call, answered by the dev, all recorded in `brief.md` § Decided, then a `plan.md` that the dev can approve from At a glance, and that the builder can follow without guessing.
 
 ### First: decide and ask
 
-0. **Start from the ticket's editability lines** (`brief.md` § Asked → What the tickets say should be editable). A line about who may change something covers **everything visible in what it names**. "The client manages the mobile navigation without developer support" covers every item, label, link, order, image and icon in that navigation, not only the part a nearby AC mentions. A hard-coded value is only acceptable where no such line reaches it, or where the dev has agreed to it in a question about that value alone.
+0. **Start from the ticket's editability lines** (`brief.md` § Asked → What the tickets say should be editable). A line about who may change something covers **everything visible in what it names**. "The client manages the mobile navigation without developer support" covers every item, label, link, order, image and icon in that navigation, not only the part a nearby AC mentions. A hard-coded value is only acceptable where no such line reaches it, where it's a design constant listed under Decided for you (the dev approves it at Gate 1), or where the dev agreed to it in a question about that value alone.
 1. **Control surface.** List every dynamic candidate (from the A/B inventory, or the requirements for features and fixes) and decide where each one lives. Prefer what the theme already does (§ Found).
 
    | If the value… | It lives in… |
@@ -35,28 +35,26 @@ user-invocable: false
    - **Placement.** Prefer a section or block with presets that the merchant adds in the customizer over editing `templates/*.json`. Count how many templates would need it (e.g. 60 product templates). If that's a lot of manual work, offer an always-on render point with a theme-setting toggle as the alternative, and let the dev choose. If recon shows JSON templates aren't in git, placement can only be an admin step after merge.
    - **Definitions.** Reuse an existing one if it fits. Check with `node .claude/kit/shopify.mjs query definitions --owner PRODUCT` (or COLLECTION, PAGE…). With `adminApi: false`, read the admin's Settings → Custom data page for that owner in Chrome (look only: no clicks on Add, Save or Delete), or ask the dev. Never propose changing or deleting an existing definition. Use the store's own namespace, often `custom`. App-owned namespaces are off limits.
    - **Translations.** Which locales need copy (recon lists the locale files)? Metaobjects that hold copy need the translatable capability, and the merchant translates them in Translate & Adapt.
-2. **Collect the questions:** everything the tickets don't settle.
-   - each dynamic choice the tickets don't state
-   - conflicts between tickets
+2. **List what the tickets don't settle:**
+   - each dynamic choice the tickets don't state, the placement, and each setting's default
+   - conflicts between tickets, or between a ticket and the A/B winner
    - missing copy per locale
-   - the placement choice and each setting's default
    - risky findings
    - state the feature carries beyond its page (a discount code, the cart, a cookie): what other pages and the cart show, and how it combines with codes or offers already active. VET-33 found both at build review and reversed one after QA.
-   - each row of `design.md` § Differs from the theme or the A/B code: follow Figma, or keep the theme's value (or the winner's). Group rows of one kind into one question ("Figma's greys are 1–2 shades off the colour scheme: use the scheme?").
+   - each row of `design.md` § Differs from the theme or the A/B code (follow Figma, or keep the theme's value or the winner's)
+   - each value you'd keep in code that an editability line reaches
+3. **Sort each one: decide it, or ask it** (`.claude/rules/kit-runs.md` → decide what's clear). In VSD-354 the dev picked the recommendation on all 12 questions with options: those were decisions, not questions.
+   - **Decide** when the ticket, the winner, the theme's own pattern or a convention answers it: which sections get a setting, defaults that reproduce the winner, colours as settings, caps and breakpoints, porting the winner's logic, design constants kept in code (spacing, radii, timing, breakpoints), Figma rows the theme's scale already covers, the QA setup. Write each one under plan.md → At a glance → **Decided for you**: one line, with why.
+   - **Ask** only what the rule's list names: a departure from a quoted AC or the winner; something the client or merchant must maintain (a new definition, data entry per product); money; real alternatives with different trade-offs that nothing in the ticket picks; a contradiction; something costly to undo. A value an editability line reaches that the merchant would change (text, images, links, which items show) and that you'd keep in code is a departure: ask it as its own question, naming the AC ("AC 18 says the client manages the menu. Keep the six utility icons in code anyway?").
+   - **What customers see that the tickets don't settle** (what stays pinned, static or live, wording): decide it with the winner or the closest reading of the ticket, and mark the line "(client's call)" under Decided for you. The dev can send it to the client at Gate 1, and handoff tells the client.
 
-   - **each value you'd keep in code that an editability line reaches**: one question per value, never folded into another question. Name the AC: "AC 18 says the client manages the menu without a developer. Keep the six utility icons in code anyway?"
-
-   Give each question 2–4 concrete options, with your recommendation first, marked "(Recommended)". An option that contradicts a quoted editability line is never the recommendation, and says so in its description ("conflicts with AC 18").
-
-   A question the tickets leave to the client (what customers see, content, what stays pinned, anything touching price or discounts) starts with "Client's call:", and one option is "Ask the client first". § Decided records the answer as "Dev, for the client" or "Client". If the dev chooses to ask first, write the question for the client in chat and wait for the answer.
-3. **Ask all of them before planning**, in as few AskUserQuestion calls as possible (up to 4 questions per call). Don't drip-feed them one at a time. Before the first call, write 3–6 lines in chat: what is settled, and what you're asking and why. Don't restate the tickets.
-4. **Confirm the control surface** with one more question. Its text lists the values that stay in code by name: "These stay in code: colours, spacing, separators. Everything else is editable as shown in brief.md. OK?" The options are "OK", "Make something editable" (they type which), and "Discuss".
-5. **Write § Decided:**
+   Ask everything that needs asking in as few AskUserQuestion calls as possible (up to 4 questions each), before writing the plan. Give each question 2–4 concrete options, with your recommendation first, marked "(Recommended)". An option that contradicts a quoted editability line is never the recommendation, and says so ("conflicts with AC 18"). Before the first call, write 3–6 lines in chat: what you decided (one line each, the most consequential first), and what you're asking and why. Nothing to ask: say what you decided and go on to the plan; Gate 1 is where the dev confirms it.
+4. **Write § Decided:**
    - **Merchant can change:** one row per value, or "none".
-   - **Stays in code:** one row per value. Name the editability AC it touches, or "none". When it touches one, cite the question in which the dev agreed (Q#). `kit.mjs done` refuses a row that touches an AC without a Q#.
-   - **Questions and answers:** the dev's choice verbatim. How you apply it goes in "Applied as". If "Applied as" stretches the choice beyond what the option said, ask again instead. A "Why" cell that cites the dev (Qn) is only allowed when Qn's options named that exact value.
+   - **Stays in code:** one row per value. Name the editability AC it touches, or "none". When it touches one: a design constant you decided gets "Gate 1" in "Dev agreed" and a line under Decided for you; anything else cites the question in which the dev agreed (Q#). `kit.mjs done` refuses a row that touches an AC with neither.
+   - **Questions and answers:** the dev's choice verbatim, or "none: nothing needed the dev's call". How you apply it goes in "Applied as". If "Applied as" stretches the choice beyond what the option said, ask again instead.
 
-If there are genuinely no open questions, still ask the confirm question in step 4. A task investigated first has its § Requirements answers in § Decided already: don't ask them again.
+A task investigated first has its § Requirements answers in § Decided already: don't ask them again.
 
 ### Then: write the plan
 
@@ -71,6 +69,7 @@ Aim for 300 lines or fewer. A small fix gets a short plan: write "none" under a 
     - **Apps, the A/B tool or third-party scripts** the change touches, and anything else the dev must act on or watch.
 
     Example: "`snippets/icon.liquid` (rendered from 14 files): three icons added, the existing ones untouched → regression check on home, product and cart." When nothing qualifies, write "none: only new files the feature owns".
+  - **Decided for you** comes next: every decision from step 3 that you took without asking, one line each with its reason, the most consequential first, about 10 lines at most. Mark lines about what customers see that the ticket doesn't settle "(client's call)". Write "none" when you decided nothing on your own. This is where the dev reviews your judgement, so leave nothing out that they'd want to change.
   - **Not proven yet** comes next: every assumption the approach relies on that you couldn't verify in this theme or store. Examples: a product's option layout you couldn't read (rate-limited, no access), an app's JS API used in a way its docs or this theme don't show, a Liquid object or setting type the theme doesn't use yet. One row each: what it relies on, why it isn't proven, the fallback if it doesn't hold, and the QA criterion that tests it. The fallback is a real alternative the dev could pick at Gate 1, not a silent degradation. Write "none" when everything was verified. A risk you already verified belongs in § Risks, not here.
   - **What changes:** one row per file, or per group of files ("locales/*.schema.json ×5"), with the files from Needs your attention first. "What happens" is at most 15 words and describes the effect, not the anchor: "Winner layout when the mobile menu is set; old markup unchanged otherwise."
   - **Merchant can change** and **Stays in code:** one line each, from § Decided. Put "(vs AC n)" after any value in code that an editability line reaches. Write them as the merchant sees them ("the bar stays pinned; its height can't be set"), not as code ("z-index, offsets").
@@ -126,7 +125,7 @@ Spawn the `outcome-checker` agent with the key and mode `plan`. It reads the tic
 
 ## Stage: approve (Gate 1)
 
-1. **Hand the plan over, don't ask yet.** Say the plan is ready and where it is (`.claude/logs/<KEY>/plan.md`), show § At a glance as it is (no file anchors, no restated criteria, no method notes), and name what approving it covers when there is any: "It includes 4 store writes, 3 values kept in code, and 2 approaches not proven yet (each with a fallback)." Include what the independent check found and what you did about it. End with: "Review it and tell me: approve, what to change, or any question." Then stop and wait. No AskUserQuestion: the dev reads first and answers in their own words.
+1. **Hand the plan over, don't ask yet.** Say the plan is ready and where it is (`.claude/logs/<KEY>/plan.md`), show § At a glance as it is (no file anchors, no restated criteria, no method notes), and name what approving it covers when there is any: "It includes 4 store writes, 6 decisions I took for you, 3 values kept in code, and 2 approaches not proven yet (each with a fallback)." Include what the independent check found and what you did about it. End with: "Review it and tell me: approve, what to change, or any question." Then stop and wait. No AskUserQuestion: the dev reads first and answers in their own words.
 2. Then, by their reply:
    - **Questions** → answer them, and wait again.
    - **Changes** (such as "use the fallback for the waitlist") → edit `plan.md`, say what changed, and wait again.

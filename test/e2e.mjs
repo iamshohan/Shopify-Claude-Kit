@@ -563,6 +563,9 @@ try {
   const noIndependent = kit('kit.mjs', 'done', KEY, 'approve', '--answer', 'Approve');
   edit(KEY, 'plan.md', '### Independent check\n', '### Independent check\n\nSurprises: none (checked AC 1 on product, mobile). Unlisted assumptions: none.\n');
   ok('plan needs the outcome-checker\'s independent check recorded', /Independent check/.test(noIndependent.err), noIndependent.all);
+  // The agent decides what's clear and lists it for Gate 1 instead of asking (VSD-354: 12 of 12 recommendations taken).
+  ok('plan needs the Decided for you block filled, or "none"', /Decided for you/.test(noIndependent.err), noIndependent.all);
+  edit(KEY, 'plan.md', '### Decided for you\n', '### Decided for you\n\n- Title from a section setting, default "A2": the theme sets titles per section.\n');
   ok('approve runs the plan checks, and keeps a copy of the plan it approved', unchecked.code === 1 && /Control surface/.test(unchecked.err)
     && kit('kit.mjs', 'done', KEY, 'approve', '--answer', 'Approve').code === 0 && existsSync(logFile(KEY, 'plan.approved.md')), unchecked.all);
 
@@ -843,6 +846,16 @@ try {
   const withWrites = kit('kit.mjs', 'done', 'ABC-6', 'plan');
   ok('QA data on existing products isn\'t a store write to name; a mutation file the plan wrote is',
     !/store writes/.test(withRepro.err) && /name the store writes/.test(withWrites.err), withRepro.all + withWrites.all);
+  // No questions at all, and a design constant kept in code against an editability AC, approved at Gate 1: both pass.
+  const brief6 = join(repo, '.claude', 'logs', 'ABC-6', 'brief.md');
+  const stays = '| Value | Editability AC it touches (AC #, or none) | Why it stays in code | Dev agreed (Q #) |\n| --- | --- | --- | --- |\n';
+  const qa6 = '| # | Question | The dev\'s choice (verbatim) | Applied as | Date |\n| --- | --- | --- | --- | --- |\n';
+  writeFileSync(brief6, readFileSync(brief6, 'utf8').replace(stays, `${stays}| Spacing | AC 2 | design constant | |\n`).replace(qa6, `${qa6}none: nothing needed the dev's call\n`));
+  const noAgreement = kit('kit.mjs', 'done', 'ABC-6', 'plan');
+  writeFileSync(brief6, readFileSync(brief6, 'utf8').replace('| Spacing | AC 2 | design constant | |', '| Spacing | AC 2 | design constant | Gate 1 |'));
+  const gate1 = kit('kit.mjs', 'done', 'ABC-6', 'plan');
+  ok('a plan with no questions passes ("none"), and a design constant against an AC needs "Gate 1" or a Q#',
+    /"Spacing" touches AC 2/.test(noAgreement.err) && !/Spacing/.test(gate1.err) && !/Questions and answers/.test(gate1.err), noAgreement.all + gate1.all);
 
   // ── State, verbs and flags this kit version dropped ──
   kit('kit.mjs', 'start', 'ABC-7');

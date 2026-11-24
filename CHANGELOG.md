@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.15.0 — 2026-11-24
+
+**The agent decides what's clear and asks only the real calls.** Team feedback: the kit asked too many questions. VSD-354's plan asked 13; on all 12 with options, the dev picked the recommendation.
+- **One rule for every stage** (`rules/kit-runs.md`): when the ticket, the A/B winner, the theme's own pattern or a clear convention answers something, the agent decides it and says so in one line. It asks, all at once, only for a departure from a quoted AC or the winner, something the client or merchant must maintain (a definition, data entry per product), money, real alternatives with different trade-offs, a contradiction, or something costly to undo.
+- **Plan:** a new **Decided for you** block at the top of At a glance lists each decision the agent took on its own, with why, most consequential first; the dev changes any of them at Gate 1. `done plan` wants it filled (or "none"). The control-surface confirm question is gone: Gate 1 is that confirmation. Questions and answers can be "none". A design constant kept in code against an editability AC (spacing, a breakpoint) is listed there and marked "Gate 1"; content the merchant would change still gets its own question. What customers see that the ticket doesn't settle is decided and marked "(client's call)".
+- **Intake (A/B ports)** looks up the winner, the code (shadow-drip-exps, DripExperiments, read only), the testing tool and whether it still runs (its markers on live) before asking; only the `preview_theme_id` exclusion stays a question.
+- **QA fix loops:** the agent picks a fix that stays inside the approved plan and records it as an amendment, instead of asking (VSD-354's Q12 and Q13).
+- **Feasibility:** technical rows (which approach, which app) become the approaches table with a recommendation instead of questions.
+
+**From VSD-354's kit notes:**
+- `kit.mjs reach` reads the live templates `pull-live` saved when `templates/*.json` aren't in git, and says so when there are none (it missed 10 shared sections).
+- `preview` takes an overrides path relative to the current folder too.
+- QA doesn't judge an app widget in a cross-origin iframe (Loox reviews) empty from the page's side: a useless fix round.
+- Gate 2's options name every untested "not proven yet" row, so the dev isn't asked twice.
+- The plan template says where amendments and As built go, so no second Amendments heading appears.
+
 ## 1.14.0 — 2026-11-23
 
 **What the client receives, checked from the outside.** Three of the six reviews found the same gap: in all four real handoffs (CHE-865, POP-1065, VSD-327, VET-33), the plan's differences from the ticket never reached the client's Jira comment. GSD-80 added three loops back after handoff that the plan could have settled at Gate 1.

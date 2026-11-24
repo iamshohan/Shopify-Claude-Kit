@@ -1,4 +1,4 @@
-# Shopify Implementation Kit · v1.14.0
+# Shopify Implementation Kit · v1.15.0
 
 A Claude Code setup for Shopify theme repos.
 
@@ -82,7 +82,7 @@ shopify store auth --store <store>.myshopify.com --scopes read_products,write_pr
 | --- | --- | --- | --- |
 | 1 | intake | Reads the ticket and linked tickets; decides A/B port, feature or bug fix. | answer; for A/B ports, put the code in `.claude/logs/<KEY>/abtest/` |
 | 2 | analyze | One agent reads the theme fresh; another turns the A/B code into a list of behaviours. For a feature with a Figma design, a third reads the frames' values into `design.md`, and QA measures the draft against them. | — |
-| 3 | plan | First decides what merchants control and where, and asks every open question at once (a value kept in code that the ticket says the client must be able to change gets its own question). Then writes the plan: At a glance (about 25 lines) on top, first what **needs your attention** (anything that can affect what already exists: store writes, merchant JSON, shared code, changed behaviour), then file by file, and the exact text merchants will read. Below it the builder detail, store setup and QA criteria. Last, a second agent reads the ticket and the theme on its own and lists what the plan would surprise you or the client with. | answer the questions |
+| 3 | plan | First decides what merchants control and where. It decides what the ticket, the A/B winner or the theme's own patterns already answer, and asks you only the real calls, all at once: a departure from the ticket, something the client must maintain, money, real alternatives, a contradiction. Then writes the plan: At a glance (about 25 lines) on top, first what **needs your attention**, then what it **decided for you** (one line each, with why; change any of them at Gate 1) (anything that can affect what already exists: store writes, merchant JSON, shared code, changed behaviour), then file by file, and the exact text merchants will read. Below it the builder detail, store setup and QA criteria. Last, a second agent reads the ticket and the theme on its own and lists what the plan would surprise you or the client with. | answer the questions |
 | 4 | approve | Shows At a glance and the plan's path, then waits for you. | **Gate 1:** review it, then approve, ask for changes or reject, in your own words |
 | 5 | build | Creates the task branch from a fresh base. The builder agent implements and runs theme check; `/code-review` and a Shopify checklist review; then it commits. | — |
 | 6 | draft | Creates the planned definitions. Pushes to an unpublished theme named `<KEY>`, or adopts the theme you connect to the branch (`draftRoute: "github"`), and proves the draft matches the commit. | approve mutations; connect the branch (GitHub route), or let the agent do it in your Chrome |
