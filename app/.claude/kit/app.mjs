@@ -39,7 +39,7 @@ const HELP = `Usage: node .claude/kit/app.mjs <verb> ...
                                          record a review of the committed code: what it found and what was done
   qa-row <ID> <scenario> --measured T --how T --verdict PASS|FAIL|BLOCKED
                                          record a measured qa: scenario (verify stage only; PASS/FAIL need both texts)
-  waive <ID> <scenario> --reason "TEXT"  accept a qa: scenario that can't be measured (verify stage; the dev confirms;
+  waive <ID> <scenario> --reason "TEXT" --answer "DEV'S WORDS"  accept a qa: scenario that can't be measured (verify stage; the dev confirms;
                                          the handoff lists it)
   handoff <ID>                           update surfaces.json and the security baseline, write handoff.md, and move the
                                          change to archive/ (its bound tests join the ledger)
@@ -112,7 +112,7 @@ const filled = (cfg, id, st, heading) => added(cfg, id, st, heading).length > 0;
 
 const SURFACE_KEY = /^(scope|optional-scope|webhook|compliance-webhook|webhooks|app-proxy|config|metaobject|metafield|extension|extension-api|target|capability|extension-metafield|model|enum|view|type|db|dependency)(:.+)?$/;
 // Surfaces whose addition or change needs proposal.md § Design. app-proxy is a key without a colon.
-const HEAVY = /^(model|enum|db|app-proxy|config|webhook|compliance-webhook|extension)(:|$)/;
+const HEAVY = /^(model|enum|db|app-proxy|config|webhook|compliance-webhook)(:|$)/;
 // Not declared: dependency version bumps, and extension metafields (read-only references).
 const declarable = (d) => !(d.op === '~' && d.key.startsWith('dependency:')) && !d.key.startsWith('extension-metafield:');
 
@@ -187,7 +187,9 @@ function codeDigest() {
 const sha = (text) => createHash('sha256').update(String(text ?? '').replace(/\r\n?/g, '\n')).digest('hex').slice(0, 16);
 
 /** What verify checked besides the code: the scenarios, the declared surfaces and the retired tests. A change to them makes it stale. */
-const proposalDigest = (md) => sha([...scenariosFrom(md).map((s) => `${s.id} ${scenarioRecord(s)}`), ...retiresFrom(md).map(checkKey), approvedSections(md).surfaces].join('\n'));
+// § Gate's key and values too: a self-fixing verify that edited them to match the code would otherwise go unseen.
+const proposalDigest = (md) => sha([...scenariosFrom(md).map((s) => `${s.id} ${scenarioRecord(s)}`), ...retiresFrom(md).map(checkKey), approvedSections(md).surfaces,
+  ...(sectionLines(md, '## Gate').length ? [JSON.stringify(abGateOf(md))] : [])].join('\n'));
 
 /** Today's date where the dev is, for archive folder names (UTC would date an evening archive tomorrow). */
 const localDay = () => { const d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); };
@@ -233,7 +235,12 @@ export const extensionsTouched = (changed, items) => extensionList(items).filter
 /** The parts of the proposal Gate 1 approves besides the scenarios: the declared surfaces and the retired tests. */
 const approvedSections = (md) => {
   const decl = declaredSurfaces(md);
-  return { surfaces: decl === 'none' ? 'none' : decl.map((d) => `${d.op} ${d.key}`).sort().join(', ') || 'none', retires: retiresFrom(md).map(checkKey).join(', ') || 'none' };
+  const { key, values } = abGateOf(md);
+  return {
+    surfaces: decl === 'none' ? 'none' : decl.map((d) => `${d.op} ${d.key}`).sort().join(', ') || 'none', retires: retiresFrom(md).map(checkKey).join(', ') || 'none',
+    // § Gate's key and values, so Gate 2 lists a change to them (only A/B proposals have the section).
+    ...(sectionLines(md, '## Gate').length ? { gate: key ? `${key} = ${values.join(' | ') || '?'}` : 'none' } : {}),
+  };
 };
 export const approvedOf = (md) => ({ approved: Object.fromEntries(scenariosFrom(md).map((s) => [s.id, scenarioRecord(s)])), approvedSections: approvedSections(md) });
 
@@ -386,11 +393,16 @@ export function securityVerdict(findings, baseline, changed) {
  */
 export function abGateOf(md) {
   const gate = sectionLines(md, '## Gate').join(' ');
-  const ticks = [...gate.matchAll(/`([^`]+)`/g)].map((m) => m[1]);
-  const key = ticks.find((t) => /^_[\w-]+$/.test(t)) || null;
-  const values = [...new Set(ticks.filter((t) => t !== key && /^[\w-]{1,20}$/.test(t)))];
+  const ticks = (text) => [...text.matchAll(/`([^`]+)`/g)].map((m) => m[1]);
+  const key = ticks(gate).find((t) => /^_[\w-]+$/.test(t)) || null;
+  // Only the "Values:" clause: other backticked words in § Gate (a file, an event, a click) aren't values.
+  const clause = gate.match(/\bValues?\s*:\s*(.*?)(?:\.\s|$)/i)?.[1] || '';
+  const values = [...new Set(ticks(clause).filter((t) => t !== key && /^[\w-]{1,20}$/.test(t)))];
   return { key, values };
 }
+
+/** Code without its comments, so a value or key that only a comment mentions doesn't count. */
+const codeOnly = (src) => String(src).replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:\\'"])\/\/[^\n]*/g, '$1');
 
 /** § A/B test completion, or § Sunset in a proposal written before the rename. */
 const completionOf = (md) => { const l = sectionLines(md, '## A/B test completion'); return l.length ? l : sectionLines(md, '## Sunset'); };
@@ -411,27 +423,42 @@ function abSteps(id, md) {
   ];
 }
 
-function abCodeProblems(id, md) {
+function abCodeProblems(id, md, base) {
   const { key, values } = abGateOf(md);
   if (!key) return ['§ Gate names no key: write it in backticks, e.g. `_abc-123`'];
+  if (!values.length) return ['§ Gate names no values: write them after "Values:", in backticks, e.g. Values: `1` → B, `2` → C'];
   const dir = join(ROOT, 'abtest', id);
   const files = existsSync(dir) ? readdirSync(dir).filter((f) => /\.js$/.test(f)) : [];
   if (!files.length) return [`abtest/${id}/ has no test code: write the variation and control files from .claude/kit/templates/abtest-*.js`];
   const out = [];
-  const text = Object.fromEntries(files.map((f) => [f, readFileSync(join(dir, f), 'utf8')]));
+  const code = Object.fromEntries(files.map((f) => [f, codeOnly(readFileSync(join(dir, f), 'utf8'))]));
   // The template derives the key from its ID constant: _${ID.toLowerCase()}.
-  const writesKey = (src) => src.includes(key) || (src.match(/var ID = ["']([^"']+)["']/)?.[1] && `_${src.match(/var ID = ["']([^"']+)["']/)[1].toLowerCase()}` === key);
-  for (const [f, src] of Object.entries(text)) {
-    if (/["']TICKET["']|TEST NAME/.test(src)) out.push(`abtest/${id}/${f} still has the template's TICKET or TEST NAME`);
-    if (!writesKey(src)) out.push(`abtest/${id}/${f} doesn't use the key ${key}`);
-  }
-  const variations = Object.entries(text).filter(([f]) => !/control/i.test(f));
+  const writesKey = (src) => src.includes(key) || `_${(src.match(/var ID = ["']([^"']+)["']/)?.[1] || '').toLowerCase()}` === key;
   const literal = (src, v) => new RegExp(`["'\`]${v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["'\`]`).test(src);
-  for (const v of values) if (!variations.some(([, src]) => literal(src, v))) out.push(`no variation file in abtest/${id}/ writes the value "${v}" from § Gate`);
-  if (!values.includes('true') && variations.some(([, src]) => /\]:\s*["']true["']/.test(src))) out.push(`a variation file still writes the template's "true", which § Gate doesn't list`);
-  if (!Object.keys(text).some((f) => /control/i.test(f))) out.push(`abtest/${id}/ has no control file (control.js clears the key)`);
-  const extFiles = git(['ls-files', 'extensions'], { allowFail: true }).split('\n').filter((f) => /\.(m?[jt]sx?|graphql|rs|toml|liquid)$/.test(f));
-  if (!extFiles.some((f) => read(f).includes(key))) out.push(`no file under extensions/ reads the key ${key}: the extension and the test code disagree`);
+  const control = files.filter((f) => /control/i.test(f));
+  // Helper files in the folder aren't arms: the variation files are named so.
+  const variations = files.filter((f) => /variation/i.test(f));
+  if (!variations.length) out.push(`abtest/${id}/ has no variation file (name it variation.js, or variation-1.js and so on per arm)`);
+  const written = new Map();
+  for (const f of [...variations, ...control]) {
+    if (/["']TICKET["']|TEST NAME/.test(code[f])) out.push(`abtest/${id}/${f} still has the template's TICKET or TEST NAME`);
+    if (!writesKey(code[f])) out.push(`abtest/${id}/${f} doesn't use the key ${key}`);
+  }
+  for (const f of variations) {
+    const mine = values.filter((v) => literal(code[f], v));
+    if (!mine.length) out.push(`abtest/${id}/${f} writes none of § Gate's values (${values.join(', ')})`);
+    else if (mine.length > 1) out.push(`abtest/${id}/${f} has more than one of § Gate's values (${mine.join(', ')}): each variation file writes its own`);
+    else if (written.has(mine[0])) out.push(`abtest/${id}/${f} and ${written.get(mine[0])} both write "${mine[0]}": each arm needs its own value`);
+    else written.set(mine[0], f);
+    if (!values.includes('true') && /\]:\s*["']true["']/.test(code[f])) out.push(`abtest/${id}/${f} still writes the template's "true", which § Gate doesn't list`);
+  }
+  for (const v of values) if (variations.length && ![...written.keys()].includes(v)) out.push(`no variation file in abtest/${id}/ writes "${v}"`);
+  // The control may legitimately be missing when the tool can't run code in control; § Gate says so then.
+  if (!control.length && !/can'?t run code in control|no control code/i.test(sectionLines(md, '## Gate').join(' '))) out.push(`abtest/${id}/ has no control file (control.js clears the key)`);
+  // The extension this change touched must read the key, in its own source (not a test, not a comment).
+  const touched = git(['diff', '--name-only', `${base}...HEAD`], { allowFail: true }).split('\n').filter(Boolean)
+    .filter((p) => !p.startsWith('abtest/') && !p.startsWith('appspec/') && /\.(m?[jt]sx?|graphql|rs|toml|liquid)$/.test(p) && !/(^|\/)(tests?|__tests__|fixtures)\/|\.test\./.test(p));
+  if (!touched.some((p) => codeOnly(read(p)).includes(key))) out.push(`no source file this change touched reads the key ${key} (tests and comments don't count): the extension and the test code disagree`);
   return out;
 }
 
@@ -502,7 +529,7 @@ function runVerify(cfg, id, st, { skipTests }) {
   }
 
   if (typeOf(st) === 'ab') {
-    const problems = abCodeProblems(id, md);
+    const problems = abCodeProblems(id, md, a.base);
     add('ab code', problems.length ? 'FAIL' : 'PASS', problems.join(' · ') || 'the test code writes § Gate\'s key and values, and the extension reads the key');
   }
   if (cfg.securityCheck === false) add('security check', 'WARN', 'skipped: "securityCheck": false in .claude/app-kit.json');
@@ -637,11 +664,12 @@ function handoff(cfg, id, st) {
     '### Gates',
     ...Object.entries(st.gates || {}).map(([g, v]) => `- ${g} (${v.at.slice(0, 16)}): "${v.answer}"`),
     '',
+    ...(sectionLines(md, '## Client comment').filter((l) => !l.startsWith('<!--')).length ? ['## Client comment (for the dev to post on the ticket)', '', ...sectionLines(md, '## Client comment').filter((l) => !l.startsWith('<!--')), ''] : []),
     '## Deploy checklist (the dev deploys; the kit never does)',
     '',
     ...stepsFor(cfg, st).map((s) => `- [ ] ${s}`),
     ...(design.length && !saysNone(design) ? ['', '### From proposal.md § Design (this change\'s own notes; the order above comes first)', ...design.map((l) => `- ${l.replace(/^[-*]\s*/, '')}`)] : []),
-    ...(abLines.length ? ['', '### A/B test: activation and completion', ...abSteps(id, md).map((l) => `- [ ] ${l}`), '', 'From proposal.md § Gate and § A/B test completion:', ...abLines.map((l) => `- ${l}`)] : []),
+    ...(abLines.length ? ['', '### A/B test: activation and completion', ...abSteps(id, md).map((l) => `- [ ] ${l}`), '', 'From proposal.md § Gate (targeting and trigger):', ...sectionLines(md, '## Gate').map((l) => `- ${l.replace(/^[-*]\s*/, '')}`)] : []),
     '',
     `Store mutations run on the dev store: ${(st.mutations || []).length}.`,
     '',
@@ -706,6 +734,9 @@ function runHandoff(cfg, id, st) {
     st.verify && st.verify.digest !== codeDigest(cfg) && 'the code changed after verify: run verify again (back to verify)',
     st.verify && st.verify.proposal !== proposalDigest(md) && 'the scenarios, § Surfaces or § Retires changed after verify: run verify again (back to verify)',
     dirtyCode(cfg).length && 'commit the work first',
+    // A proposal from before 0.3.0 has no such heading; it isn't refused for it.
+    md.split(/\r?\n/).some((l) => l.trim() === '## Client comment') && !sectionLines(md, '## Client comment').some((l) => l && !l.startsWith('<!--'))
+      && 'write proposal.md § Client comment: the comment for the dev to post for the client (what\'s done and when shoppers see it, what differs from the ticket, what the client or CRO does next)',
     ...openQa(cfg, st, rows),
   ].filter(Boolean);
   if (problems.length) fail(`Can't hand off ${id}:\n${problems.map((p) => `- ${p}`).join('\n')}`);
@@ -765,6 +796,12 @@ function finishArchive(cfg, id, st, to) {
  * owner/repo on GitHub, from origin: https or git@github.com, and an SSH alias such as drip-dev:Org/repo (the asmc
  * remote), which the team only uses for GitHub. null for anything else.
  */
+/** Where a new change's branch starts: the base, or the onboarding branch while that isn't merged. */
+function changeSource(cfg) {
+  const has = (ref) => run('git', ['cat-file', '-e', `${ref}:${specPaths(cfg).surfaces}`]).code === 0;
+  return !has(`origin/${cfg.baseBranch}`) && has(`origin/${ONBOARD_BRANCH}`) ? `origin/${ONBOARD_BRANCH}` : `origin/${cfg.baseBranch}`;
+}
+
 function githubRepo() {
   const remote = (run('git', ['remote', 'get-url', 'origin']).stdout || '').trim();
   return remote.match(/github\.com[:/]([^/\s]+\/[^/\s]+?)(\.git)?$/)?.[1]
@@ -780,6 +817,7 @@ function archivedNext(cfg, id, st, to) {
     uncommitted && `git add -- ${P.dir} && git commit -m "${(cfg.commitPattern || '{ID}: handoff').replace('{ID}', id)}"`,
     st.test ? '(test run: no push)' : (uncommitted || behind) && `git push -u origin ${st.branch}`,
     `PR text and deploy checklist: ${to}/handoff.md`,
+    st.stackedOn && run('git', ['cat-file', '-e', `origin/${cfg.baseBranch}:${specPaths(cfg).surfaces}`]).code !== 0 && `merge ${st.stackedOn} into ${cfg.baseBranch} first, with a merge commit (a squash merge would make this PR repeat the onboarding)`,
     !st.test && githubRepo() && `open the PR: https://github.com/${githubRepo()}/compare/${cfg.baseBranch}...${st.branch}?expand=1 (with gh: gh pr create --base ${cfg.baseBranch} --head ${st.branch} --body-file ${to}/handoff.md)`,
   ].filter(Boolean);
 }
@@ -914,7 +952,7 @@ function onboard(cfg, flags = {}) {
       `fill ${P.project} (a few lines each)`,
       `commit ${P.dir}/ on ${branch} and push it: git push -u origin ${branch}`,
       repo ? `the dev merges it: https://github.com/${repo}/compare/${cfg.baseBranch}...${branch}?expand=1` : `the dev merges ${branch} into ${cfg.baseBranch}`,
-      `a change starts only after that merge (app.mjs start checks origin/${cfg.baseBranch})`,
+      `the first change needn't wait: it stacks on ${branch} (app.mjs start says how). Merge ${branch} first, with a merge commit, then the change's PR`,
     ],
   };
 }
@@ -966,7 +1004,7 @@ function selftest() {
   eq('surface keys', ['scope:read_orders', 'model:Gift', 'dependency:extensions/x:zod', 'app-proxy', 'sope:x'].map((k) => SURFACE_KEY.test(k)), [true, true, true, true, false]);
   eq('one stage graph, two gates', [STAGES.map((s) => s.name), STAGES.filter((s) => s.gate).map((s) => s.name)], [['propose', 'build', 'verify', 'accept', 'handoff'], ['propose', 'accept']]);
   eq('types', TYPES, ['change', 'fix', 'maintain', 'ab']);
-  eq('heavy surfaces need § Design', ['app-proxy', 'model:Gift', 'scope:read_orders', 'app-proxy-x', 'extension:gift'].map((k) => HEAVY.test(k)), [true, true, false, false, true]);
+  eq('heavy surfaces need § Design; a new extension does not (the deploy checklist orders it)', ['app-proxy', 'model:Gift', 'scope:read_orders', 'app-proxy-x', 'extension:gift'].map((k) => HEAVY.test(k)), [true, true, false, false, false]);
   eq('declared surfaces: a new scope names its scenario', declaredProblems([{ op: '+', key: 'scope:read_orders', why: 'gift', scenario: 'S9' }], [{ id: 'S1' }], 'change', 'X').length, 1);
   eq('maintenance declares a scope without a scenario', declaredProblems([{ op: '+', key: 'scope:read_orders', why: 'api bump', scenario: '' }], [], 'maintain', 'X'), []);
   eq('a test is touched by its file, its fixtures/ or __snapshots__/, not by other files next to it', [
@@ -1120,6 +1158,7 @@ switch (verb) {
         : `${specPaths(cfg).surfaces} isn't on this branch. Not onboarded yet: run /app-setup, which onboards the app.`);
     }
     const from = onOnboard ? `origin/${ONBOARD_BRANCH}` : `origin/${cfg.baseBranch}`;
+    const holdsOnboarding = !onOnboard || run('git', ['merge-base', '--is-ancestor', from, 'HEAD']).code === 0;
     const st0 = { test: Boolean(flags.test) };
     const want = branchFor(cfg, id, st0);
     const branch = currentBranch();
@@ -1127,6 +1166,7 @@ switch (verb) {
       fail(`You're on ${branch}, which is protected. Create the change branch first:\n  git fetch origin\n  git switch -c ${want} --no-track ${from}`);
     }
     if (branch !== want) fail(`Check out the change branch first (expected ${want}, on ${branch}):\n  git switch -c ${want} --no-track ${from}   (or git switch ${want} if it exists)`);
+    if (!holdsOnboarding) fail(`${branch} doesn't contain ${from}, where this app's onboarding is. Cut the branch from it:\n  git switch -c ${want}-2 --no-track ${from}   (or rebase ${branch} onto ${from})`);
     const dir = join(ROOT, changeDir(cfg, id));
     mkdirSync(dir, { recursive: true });
     if (!existsSync(join(dir, 'proposal.md'))) writeFileSync(join(dir, 'proposal.md'), proposalTemplate(id, type));
@@ -1140,7 +1180,7 @@ switch (verb) {
     const st = {
       schemaVersion: 2, kitVersion: KIT_VERSION, id, type, title: typeof flags.title === 'string' ? flags.title : '', tickets: /^[A-Z][A-Z0-9]+-\d+$/.test(id) ? [id] : [],
       createdAt: now(), owner: owner(), stage: STAGES[0].name, gates: {}, test: st0.test,
-      ...(onOnboard ? { stackedOn: ONBOARD_BRANCH } : {}),
+      ...(onOnboard ? { stackedOn: ONBOARD_BRANCH, stackedSha: git(['rev-parse', from], { allowFail: true }) || null } : {}),
       branch, base: effectiveBase(onOnboard ? { stackedOn: ONBOARD_BRANCH } : {}, cfg) || head(), history: [{ at: now(), event: 'start' }], qa: { rows: {} }, reviews: {}, mutations: [],
     };
     // A restart keeps the abandoned attempt's documents (rewrite what no longer holds) and a pointer to why it stopped.
@@ -1164,7 +1204,7 @@ switch (verb) {
         'A reopened ticket is a new change under the same ID: ask the dev first.'].join('\n'));
       break;
     }
-    print(`${id} not started. Create its branch (git fetch origin, then git switch -c ${branchFor(cfg, id, { test: Boolean(flags.test) })} --no-track origin/${cfg.baseBranch}), then: node .claude/kit/app.mjs start ${id} --type change|fix|maintain|ab`);
+    print(`${id} not started. Create its branch (git fetch origin, then git switch -c ${branchFor(cfg, id, { test: Boolean(flags.test) })} --no-track ${changeSource(cfg)}), then: node .claude/kit/app.mjs start ${id} --type change|fix|maintain|ab`);
     break;
   }
 
@@ -1283,7 +1323,7 @@ switch (verb) {
     const text = (f) => (typeof flags[f] === 'string' ? flags[f].trim().replace(/\r?\n/g, ' ') : '');
     if (flags.verdict !== 'BLOCKED' && (!text('measured') || !text('how'))) fail(`A ${flags.verdict} needs --measured "<what you observed: the text, the value, the element>" and --how "<where and how: the store page, viewport, tool>", in the same call.`);
     // A PASS that says part of it wasn't shown is partial (as the theme kit refuses since 1.13.10's review): split it.
-    const hedge = flags.verdict === 'PASS' && text('measured').match(/\b(?:not provable|can(?:no|')t (?:be )?prove[nd]?|not (?:yet )?(?:verified|measured|tested|checked|shown)|unverified|untested|assumed|only partly|partially)\b|\blimit(?:ation)?s?\s*:/i);
+    const hedge = flags.verdict === 'PASS' && text('measured').match(/\b(?:not provable|can(?:no|')t (?:be )?prove[nd]?|not (?:yet )?(?:verified|measured|tested|checked)|unverified|untested|assumed|only partly|partially)\b|\blimitations?\s*:/i);
     if (hedge) fail(`--measured says "${hedge[0]}", so part of ${s.id} wasn't shown. Measure it, or record BLOCKED with what's missing.`);
     // The code a verdict was measured on: a row measured before a fix doesn't count after it.
     st.qa = { rows: { ...st.qa?.rows, [s.id]: { verdict: flags.verdict, measured: text('measured'), how: text('how'), digest: codeDigest(cfg), at: now() } } };
@@ -1297,7 +1337,9 @@ switch (verb) {
     const st = atStage(id, 'verify');
     const s = findScenario(scenariosFrom(proposalOf(cfg, id)), rest[0]);
     if (!s || s.check.kind !== 'qa' || typeof flags.reason !== 'string' || !flags.reason.trim()) fail('Usage: waive <ID> <scenario> --reason "why it can\'t be measured, and who checks it instead", for a qa: scenario');
-    st.qa = { rows: { ...st.qa?.rows, [s.id]: { verdict: 'WAIVED', reason: flags.reason.trim(), digest: codeDigest(cfg), at: now(), by: owner().name } } };
+    // Skipping a check is the dev's call, recorded in their words like a gate answer.
+    if (typeof flags.answer !== 'string' || !flags.answer.trim()) fail(`Waiving ${s.id} is the dev's call: ask them, then add --answer "<their words>".`);
+    st.qa = { rows: { ...st.qa?.rows, [s.id]: { verdict: 'WAIVED', reason: flags.reason.trim(), answer: flags.answer.trim(), digest: codeDigest(cfg), at: now(), by: owner().name } } };
     st.history.push({ at: now(), event: 'waive', row: s.id, reason: flags.reason.trim() });
     writeChange(cfg, id, st);
     print(`${s.id} waived: ${flags.reason.trim()}`);

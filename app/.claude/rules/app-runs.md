@@ -4,7 +4,7 @@ paths:
   - ".claude/logs/**"
 ---
 
-# App kit runs (/app-implement)
+# App kit runs (/app-implement, /app-investigate)
 
 - **Decide what's clear; ask only what's the dev's call.** When the ticket, the app's own code and conventions, the archived changes or Shopify's docs answer a question, decide it, record it in proposal.md § Decided for you (one line, with why), and go on. The dev reviews those at Gate 1 and can change any of them. **Ask** (all at once, each with 2–4 options and your recommendation first) only when:
   - the change would depart from the ticket;
@@ -14,7 +14,7 @@ paths:
   - the ticket and the code, or two tickets, contradict each other;
   - it can't be undone cheaply: a data migration, deleting data, a removed webhook or surface merchants rely on.
   A question whose recommended option you'd have taken anyway, with nothing in this list behind it, is a decision: take it and record it.
-- **Waiting on the client or CRO.** Some answers only the client or the CRO team can give: what customers see, content, a trade-off the ticket leaves open, an approval before going live. Flag each one as early as you can see it (intake, or the first stage that reveals it), and give the dev a ready-to-post comment: short, in the client's words, the question with its options and what each means for them. Then keep going with everything that doesn't depend on the answer, and say what you're doing meanwhile. Stop only where the answer decides the work ahead (a scenario value, the deploy); when the dev comes back with the reply, record it in their words and continue from there. No kit check enforces this: it's how the team works.
+- **Waiting on the client or CRO.** Some answers only the client or the CRO team can give: what customers see, content, a trade-off the ticket leaves open, an approval before going live. Flag each one as early as you can see it (at propose, or the first stage that reveals it), and give the dev a ready-to-post comment: short, in the client's words, the question with its options and what each means for them. Then keep going with everything that doesn't depend on the answer, and say what you're doing meanwhile. Stop only where the answer decides the work ahead (a scenario value, the deploy); when the dev comes back with the reply, record it in their words and continue from there. No kit check enforces this: it's how the team works.
 - **What this project does its own way** (its dev server command, a deploy step, where a draft's link goes, a quirk of its theme or app) lives in the repo's root `CLAUDE.md`, which every session loads and the kit's installer never touches. Read it at the start. When you learn such a fact that a teammate would need next time, offer to add one line there under "## Project notes", and add it on a yes. Never put credentials or client data in it.
 - **Gates are the dev's decisions.** Gate 1 hands the proposal over and waits for the dev's reply (app-propose); Gate 2 asks with AskUserQuestion. Record their words. Never infer an answer. Silence is not approval.
 - **`--answer` is one line of at most 200 characters, in the dev's words, without quotes, backticks or `$`** (they break shell quoting).

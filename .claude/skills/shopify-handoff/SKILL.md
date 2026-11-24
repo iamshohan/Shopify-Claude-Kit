@@ -16,7 +16,7 @@ The kit prepares everything and merges nothing. Merging, posting to Jira and goi
      - what changed and why
      - the files changed
      - the store setup done (each definition, with the IDs from the summary)
-     - the QA summary
+     - the QA summary, naming every row that isn't PASS ("#7 NOT TESTED: …"), so the PR claims nothing QA didn't show; `done handoff` refuses a PR that leaves one out
      - the preview URL
      - how to test
      - the run summary

@@ -64,3 +64,6 @@ shared code other features use, merchant re-approval. Or "none: new files only".
 <!-- One "- [ ] …" line per task in build order, each naming the scenarios it satisfies (S1, S2), the tests and fixtures
 included. Tick a task when it is committed. -->
 
+## Client comment
+
+<!-- Written at handoff, in the client's words, for the dev to post on the ticket: what's done and when shoppers first see it, every way the result differs from the ticket, and what the client or CRO does next (an A/B test: what they start). No branch names, file paths, scenario ids or internal names. handoff copies it into handoff.md. -->

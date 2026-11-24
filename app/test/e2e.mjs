@@ -233,7 +233,7 @@ writeFileSync(outFile, JSON.stringify({ testResults: files.map((file) => ({ name
   write('appspec/surfaces.json', '{}');
   const redo = app('onboard', '--redo');
   ok('onboard --redo rewrites an uncommitted baseline', redo.code === 0 && JSON.parse(read('appspec/surfaces.json')).items?.['scope:read_products'], redo.all);
-  ok('onboard prints the merge link and says a change waits for it', (json(redo).next || []).some((l) => /merges it|merges kit-onboard|into main/.test(l)) && (json(redo).next || []).some((l) => /starts only after that merge/.test(l)), redo.all);
+  ok('onboard prints the merge link and says the first change can stack on it', (json(redo).next || []).some((l) => /merges it|merges kit-onboard|into main/.test(l)) && (json(redo).next || []).some((l) => /needn't wait: it stacks on/.test(l)), redo.all);
   commit('onboard the app kit');
   const lateRedo = app('onboard', '--redo');
   ok('onboard --redo refuses once the baseline is committed', lateRedo.code !== 0 && /is committed/.test(lateRedo.all), lateRedo.all);
@@ -245,6 +245,7 @@ writeFileSync(outFile, JSON.stringify({ testResults: files.map((file) => ({ name
   git('fetch', '-q', 'origin');
   const stackedHint = app('start', ID, '--type', 'change');
   ok('with the onboarding pushed but not merged, start tells the change to branch from origin/kit-onboard', /--no-track origin\/kit-onboard/.test(stackedHint.all), stackedHint.all);
+  ok('status of an unstarted change names the same branch to cut from', /--no-track origin\/kit-onboard/.test(app('status', ID).all), app('status', ID).all);
   git('push', '-q', 'origin', '--delete', 'kit-onboard');
   git('fetch', '-q', '--prune', 'origin');
   git('push', '-q', 'origin', 'main');

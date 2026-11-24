@@ -20,7 +20,7 @@ You are running the Shopify App Kit for one change. A script keeps track of wher
 ## Every time, before anything else
 
 1. No ID given → run `node .claude/kit/app.mjs list`, ask the dev which change to continue or what to start, and stop until they answer. A description without an ID: pick a short kebab-case ID (e.g. `gift-label`), say it in one line, and go on; the dev can rename it before the first commit. A Jira key is the ID itself.
-2. `.claude/app-kit.json` missing → tell the dev to run `/app-setup`, and stop. `appspec/surfaces.json` missing → `/app-setup`, which onboards the app, and stop.
+2. `.claude/app-kit.json` missing → tell the dev to run `/app-setup`, and stop. `app.mjs start` tells a repo that was never onboarded (→ `/app-setup`) from one whose onboarding isn't merged yet (the change stacks on it).
 3. Once per session: `node .claude/kit/shopify.mjs cli-check`. If it reports problems, show them and stop: the kit may no longer match the CLI.
 4. Run `node .claude/kit/app.mjs status <ID>`.
    - **Archived:** status says what's left (commit, push, the handoff). Do that. Only if the dev says the ticket was reopened, start it again below.

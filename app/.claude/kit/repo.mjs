@@ -107,9 +107,10 @@ export const ONBOARD_BRANCH = 'kit-onboard';
  */
 export function effectiveBase(st, cfg) {
   const base = `origin/${cfg?.baseBranch || 'main'}`;
-  const stacked = st?.stackedOn && git(['rev-parse', '--verify', '--quiet', `origin/${st.stackedOn}`], { allowFail: true })
-    && run('git', ['merge-base', '--is-ancestor', `origin/${st.stackedOn}`, base]).code !== 0;
-  return git(['merge-base', 'HEAD', stacked ? `origin/${st.stackedOn}` : base], { allowFail: true }) || st?.base;
+  // The onboarding branch while it exists; the commit recorded at start once it's gone (deleted after a squash merge).
+  const onto = st?.stackedOn && (git(['rev-parse', '--verify', '--quiet', `origin/${st.stackedOn}`], { allowFail: true }) || st.stackedSha);
+  const stacked = onto && run('git', ['merge-base', '--is-ancestor', onto, base]).code !== 0;
+  return git(['merge-base', 'HEAD', stacked ? onto : base], { allowFail: true }) || st?.base;
 }
 
 export function owner() {

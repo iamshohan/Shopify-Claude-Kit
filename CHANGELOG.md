@@ -20,13 +20,23 @@ From the second five-way review (developer experience and automation quality, bo
 
 **QA:**
 - A failed preview falls back to the theme editor; `preview` refuses section-group overrides, which never apply (GSD-80).
-- The editor is reset by reloading and discarding, not by undo.
+- The editor is reset by closing its tab and opening it again, not by undo or a reload: a reload with changes raises the browser's "Leave site?" dialog, which blocks Claude in Chrome (also in `/shopify-video`).
 - Overlays (Shopify's preview bar, cookie banners, popups) are cleared in kit-browser first.
 - A rate-limited `compare` is replaced by a kit-browser comparison.
 
 **Fewer asks:** intake switches a clean tree to the base itself, reuses a task's own branch (recorded, so build doesn't ask again), and leaves the `preview_theme_id` question to QA's marker check. "Is the A/B test still running" needs evidence (the tool's script, the ticket, the dev), or it's `unknown`: markers the test's JavaScript adds never show in fetched HTML. A loop after handoff updates the existing PR instead of asking again. `/shopify-video` runs its own tool setup. Decided for you shows the top 10 and "N more", with "(vs AC n)" first.
 
 **Smaller:** a rejected push on a GitHub-connected draft shows the incoming editor saves before pulling them; the PR offer passes `--repo` and never retries without `--draft`; a plan rule on sections that can't read their theme blocks' settings (CHE-865); the TEMPORARY kit-browser 1.7.0 lines are gone; text that still said "ask every question" is fixed.
+
+**Fixed before release** (third review, six reviewers):
+- A FAIL or untested row counts as named only as "#7" in the dev's answer: a bare "7" matched "17" and any number in the text.
+- The hedged-PASS check no longer refuses "shown" or "limit:" in a plain measurement.
+- "client's call" also matches a curly apostrophe.
+- `back` refuses a third QA fix round after Gate 1 without `--answer`, so the 2-round cap is enforced, not only written.
+- `qa-row` writes the plan's criterion and Expected into the report row on every record (not with `--carry`), so QA can't reword them.
+- Intake records the base with a reused branch, so `done build` has it.
+- The run summary prints store-change file names, not full paths.
+- QA's fix loop now sits in the QA stage, with the live check first; the editor pass cites one screenshot per section and leaves labels and defaults to `contract.mjs`.
 
 ## 1.15.2 — 2026-11-25
 

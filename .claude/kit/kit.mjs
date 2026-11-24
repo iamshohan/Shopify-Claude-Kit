@@ -145,7 +145,8 @@ const saysNone = (key, file, heading, within) => /^((none|n\/a)\b|—)/i.test(ad
 const hasDesign = (st) => Boolean(st.design?.figma) && st.design.figma !== 'none';
 const VERDICTS = ['PASS', 'FAIL', 'NOT TESTED', 'BLOCKED'];
 /** Words that say a PASS isn't whole: what couldn't be shown belongs in its own NOT TESTED or BLOCKED row. */
-const HEDGE = /\b(?:not provable|can(?:no|')t (?:be )?prove[nd]?|not (?:yet )?(?:verified|measured|tested|checked|shown)|unverified|untested|assumed|only partly|partially)\b|\blimit(?:ation)?s?\s*:/i;
+// Not "not shown" (an empty state's honest result) and not a bare "limit:" (a value like "limit: 4").
+const HEDGE = /\b(?:not provable|can(?:no|')t (?:be )?prove[nd]?|not (?:yet )?(?:verified|measured|tested|checked)|unverified|untested|assumed|only partly|partially)\b|\blimitations?\s*:/i;
 /** A report row's verdict: the last verdict word in a cell, since Verdict is the last column. */
 const rowVerdict = (row) => [...row.matchAll(/\|\s*\**(PASS|FAIL|NOT TESTED|BLOCKED)\b/g)].pop()?.[1] || null;
 const short = (sha) => (sha ? sha.slice(0, 7) : 'none');
@@ -347,7 +348,7 @@ function handoffTextProblems(key, st) {
   const differACs = [...acRefs(differsLines(plan).join('\n'))];
   // brief.md § Decided → Questions and answers: # | Question | … ; a client's call starts its Question that way.
   const clientQs = tableRows(key, 'brief.md', '### Questions and answers', '## Decided').map(cells)
-    .filter((c) => /^client'?s call/i.test(c[1] || '')).map((c) => c[0].replace(/^Q?/i, 'Q'));
+    .filter((c) => /^client['’]?s call/i.test(c[1] || '')).map((c) => c[0].replace(/^Q?/i, 'Q'));
   const table = tableRows(key, 'report.md', '### What differs from what was asked', '## Handoff').map((r) => cells(r)[0] || '').join(' ');
   const tableACs = acRefs(table);
   const missing = [...differACs.filter((n) => !tableACs.has(n)).map((n) => `AC ${n}`), ...clientQs.filter((q) => !new RegExp(`\\b${q}\\b`, 'i').test(table))];
@@ -358,8 +359,8 @@ function handoffTextProblems(key, st) {
   const check = added(key, 'report.md', '### Client check', '## Handoff').join('\n');
   // Since 1.15.0 the agent decides what customers see itself and marks it "(client's call)" under Decided for you:
   // those reach the client too, as rows whose Ref says "client's call".
-  const decidedForClient = added(key, 'plan.md', '### Decided for you', '## At a glance').filter((l) => /\(client'?s call\)/i.test(l)).length;
-  const clientRows = (table.match(/client'?s call/gi) || []).length;
+  const decidedForClient = added(key, 'plan.md', '### Decided for you', '## At a glance').filter((l) => /\(client['’]?s call\)/i.test(l)).length;
+  const clientRows = (table.match(/client['’]?s call/gi) || []).length;
   // A row QA didn't PASS is named in the PR, so nobody reads "works" where it wasn't verified (GSD-80's on/off switch).
   const notVerified = Object.entries(st.qa?.rows || {}).filter(([, r]) => r.verdict && r.verdict !== 'PASS').map(([n]) => n);
   const unnamed = notVerified.filter((n) => !new RegExp(`#${n}\\b`).test(pr));
@@ -728,16 +729,21 @@ function unprovenProblems(key) {
   ]);
 }
 
-/** Not-proven criteria that didn't PASS and that the dev's Gate 2 answer doesn't name. */
+/**
+ * Whether the dev's Gate 2 answer names row n as "#n". A bare number isn't a name: the option "Accept, I'll do the 2
+ * checks" would name row 2, and "go live on 4 Dec" row 4.
+ */
+const namesRow = (answer, n) => new RegExp(`#${n}(?!\\d)`).test(answer || '');
+
 /** A FAIL is fixed, or the dev accepts it by name: "Accept, I'll do the 1 check" took GSD-80's open FAIL along. */
 function openFails(st, answer) {
-  const fails = Object.entries(st.qa?.rows || {}).filter(([, r]) => r.verdict === 'FAIL').map(([n]) => n)
-    .filter((n) => !new RegExp(`(^|\\D)${n}(?!\\d)`).test(answer));
-  return fails.length && `QA rows ${fails.map((n) => `#${n}`).join(', ')} are FAIL. Fix them (back to build), amend the criterion to a live baseline and measure again, or accept only if the dev names each one: --answer "<their words, naming ${fails.map((n) => `#${n}`).join(', ')}>"`;
+  const fails = Object.entries(st.qa?.rows || {}).filter(([, r]) => r.verdict === 'FAIL').map(([n]) => n).filter((n) => !namesRow(answer, n));
+  return fails.length && `QA rows ${fails.map((n) => `#${n}`).join(', ')} are FAIL. Fix them (back to build), or accept only if the dev names each one: --answer "<their words, naming ${fails.map((n) => `#${n}`).join(', ')}>". If the Expected itself looks wrong, that's the dev's call too: ask.`;
 }
 
+/** Not-proven criteria that didn't PASS and that the dev's Gate 2 answer doesn't name. */
 function unprovenUntested(key, st, answer) {
-  const named = (n) => new RegExp(`(^|\\D)${n}(?!\\d)`).test(answer);
+  const named = (n) => namesRow(answer, n);
   const open = [...new Set(unprovenRows(key).flatMap((r) => r.qa))].filter((n) => st.qa?.rows?.[n]?.verdict !== 'PASS' && !named(n));
   return open.length && `"Not proven yet" criteria ${open.map((n) => `#${n} (${st.qa?.rows?.[n]?.verdict || 'no verdict'})`).join(', ')} didn't pass. Test them, switch to the plan's fallback (kit.mjs back <KEY> build --reason "fallback for #…"), or accept them untested only if the dev names each one: --answer "<their words, naming ${open.map((n) => `#${n}`).join(', ')}>"`;
 }
@@ -836,7 +842,7 @@ function runSummary(key, st) {
     loopsBack: events.filter((e) => e.event === 'back').map((e) => `${e.from} → ${e.to}: ${e.reason}`),
     gates: Object.fromEntries(Object.entries(st.gates || {}).map(([g, v]) => [g, `${v.at.slice(0, 16)} "${v.answer}"`])),
     qaVerdicts: verdicts,
-    storeChanges: (st.mutations || []).map((m) => `${m.at.slice(0, 16)} ${m.file} → ${m.ids.join(', ') || 'no ids'}${m.userErrors?.length ? ' (errors)' : ''}`),
+    storeChanges: (st.mutations || []).map((m) => `${m.at.slice(0, 16)} ${String(m.file).split(/[\/]/).pop()} → ${m.ids.join(', ') || 'no ids'}${m.userErrors?.length ? ' (errors)' : ''}`),
     draft: st.draft?.themeId ? `${st.draft.name || st.draft.themeId}${st.draft.deletedAt ? ' (deleted)' : ''}` : null,
   };
 }
@@ -852,7 +858,11 @@ function selftest() {
   eq('repro: live shows the bug and the draft something else, not just both words', [
     bothSides('live: total 10.00; draft: total 8.00'), bothSides('live: not reproduced; draft: ok'), bothSides('live: 8.00; draft: 8.00'), bothSides('checked live and draft'),
   ], [true, false, false, false]);
-  eq('accept: an open FAIL needs the dev to name it', [Boolean(openFails({ qa: { rows: { 7: { verdict: 'FAIL' } } } }, 'Accept')), openFails({ qa: { rows: { 7: { verdict: 'FAIL' } } } }, 'Accept, #7 is pre-existing')], [true, 0]);
+  eq('accept: an open FAIL needs the dev to name it as #n; a bare number in the answer isn\'t a name', [
+    Boolean(openFails({ qa: { rows: { 7: { verdict: 'FAIL' } } } }, 'Accept')), openFails({ qa: { rows: { 7: { verdict: 'FAIL' } } } }, 'Accept, #7 is pre-existing'),
+    Boolean(openFails({ qa: { rows: { 2: { verdict: 'FAIL' } } } }, 'Accept, I\'ll do the 2 checks')), Boolean(openFails({ qa: { rows: { 4: { verdict: 'FAIL' } } } }, 'go live on 4 Dec')),
+    Boolean(openFails({ qa: { rows: { 1: { verdict: 'FAIL' } } } }, 'Accept, #12 untested')),
+  ], [true, 0, true, true, true]);
   eq('parseArgs values', parseArgs(['done', 'ABC-1', 'approve', '--answer', 'use a block']), { _: ['done', 'ABC-1', 'approve'], flags: { answer: 'use a block' } });
   eq('storefrontPath plain', storefrontPath('cart'), '/cart');
   eq('storefrontPath home', storefrontPath('home'), '/');
@@ -1122,6 +1132,12 @@ switch (verb) {
     if (to === -1) fail(`Unknown stage "${target}". Stages: ${stages.map((s) => s.name).join(', ')}`);
     if (to >= from) fail(`"${target}" isn't earlier than the current stage "${st.stage}".`);
     if (typeof flags.reason !== 'string' || !flags.reason.trim()) fail('Say why: --reason "..."');
+    // QA fixes failures inside the plan on its own, at most 2 rounds since the plan was approved; a third is the dev's call.
+    const approvedAt = [...st.history].reverse().find((e) => e.event === 'done' && e.stage === 'approve')?.at || '';
+    const qaRounds = st.history.filter((e) => e.event === 'back' && e.to === 'build' && ['qa', 'accept'].includes(e.from) && e.at > approvedAt).length;
+    if (target === 'build' && ['qa', 'accept'].includes(st.stage) && qaRounds >= 2 && typeof flags.answer !== 'string') {
+      fail(`This would be fix round ${qaRounds + 1} since the plan was approved. After 2 rounds the dev decides: ask them, then run back again with --answer "<their words>".`);
+    }
     for (const s of stages.slice(to)) delete st.gates[s.name];
     st.history.push({ at: now(), event: 'back', from: st.stage, to: target, reason: flags.reason.trim() });
     delete st.resumedFrom;
@@ -1279,6 +1295,10 @@ switch (verb) {
         st.qa.rows[n] = { ...prev, carriedTo: head, carry };
       }
       for (const f of ['measured', 'how', 'verdict']) if (typeof flags[f] === 'string') set(f, flags[f]);
+      // The row's Criterion and Expected come from the plan on every record, so a fix round can't quietly change what a
+      // row means in the report (VET-33 #11 kept an Expected the plan no longer had). A changed plan shows at Gate 2.
+      const planRow = tableRows(key, 'plan.md', '## QA criteria').map(cells).find((pc) => pc[0].replace(/\*/g, '') === n);
+      if (planRow && !carry) { set('criterion', planRow[1] || ''); set('expected', planRow[2] || ''); }
       lines[row] = `| ${c.join(' | ')} |`;
       const col = (name) => c[names.findIndex((h) => h.startsWith(name))] || '';
       const cell = col('verdict');

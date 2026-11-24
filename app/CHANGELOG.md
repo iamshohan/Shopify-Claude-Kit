@@ -16,6 +16,13 @@ The installer removes the old command files on update.
 
 **Level with the theme kit:** the client and CRO rule, project knowledge in the root `CLAUDE.md`, verify fixing failures inside the scenarios on its own (at most 2 rounds), `qa-row` refusing a hedged PASS, a client comment at handoff, and a shorter Gate 1 message (at most 15 lines; the first A/B Gate 1 was 39).
 
+**Fixed before release** (third review):
+- **A/B code check:** comments no longer satisfy it. Each `variation*.js` must write exactly one value, together covering every value in § Gate's "Values:" clause; helper files don't count; `control.js` is required unless § Gate says the tool can't run code in control; the extension's read is looked for only in source changed since the base, not in tests.
+- **§ Gate is part of the approved digest**, so a changed key or value after Gate 1 shows as drift. The handoff's A/B steps print only § Gate's lines.
+- **The client comment** lives in proposal § Client comment (handoff refused it before, and nothing could write it); handoff copies it into handoff.md.
+- **Stacking finished:** `start` checks that the branch really holds `kit-onboard` and records its commit, so the base still resolves once `kit-onboard` is deleted; the PR text says to merge `kit-onboard` first with a merge commit.
+- A new extension no longer needs § Design (the deploy checklist orders it); `waive` needs the dev's words (`--answer`); the hedge check matches the theme kit's; `status` names the change's source before it starts; stale references to the old commands are gone.
+
 ## 0.2.1 — 2026-11-25
 
 From the review of the first A/B change (ASM-924, at Gate 1).

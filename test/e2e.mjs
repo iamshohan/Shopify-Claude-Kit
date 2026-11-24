@@ -639,7 +639,10 @@ try {
   const handQa = kit('kit.mjs', 'done', KEY, 'qa');
   ok('done qa refuses a hand-written verdict and names the plan criterion qa-row never recorded',
     handQa.code === 1 && /rows 3 in report\.md don't show/.test(handQa.err) && /plan criteria 3 have no verdict/.test(handQa.err), handQa.all);
+  // The report row's Criterion and Expected come from the plan on every record: a fix round can't rewrite them.
+  edit(KEY, 'report.md', '| 3 | Header nav | present |', '| 3 | Header nav | whatever the fix shows |');
   kit('kit.mjs', 'qa-row', KEY, '3', '--measured', '1 nav', '--how', "__qa.see('header nav')", '--verdict', 'PASS');
+  ok('qa-row writes the plan\'s Criterion and Expected into the report row', /\| 3 \| Header nav \| present \|/.test(readFileSync(logFile(KEY, 'report.md'), 'utf8')), readFileSync(logFile(KEY, 'report.md'), 'utf8').split('\n').filter((l) => l.startsWith('| 3')).join('\n'));
   write('sections/feature.liquid', '<div class="e2e-feature" data-v="2"></div>\n');
   commit('feature v2');
   const behindRow = kit('kit.mjs', 'qa-row', KEY, '3', '--measured', '1 nav', '--how', 'see', '--verdict', 'PASS');
@@ -866,6 +869,14 @@ try {
   ok('a plan from an older template isn\'t refused for sections the kit added later', !/Decided for you|Independent check/.test(olderPlan.all) && /Decided for you/.test(gate1.all + noAgreement.all), olderPlan.all);
   ok('a plan with no questions passes ("none"), and a design constant against an AC needs "Gate 1" or a Q#',
     /"Spacing" touches AC 2/.test(noAgreement.err) && !/Spacing/.test(gate1.err) && !/Questions and answers/.test(gate1.err), noAgreement.all + gate1.all);
+  // QA fixes failures on its own for at most 2 rounds after approval; a third round needs the dev's words.
+  const s6 = JSON.parse(readFileSync(st6, 'utf8'));
+  const t0 = '2026-11-01T10:00:00.000Z';
+  writeFileSync(st6, JSON.stringify({ ...s6, stage: 'qa', history: [...s6.history, { at: t0, event: 'done', stage: 'approve' },
+    { at: '2026-11-01T11:00:00.000Z', event: 'back', from: 'qa', to: 'build', reason: 'QA #1' }, { at: '2026-11-01T12:00:00.000Z', event: 'back', from: 'qa', to: 'build', reason: 'QA #1 again' }] }));
+  const third = kit('kit.mjs', 'back', 'ABC-6', 'build', '--reason', 'QA #1 once more');
+  const thirdOk = kit('kit.mjs', 'back', 'ABC-6', 'build', '--reason', 'QA #1 once more', '--answer', 'try once more');
+  ok('a third QA fix round needs the dev\'s words', third.code === 1 && /fix round 3/.test(third.err) && thirdOk.code === 0, third.all + thirdOk.all);
 
   // ── State, verbs and flags this kit version dropped ──
   kit('kit.mjs', 'start', 'ABC-7');

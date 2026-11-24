@@ -17,7 +17,7 @@
 
 ### What differs from what was asked
 
-<!-- One row per AC under plan.md → Differs from the ticket, and per "Client's call" question in brief.md § Decided. The client-words column goes into the Jira comment. -->
+<!-- One row per AC under plan.md → Differs from the ticket (Ref: AC n), per "Client's call" question in brief.md § Decided (Ref: Qn), and per line under plan.md → Decided for you marked "(client's call)" (Ref: client's call). The client-words column goes into the Jira comment. -->
 
 | Ref (AC n or Qn) | What the client gets instead, in their words | Who decided |
 | --- | --- | --- |

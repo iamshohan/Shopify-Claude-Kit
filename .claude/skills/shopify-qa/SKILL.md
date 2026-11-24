@@ -78,7 +78,7 @@ Never write "QA passed" while any row is FAIL, NOT TESTED or BLOCKED.
       - Take section keys from that template: pull it with `shopify.mjs pull-live <KEY> templates/<file>`, or read the branch's copy if the branch changed it. Keys differ per template; only `main` is common.
       - `merge` deep-merges objects but replaces arrays, so send the full `block_order`.
       - `merge` can't remove a value. To test an empty image or url setting, use `source` with the whole template.
-      - Section groups work the same way: header and footer settings live in `sections/header-group.json` (or `footer-group.json`), so override that file, not a template.
+      - Section groups (`sections/header-group.json`, `footer-group.json`) can't be previewed: the override comes back without being applied (GSD-80), so `preview` refuses them. Measure header and footer settings in the theme editor (step 3).
    2. Run `node .claude/kit/shopify.mjs preview <KEY> <file>`, open the URL it returns, pass the gates above, and measure.
    3. After two failed previews for one case, measure it in the draft's theme editor instead (change the setting, measure, then reset as step 3 below says). Only if that fails too: NOT TESTED, with the CLI error. A preview never applies an override to a section group (`sections/*-group.json`, GSD-80's header): go to the editor for those directly.
 3. **Customizer.** Skip this step when `contract.mjs` reports no changed section, block or theme settings files (a CSS-only or Liquid-only fix): nothing in the editor changed. Otherwise: the theme editor is one cross-origin iframe, so `read_page`, `find`, `get_page_text` and `javascript_tool` can't see inside it: work from screenshots and clicks. Split the check in four.
@@ -87,13 +87,13 @@ Never write "QA passed" while any row is FAIL, NOT TESTED or BLOCKED.
       - Each entry in its "Problems" list is a FAIL: missing `t:` keys, a default that isn't an option, an off-range default, unknown preset blocks.
    2. **Loads in the editor.** Navigate to `<editorUrl>?previewPath=<a target page>`, wait about 30 seconds (the editor took 8–40 s to load in tests), and take a screenshot. It must show the draft's name with the **Draft** badge, a greyed-out **Save** button, and the feature in the preview. A login or 2FA page means BLOCKED; stop. Cite the screenshot in the How column of the customizer row.
    3. **In the editor, on the draft (Claude in Chrome).** Check what this change touches yourself, the way `/shopify-video` works in the editor, and fill contract.md's "Seen in editor" column as you go:
-      - each changed section and block: select it in the sidebar and take a screenshot of the settings panel; every label, default and option must match contract.md
+      - each changed section and block: select it in the sidebar and take one screenshot of the settings panel (cite it in How). The labels, defaults and options themselves are contract.mjs's check, not this one
       - "Add section" (and "Add block"): the new section or block is listed where the plan allows it, and absent where it doesn't
       - a setting the plan says updates the preview: change it, wait 2 s, and see the preview follow
       - each new image, colour, url or dynamic-source picker: open it, check it shows what it should (the metafield, for a dynamic source), close it
       - blocks: add one with the "Add block" button and remove it again; reorder only with the panel's own controls, never by drag
 
-      **Then leave the editor as it was:** reload the editor and choose to leave or discard the unsaved changes, then check that **Save** is grey. Setting values back by hand or with undo often leaves Save active, and undo doesn't cleanly reverse adding a block. Never click Save, Publish, Remove section, delete, or anything that changes the store. On a GitHub-connected draft a Save becomes a commit on the PR branch; `kit.mjs premerge <KEY>` would catch one, but don't make it. Claude in Chrome missing, or a login page: these become BLOCKED rows for the dev, as below.
+      **Then leave the editor as it was:** close the editor tab (`tabs_close_mcp`), open it again in a new tab, and check that **Save** is grey and the values are the plan's defaults. Don't reload or navigate away from an editor with changes: the browser's own "Leave site?" dialog blocks Claude in Chrome. Setting values back or undo often leaves Save active. Never click Save, Publish, Remove section, delete, or anything that changes the store. On a GitHub-connected draft a Save becomes a commit on the PR branch; `kit.mjs premerge <KEY>` would catch one, but don't make it. Claude in Chrome missing, or a login page: these become BLOCKED rows for the dev, as below.
    4. **By hand (dev checklist).** Add a BLOCKED row with "dev checks by hand" only for what you can't do in step 3, and only for what this change touches:
       - placing a section or block by drag in the theme or checkout editor (synthetic drag events there aren't reliable)
       - touch-only behaviour on a real phone
@@ -114,7 +114,18 @@ Never write "QA passed" while any row is FAIL, NOT TESTED or BLOCKED.
   - "Gates: theme ✓ <id>, viewport ✓ <widths>."
 - **Screenshots** only for things a human must judge visually, saved in `.claude/logs/<KEY>/screenshots/`.
 
-**Done when:** every criterion has a verdict recorded with qa-row, the draft is at the branch head, and the summary is written. Then run `kit.mjs done <KEY> qa`.
+### Fix what you can, before Gate 2
+
+A FAIL whose fix stays inside the approved plan (a selector, a missing guard, a timing, a style value the plan states) goes back to build on its own: `kit.mjs back <KEY> build --reason "QA #n"`, fix it in fix mode (record the fix under plan.md § Amendments with the reason), push, and re-measure the failed rows, the rows on pages the fix touched, and the regression check. `done qa` lists PASS rows measured before the fix: re-measure each, or keep the ones the fix can't reach with `kit.mjs qa-row <KEY> <#,#,…> --carry "<why>"`. At most 2 rounds: `back` refuses a third without the dev's words.
+
+Ask instead of fixing when:
+- **live fails the row too** (measure live first): the Expected was written from code, and "fixing" it would change an existing component (GSD-80's mega menu already overflowed on live);
+- the fix touches a price or a discount, changes what the merchant controls, or adds a setting or definition;
+- 2 rounds didn't fix it.
+
+The criterion and Expected stay the plan's: `qa-row` writes them from plan.md on every record, and a plan change shows at Gate 2.
+
+**Done when:** every criterion has a verdict recorded with qa-row, no FAIL is left that you could fix, the draft is at the branch head, and the summary is written. Then run `kit.mjs done <KEY> qa`.
 
 ## Stage: accept (Gate 2)
 
@@ -125,14 +136,10 @@ Never write "QA passed" while any row is FAIL, NOT TESTED or BLOCKED.
    - "Since the plan was approved" from `kit.mjs status <KEY>`: changed files the plan didn't name, and the plan's changes. Say "none" when both are none.
    - anything noticed that the dev should decide about, at most three lines
    - **"Not proven yet" rows that didn't pass** (plan.md § At a glance), each with its fallback, first and set apart: "#11 Restock Rocket for the set product: NOT TESTED. Fallback: no waitlist button."
-**Before Gate 2: fix what you can.** A FAIL whose fix stays inside the approved plan (a selector, a missing guard, a timing, a style value the plan states) goes back to build on its own: `kit.mjs back <KEY> build --reason "QA #n"`, fix, push, re-measure, at most 2 rounds. Come to Gate 2 with 0 FAIL, and list what you fixed in one line each. Ask instead when the Expected itself looks wrong (it was written from code, and live already does otherwise), when the fix touches a price or a discount, or after 2 rounds.
-
-2. AskUserQuestion: "QA result for <KEY>". Options: **Accept, I'll do the N checks** (or **Accept** when nothing is open), **Fix the failures**, and **I'll test more first**. When "not proven yet" rows didn't pass, replace the first option with **Use the fallback for #…** and **Accept #… untested** (the dev's risk, named), naming every such row: each row of Not proven yet points at criteria in its "QA #" column, and each of those that isn't PASS belongs in both labels (VSD-354 named #4/#5 and missed #6, so the dev was asked twice). Keep the other two options. `done accept` refuses an untested not-proven row the answer doesn't name.
+2. AskUserQuestion: "QA result for <KEY>". Options: **Accept, I'll do the N checks** (or **Accept** when nothing is open), **Fix the failures** (only when a FAIL is left), and **I'll test more first**. A FAIL left open is accepted only by naming it as "#n" in the answer; a bare number doesn't count. When "not proven yet" rows didn't pass, replace the first option with **Use the fallback for #…** and **Accept #… untested** (the dev's risk, named), naming every such row: each row of Not proven yet points at criteria in its "QA #" column, and each of those that isn't PASS belongs in both labels (VSD-354 named #4/#5 and missed #6, so the dev was asked twice). Keep the other two options. `done accept` refuses an untested not-proven row the answer doesn't name.
 3. Then:
    - **Accept** (or **Accept #… untested**) → `kit.mjs done <KEY> accept --answer "<their words>"`.
    - **Use the fallback for #…** → `kit.mjs back <KEY> build --reason "fallback for #…"`, record it under plan.md § Amendments, and continue as for fixes below.
    - **Fix the failures** → `kit.mjs back <KEY> build --reason "<the failing rows>"`. Then:
-     1. Follow the build stage in fix mode: the builder gets the failing rows. Then commit. **How to fix is yours to decide** when the fix stays inside the approved plan (a selector, a guard on missing data, a timing): pick it, record it under plan.md § Amendments with the reason, and tell the dev in one line. Ask only what `.claude/rules/kit-runs.md` lists, such as a fix that changes what the merchant controls or adds a setting or definition. Gate 2 shows every amendment anyway.
-     2. Run the draft stage again (push).
-     3. Run the qa stage again. Re-measure the failed rows, the rows on pages the fix touched, and the regression check. `done qa` lists the PASS rows measured before the fix changed theme files: re-measure each, or keep the ones the fix can't reach with `kit.mjs qa-row <KEY> <#,#,…> --carry "<why>"`.
+     Then as in "Fix what you can" above (with the dev's words: `back … --answer`).
    - **I'll test more first** → wait. When the dev reports issues, add them as rows and treat them as fixes.

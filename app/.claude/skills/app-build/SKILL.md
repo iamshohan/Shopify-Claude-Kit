@@ -6,7 +6,7 @@ user-invocable: false
 
 # Build
 
-1. **Branch.** `git rev-parse --abbrev-ref HEAD` must equal the branch in status. If not, `git switch <branch>`. Uncommitted changes you didn't make → ask the dev, except the folder of an extension § Surfaces declares (`+ extension:`), which the dev generated at propose: commit it as the first build commit.
+1. **Branch.** `git rev-parse --abbrev-ref HEAD` must equal the branch in status. If not, `git switch <branch>`. Uncommitted changes you didn't make → ask the dev, except the folder of an extension § Surfaces declares (`+ extension:`), which propose generated: commit it as the first build commit.
 2. **Implement.** Spawn `app-builder` with the ID (and in a fix loop, the failing checks or findings pasted into the prompt). Wait for its "As built" report.
 3. **Generated files.** After a Function's input query changes: `node .claude/kit/shopify.mjs function-typegen <fn>`. After a Prisma schema change: `npx prisma migrate dev --name <change-id>` (the guard asks: it touches the database DATABASE_URL points at) and `npx prisma generate`.
 4. **Run the tests yourself.** `npx vitest run <file>` in the package that owns each scenario's test. Function fixtures: `node .claude/kit/shopify.mjs function-build <fn>` then `function-run <fn>`. Every test named in § Scenarios must exist with that name, match only one test, and pass. No test an archived change bound may be gone unless § Retires names it.

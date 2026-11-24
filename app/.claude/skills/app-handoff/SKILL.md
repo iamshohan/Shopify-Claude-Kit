@@ -7,12 +7,12 @@ user-invocable: false
 # Handoff
 
 1. **Keep `appspec/project.md` true.** If the change added or removed what it describes (a backend, a route, a model, an extension), update those lines first, in the same commit. The first real run deleted the template backend and left project.md describing it.
-2. **Hand off.** Run `node .claude/kit/app.mjs handoff <ID>`. It refuses unless verify passed on the current code and every `qa:` scenario is measured. It then:
+2. **A comment for the client** first, in proposal.md § Client comment (proposal.md is still open; handoff.md isn't yours to write): what's done and when shoppers first see it (after the deploy, or when the block is placed), every way the result differs from the ticket in the client's words, and for an A/B change what the client or CRO does to start the test. Plain words: no branch names, file paths, scenario ids or internal names. An answer from the client or CRO still open: end with it as a question. Tell the dev to move the ticket to the team's review status (usually "AC Review"), not to Done: Done can start billing automation.
+3. **Hand off.** Run `node .claude/kit/app.mjs handoff <ID>`. It refuses unless verify passed on the current code and every `qa:` scenario is measured. It then:
    - updates `appspec/surfaces.json` with each new surface's reason, and the security baseline with the findings verify saw
    - writes `handoff.md` and moves the change to `appspec/archive/<date>-<ID>/`; its `test:` scenarios now join the ledger every later verify runs (minus what § Retires lists)
 
    If it stops because a file couldn't be written or the folder couldn't move, its message says why: fix that and run `handoff <ID>` again (it writes the same files again).
-3. **A comment for the client**, for the dev to post on the ticket, in handoff.md § Jira comment and in chat: what's done and when shoppers first see it (after the deploy, or when the block is placed), every way the result differs from the ticket in the client's words, and for an A/B change what the client or CRO does to start the test. Plain words: no branch names, file paths, scenario ids or internal names. If an answer from the client or CRO is still open, end with it as a question.
 4. **Commit and push** with the commands it prints (`git add -- appspec`, the commit, `git push -u origin <branch>`). A test run never pushes (the guard blocks it).
 5. **Tell the dev**, in at most 8 lines:
    - the PR text is in `appspec/archive/<date>-<ID>/handoff.md` § PR description (offer to open the PR with `gh pr create` using it; only if they say yes)
