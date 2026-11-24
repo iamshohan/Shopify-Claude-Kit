@@ -21,6 +21,14 @@
 
 **Video: editor scenes are stills.** Theme-editor and admin scenes are one still per sentence with a slow zoom, taken with Claude in Chrome's zoom screenshot (`video.mjs still`). No screen recording, no Windows-only capture, no corner marks, no minutes away from the computer. Storefront scenes still record. Scenes already recorded the old way still assemble.
 
+**Shorter instructions:** the skills, commands and team guide are 16% shorter (30.6k → 25.7k words) with no rule removed: sentences that restated what a check already refuses (its message says it when it matters), the same instruction in two places, agent mechanics in the team guide, and incident stories that no longer change what the agent does. A ticket citation stays where it's the reason a rule exists.
+
+**QA sees more:**
+- `__qa.see()` reads an element inside a parent at `opacity:0` as HIDDEN (it said VISIBLE), and adds a caveat when an element is partly clipped (how much of its box shows) or partly covered (its corners are tested too, inset past rounded corners). Checked in kit-browser on a test page; pill buttons don't false-flag.
+- The QA skill names what the probe can't see (a `pointer-events:none` overlay, `clip-path`, text the colour of its background): judge a screenshot when a criterion depends on those.
+- `compare.mjs` says it reads server HTML only: when the branch changes something every page loads, record `__qa.errors()` on one untouched page too.
+- `__qa.why()`'s header no longer claims it says which rule won.
+
 **Fixed from the reviews:**
 - `summary`, the retro and the QA exit read each row's Verdict cell, not the first verdict word in it.
 - A script file is read when it runs (`bash deploy.sh`, `./x.sh`, `node scripts/x.mjs`) and refused if it calls the CLI; writing one stays logged.

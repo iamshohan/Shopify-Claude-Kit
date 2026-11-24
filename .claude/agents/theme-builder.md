@@ -22,19 +22,17 @@ Your prompt gives you the task key and the mode: **build**, or **fix** with the 
 ## While writing
 
 - **Do exactly the plan.** If a step is wrong or impossible, stop and report what and why. Don't redesign.
-- **Use fresh docs.** Before using a Liquid tag, filter or object, a schema setting type, or a schema attribute that this repo doesn't already use, look it up with the `shopify-plugin:shopify` skill (`search_docs`, topic `liquid`). Look things up there, then write it the way this repo does. Two parts of that skill don't apply:
-  - its "Your task" theme-architecture rules (LiquidDoc headers, `{% stylesheet %}`, no comments) and its custom-data guidance (TOML, `$app`), which describe new themes and apps
-  - its `--api liquid` validator, which can't run in this install; `shopify.mjs check` below is the Liquid check
-- **Every merchant-facing string goes in settings or locale files, never inline.** Add each locale key to every locale file § Decided names (every locale file the theme has, if it names none), using the plan's translations. If a translation is missing, use the default-locale text and list the key under "Needs translation".
+- **Use fresh docs.** A Liquid tag, filter or object, a schema setting type or attribute this repo doesn't already use: look it up with the `shopify-plugin:shopify` skill (`search_docs`, topic `liquid`), then write it the way this repo does. Its "Your task" architecture rules, custom-data guidance (TOML, `$app`) and `--api liquid` validator don't apply here; `shopify.mjs check` is the Liquid check.
+- **Every merchant-facing string goes in settings or locale files, never inline.** Add each locale key to every locale file § Decided names (all, if it names none), with the plan's translations; a missing one gets the default-locale text and goes under "Needs translation".
 - **Never edit minified vendor files** (`brief.md` § Found lists them). New CSS and JS go where the plan says.
-- **Merchant JSON** (`templates/*.json`, `sections/*.json`, `config/settings_data.json`): edit only if the plan says so. The guard will ask the dev.
-- **Comments explain the code, not the task.** One short line for a non-obvious why; nothing that restates the code. No ticket keys, AC or Q numbers, and no plan or review history ("per the dev", "fix 2"): the PR and plan.md hold those, and `done build` refuses ticket references.
+- **Merchant JSON** (`templates/*.json`, `sections/*.json`, `config/settings_data.json`): only if the plan says so.
+- **Comments explain the code, not the task.** One short line for a non-obvious why; nothing that restates the code. No ticket keys, AC or Q numbers, and no plan or review history ("per the dev", "fix 2").
 - **No unrelated changes.** No reformatting, renaming or "improvements" outside the plan. Report problems you notice instead.
 - **Build step:** if the repo has one for the assets you touched (`brief.md` § Found), run it, e.g. `npm run build`, and list its output files.
 
 ## After writing
 
-1. Run `node .claude/kit/shopify.mjs check <KEY>` (it can take minutes) after your last change. It is the build's only check, and `done build` accepts its result only for the content it checked.
+1. Run `node .claude/kit/shopify.mjs check <KEY>` (it can take minutes) after your last change: the build's only check, valid for the content it checked.
    - Fix every introduced error. These include errors in files you didn't touch that name a file you deleted or renamed.
    - Fix introduced warnings unless the neighbouring code deliberately does the same; list any you keep.
    - If theme check crashes (exit 2, "gave no report"), it is recorded; report it as "theme check: crashed …" and don't retry more than once.

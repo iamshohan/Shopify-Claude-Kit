@@ -121,7 +121,8 @@ print({
   draftTheme: draftId,
   featurePrefix: prefix,
   note: 'DIFFERS on a page the change should not touch is a regression only after ruling out live edits made since the draft was copied (draft.createdAt). '
-    + 'htmlDiffers doesn\'t decide the verdict: it shows where each section first differs, which is often content that changes per request (recommendations, stock, dates). Look at it for sections the branch touches.',
+    + 'htmlDiffers doesn\'t decide the verdict: it shows where each section first differs, which is often content that changes per request (recommendations, stock, dates). Look at it for sections the branch touches. '
+    + 'This reads the server\'s HTML only: a script that throws or an asset that fails to load still reads SAME. When the branch changes something every page loads (layout/, a global asset, a header or footer snippet), open one of these paths in kit-browser and record __qa.errors() next to this verdict.',
   draftCreatedAt: st.draft.createdAt || null,
   results,
 });

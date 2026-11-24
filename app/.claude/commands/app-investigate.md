@@ -10,11 +10,10 @@ Read-only: no edits to the app, no store writes, no change started. The notes go
 
 ## Every investigation
 
-1. Read `appspec/project.md`. Find the archived changes that touched the area: grep `appspec/archive/*/proposal.md` (their § Scenarios say what was approved, with values, and the test that proves each) and `handoff.md`.
-2. Map the code with the `app-recon` agent (give it the question and the archived changes you found), or read it yourself when it's one or two files. The code is what actually runs.
-3. Shopify facts (API limits, scopes, what an extension target can do, where it renders) come from fresh docs via `shopify-plugin:shopify`, not memory.
-4. Every claim names its source (`file:line`, an archived scenario, a test, a docs URL with the sentence) and a label: **Confirmed** (read or measured), **Inferred** (follows from confirmed facts) or **Unknown**.
-5. An archived scenario and the code disagree → say so, with both sides; fixing it is a `/app-implement` the dev may start.
+1. Read `appspec/project.md` and the archived changes that touched the area (`appspec/archive/*/proposal.md` § Scenarios: what was approved, with values and the test that proves each; and `handoff.md`).
+2. Map the code with the `app-recon` agent (give it the question and those archived changes), or read it yourself when it's one or two files. The code is what actually runs.
+3. Every claim names its source (`file:line`, an archived scenario, a test, a docs URL with the sentence) and a label: **Confirmed** (read or measured), **Inferred** (follows from confirmed facts) or **Unknown**.
+4. An archived scenario and the code disagree → say so, with both sides; fixing it is an `/app-implement` the dev may start.
 
 ## A question
 

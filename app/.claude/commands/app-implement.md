@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # /app-implement $ARGUMENTS
 
-You are running the Shopify App Kit for one change. A script keeps track of where the change is, so you never have to remember it.
+You are running the Shopify App Kit for one change.
 
 **The type comes from the ticket**, not from the dev picking a command. Decide it, say it in one line ("Type: ab, because the ticket gates a checkout block on an A/B test"), and go on; the dev can correct it before anything is built: `app.mjs abandon <ID> --reason "wrong type"`, then `start <ID> --type <type>` again (the documents stay).
 
@@ -19,33 +19,29 @@ You are running the Shopify App Kit for one change. A script keeps track of wher
 
 ## Every time, before anything else
 
-1. No ID given → run `node .claude/kit/app.mjs list`, ask the dev which change to continue or what to start, and stop until they answer. A description without an ID: pick a short kebab-case ID (e.g. `gift-label`), say it in one line, and go on; the dev can rename it before the first commit. A Jira key is the ID itself.
-2. `.claude/app-kit.json` missing → tell the dev to run `/app-setup`, and stop. `app.mjs start` tells a repo that was never onboarded (→ `/app-setup`) from one whose onboarding isn't merged yet (the change stacks on it).
-3. Once per session: `node .claude/kit/shopify.mjs cli-check`. If it reports problems, show them and stop: the kit may no longer match the CLI.
+1. No ID given → run `node .claude/kit/app.mjs list`, ask the dev which change to continue or what to start, and stop until they answer. A description without an ID: pick a short kebab-case ID (e.g. `gift-label`), say it in one line, and go on. A Jira key is the ID itself.
+2. `.claude/app-kit.json` missing → tell the dev to run `/app-setup`, and stop.
+3. Once per session: `node .claude/kit/shopify.mjs cli-check`. Problems → show them and stop: the kit may no longer match the CLI.
 4. Run `node .claude/kit/app.mjs status <ID>`.
    - **Archived:** status says what's left (commit, push, the handoff). Do that. Only if the dev says the ticket was reopened, start it again below.
-   - **Not started:** status names the branch to create.
-     1. Run `git status --porcelain`. Uncommitted app changes → ask the dev what to do with them. Never stash or discard without asking.
-     2. `git fetch origin`, then the `git switch -c <branch> --no-track …` status printed (from `origin/kit-onboard` while the onboarding isn't merged: the change stacks on it, and its PR follows the onboarding's) (`--no-track`: a branch that tracks the base can send a push there). If the branch exists locally or on origin: reuse it when it holds only this change's own commits (named for the ID, nothing merged in from elsewhere), and say so; ask the dev only otherwise.
-     3. `node .claude/kit/app.mjs start <ID> --type <type> --title "<one line>"`, adding `--test` when the arguments include it or the dev calls it a test run (the branch is then `<ID>-kit-test`).
-5. The status names the current stage and the skill that owns it. **Load that skill with the Skill tool and do only that stage.**
-6. When the stage's "Done when" holds, run `node .claude/kit/app.mjs done <ID> <stage>`. Gate stages also need `--answer "<the dev's words>"`. The script refuses while the stage's output is missing: read its message, fix the gap, and run it again.
-7. `done` (and `back`) print the new status: continue from it with the next stage the same way. Tell the dev in one line each time the stage changes, e.g. `✓ propose → build · nothing needed from you`.
+   - **Not started:**
+     1. `git status --porcelain`. Uncommitted app changes → ask the dev what to do with them. Never stash or discard without asking.
+     2. `git fetch origin`, then the `git switch -c <branch> --no-track …` status printed (`--no-track`: a branch that tracks the base can send a push there). A branch that already exists: reuse it when it holds only this change's own commits, and say so; ask the dev only otherwise.
+     3. `node .claude/kit/app.mjs start <ID> --type <type> --title "<one line>"`, adding `--test` when the arguments include it or the dev calls it a test run.
+5. Status names the current stage and its skill. **Load that skill with the Skill tool and do only that stage.**
+6. When the stage's "Done when" holds, run `node .claude/kit/app.mjs done <ID> <stage>` (gates also need `--answer "<the dev's words>"`). If it refuses, its message says what's missing.
+7. `done` and `back` print the new status: continue from it. Tell the dev in one line each time the stage changes, e.g. `✓ propose → build · nothing needed from you`.
 
-Also:
+Stages: **propose** (Gate 1) → build → verify → **accept** (Gate 2) → handoff, for every type.
 
-- **After a compaction or in a new session:** run status first and continue from what it says, not from memory. Never redo a gate the dev already answered.
-- **Going back:** a QA failure or a review finding in verify goes back to build (`app.mjs back <ID> build --reason "…"`). A scenario that turns out wrong goes back to propose, and Gate 1 is asked again.
-- **The dev wants to stop:** `app.mjs abandon <ID> --reason "…"`, walk them through the cleanup list it prints, and if its signals show the kit got in the way, record `app.mjs note <ID> "…"`. `start <ID> --type …` restarts an abandoned change, keeping its documents.
+- **After a compaction or in a new session:** status first, not memory. Never redo a gate the dev already answered.
+- **Going back:** a QA failure or review finding → build (`app.mjs back <ID> build --reason "…"`); a wrong scenario → propose, and Gate 1 again.
+- **The dev wants to stop:** `app.mjs abandon <ID> --reason "…"`, then walk them through the cleanup list it prints.
 - **Commit `appspec/changes/<ID>/` with the work**, so a teammate who pulls the branch sees the same stage.
-
-## The stages
-
-**propose** (Gate 1) → build → verify → **accept** (Gate 2) → handoff, for every type. Status names each stage's skill.
 
 ## Rules for the whole run
 
-The rules every run shares (gates, `--answer`, talking to the dev, kit notes) are in `.claude/rules/runs.md` and `app-runs.md`; they load once you touch `appspec/`. These are the run's own:
+Besides `rules/runs.md` and `app-runs.md`:
 
 - **Only the kit's skills run inside a change:** the stage skill status names, `shopify-plugin:shopify` for docs and GraphQL validation, `node .claude/kit/jira.mjs <KEY>` for the ticket, `code-review` and `security-review`, and `claude-in-chrome` for QA in the admin and checkout (a Playwright browser for viewport rows: see app-verify). Don't load other dev, QA or investigate skills, even when a hook suggests them.
 - **Scope is the change.** Other problems go in proposal.md § Out of scope or the handoff, not into the code.

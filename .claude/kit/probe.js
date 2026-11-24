@@ -8,7 +8,7 @@
  *   __qa.see('.cta')            visible, or hidden/clipped/covered — and by what
  *   __qa.text('.cta')           textContent (the copy), innerText (as rendered) and text-transform
  *   __qa.css('.cta', ['color','font-size'])      normalised computed values
- *   __qa.why('.cta','height')   which rule won; whether yours is declared at all
+ *   __qa.why('.cta','height')   every rule that declares it (media, !important); whether yours reached the page
  *   __qa.gap('.a','.b')         rendered distance between two elements
  *   __qa.pad('.card','.title')  rendered padding, all four sides
  *   __qa.gutter('.hero')        rendered distance to each viewport edge
@@ -138,21 +138,26 @@
   const see = (sel, max = 5) => {
     const els = all(sel);
     if (!els.length) return miss(sel);
-    return { sel, found: els.length,
-             caveats: els.length > max
-               ? ['checked ' + max + ' of ' + els.length + ' matches — the rest are UNTESTED'] : [],
-             instances: els.slice(0, max).map((el, i) => {
-      const r = box(el), cs = getComputedStyle(el), why = [];
+    const partly = [];
+    const instances = els.slice(0, max).map((el, i) => {
+      const r = box(el), cs = getComputedStyle(el), why = [], notes = [];
       if (!r.w || !r.h) why.push('zero-size ' + r.w + 'x' + r.h);
       if (cs.display === 'none') why.push('display:none');
       if (cs.visibility === 'hidden') why.push('visibility:hidden');
       if (parseFloat(cs.opacity) === 0) why.push('opacity:0');
       for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) {
         const pcs = getComputedStyle(p);
+        // Each element's computed opacity is its own, but a parent at 0 hides everything inside it.
+        if (parseFloat(pcs.opacity) === 0) why.push('opacity:0 on ' + tag(p));
         if (!/hidden|clip|scroll/.test(pcs.overflow + pcs.overflowX + pcs.overflowY)) continue;
         const pr = p.getBoundingClientRect();
-        if (r.right <= pr.left + 1 || r.left >= pr.right - 1 || r.bottom <= pr.top + 1 || r.top >= pr.bottom - 1)
+        if (r.right <= pr.left + 1 || r.left >= pr.right - 1 || r.bottom <= pr.top + 1 || r.top >= pr.bottom - 1) {
           why.push('clipped by ' + tag(p) + ' (overflow:' + pcs.overflow + ')');
+        } else if (r.w && r.h) {
+          const shown = Math.round(100 * Math.max(0, Math.min(r.right, pr.right) - Math.max(r.left, pr.left))
+            * Math.max(0, Math.min(r.bottom, pr.bottom) - Math.max(r.top, pr.top)) / (r.w * r.h));
+          if (shown < 98) notes.push('partly clipped by ' + tag(p) + ': ' + shown + '% of its box shows');
+        }
       }
       // Only meaningful once the element is otherwise renderable — the centre of
       // a zero-size or already-clipped element lands on whatever else is painted
@@ -160,18 +165,29 @@
       let covered = null;
       if (!why.length) {
         const cx = r.left + r.w / 2, cy = r.top + r.h / 2;
+        const over = (x, y) => { const hit = document.elementFromPoint(x, y); return hit && hit !== el && !el.contains(hit) && !hit.contains(el) ? hit : null; };
         if (cx < 0 || cy < 0 || cx > innerWidth || cy > innerHeight) {
           why.push('centre outside viewport (scroll to it first)');
+        } else if (over(cx, cy)) {
+          covered = tag(over(cx, cy));
+          why.push('covered by ' + covered);
         } else {
-          const hit = document.elementFromPoint(cx, cy);
-          if (hit && hit !== el && !el.contains(hit) && !hit.contains(el)) {
-            covered = tag(hit);
-            why.push('covered by ' + covered);
-          }
+          // An overlay over part of it leaves the centre clear: try the corners too, inset past a rounded corner's
+          // curve (0.3 of the radius), or a pill button's corner would read as covered by what's behind it.
+          const d = (v) => Math.ceil(0.3 * Math.min(parseFloat(v) || 0, r.w / 2, r.h / 2)) + 2;
+          const tl = d(cs.borderTopLeftRadius), tr = d(cs.borderTopRightRadius), bl = d(cs.borderBottomLeftRadius), br = d(cs.borderBottomRightRadius);
+          const by = [[r.left + tl, r.top + tl], [r.right - tr, r.top + tr], [r.left + bl, r.bottom - bl], [r.right - br, r.bottom - br]]
+            .filter(([x, y]) => x >= 0 && y >= 0 && x <= innerWidth && y <= innerHeight).map(([x, y]) => over(x, y)).filter(Boolean).map(tag);
+          if (by.length) notes.push('partly covered by ' + [...new Set(by)].join(', ') + ' (a corner is under it; the centre is clear)');
         }
       }
-      return { i, el: tag(el), box: r, covered, verdict: why.length ? 'HIDDEN' : 'VISIBLE', why };
-    }) };
+      if (notes.length) partly.push('instance ' + i + ': ' + notes.join('; ') + ' — VISIBLE only means the centre shows; check the criterion against this');
+      return { i, el: tag(el), box: r, covered, verdict: why.length ? 'HIDDEN' : 'VISIBLE', why, notes };
+    });
+    // Not measured here: an overlay with pointer-events:none (hit-testing skips it), clip-path, text the colour of its
+    // background. The QA skill says to take a screenshot when a criterion depends on those.
+    return { sel, found: els.length, instances,
+             caveats: [...(els.length > max ? ['checked ' + max + ' of ' + els.length + ' matches — the rest are UNTESTED'] : []), ...partly] };
   };
 
   // Copy is compared with textContent: innerText applies text-transform, so a CSS-uppercased

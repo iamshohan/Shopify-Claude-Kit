@@ -10,77 +10,55 @@ user-invocable: false
 
 **Goal:** `brief.md` § Asked is complete, and the work type and its facts are recorded.
 
-0. **Investigated first?** If `kit.mjs status` says so, read `.claude/logs/<KEY>/investigation.md`. Its question, answer and evidence are this task's starting context. After a feasibility check, its § Requirements answers are decisions the dev already made: copy them into `brief.md` § Decided → Questions and answers (citing investigation.md), so the plan stage doesn't ask them again. Re-check any code it cites at the current commit before relying on it, and carry its Confirmed findings into `brief.md`.
-1. **Start from current code.** Run `git fetch origin`, then look for a local or remote branch matching the key, ignoring case (`git branch --list`, `git ls-remote --heads origin`).
-   - One exists → tell the dev now, before analysis: a teammate may have started. Reuse it when it holds only this task's own commits, and say so; ask only otherwise. Record it with its base: `git merge-base origin/<baseBranch> origin/<name>` gives the sha, then `kit.mjs set <KEY> branch=<name> base=<sha>`, so build doesn't ask again and `done build` has the base.
-   - The checked-out commit isn't `origin/<baseBranch>` (status names the base): with a clean tree, switch to it and say so, so the plan is made against the code the build starts from. With uncommitted changes, ask: never switch over them.
-2. **Read the ticket:** `node .claude/kit/jira.mjs <KEY>`. If the script reports missing credentials, pass on its fix (create `~/.claude/.env` once per machine) or ask the dev to paste the ticket text. Don't guess requirements.
-3. **Related tickets.** Read up to three with `node .claude/kit/jira.mjs <KEY> --no-comments`, chosen from the summary, links, parent and `mentionedKeys`.
-   - An A/B implementation ticket usually names or links the A/B test ticket ("Implement ABC-120"). That ticket holds the design, the variations and the targeting, so read it. Fetch its comments too if decisions seem to be in them.
-   - Skip process tickets such as "Resolve a new Comment in …", "… is ready for Client Review" and "… is Ready to Launch".
-   - If you can't tell which ticket is the A/B test, ask.
-4. **Work type.** Pick one and record it with `node .claude/kit/kit.mjs set <KEY> type=<type>`:
+0. **Investigated first?** (`kit.mjs status` says so.) Read `.claude/logs/<KEY>/investigation.md`: its question, answer and evidence are this task's starting context. After a feasibility check, copy its § Requirements answers into `brief.md` § Decided → Questions and answers (citing investigation.md), so the plan doesn't ask them again. Re-check code it cites at the current commit, and carry its Confirmed findings into `brief.md`.
+1. **Start from current code.** `git fetch origin`, then look for a local or remote branch matching the key, ignoring case (`git branch --list`, `git ls-remote --heads origin`).
+   - One exists → tell the dev now (a teammate may have started). Reuse it when it holds only this task's commits, and say so; ask otherwise. Record it: `kit.mjs set <KEY> branch=<name> base=<sha of git merge-base origin/<baseBranch> origin/<name>>`.
+   - The checked-out commit isn't `origin/<baseBranch>`: with a clean tree, switch to it and say so (the plan is made against the code the build starts from). With uncommitted changes, ask: never switch over them.
+2. **Read the ticket:** `node .claude/kit/jira.mjs <KEY>`. Missing credentials: pass on its fix or ask the dev to paste the ticket text. Don't guess requirements.
+3. **Related tickets:** up to three with `--no-comments`, from the summary, links, parent and `mentionedKeys`. An A/B implementation ticket usually links the A/B test ticket, which holds the design, variations and targeting: read it (with comments if decisions seem to be there). Skip process tickets ("Resolve a new Comment in …", "… is ready for Client Review", "… is Ready to Launch"). Can't tell which is the A/B test: ask.
+4. **Work type:** `node .claude/kit/kit.mjs set <KEY> type=<type>`, and tell the dev; if two fit, ask.
 
    | type | when |
    | --- | --- |
    | `abtest` | the ticket implements a tested, winning variation on the live site |
-   | `feature` | the client asks for a new feature or change directly (no A/B test behind it). Also an A/B ticket with no test code or live variation to port: the dev builds it from the criteria and the design |
+   | `feature` | the client asks for a new feature or change directly, or an A/B ticket with no test code or live variation to port (built from the criteria and the design) |
    | `bugfix` | something is broken and must be fixed |
 
-   Tell the dev the type you picked. If two types fit, ask.
+   The kit only implements tickets that change theme code. A feasibility check, debugging or a question: suggest `/shopify-investigate <KEY>` and stop. App development and content-only work are out of scope.
+5. **Which theme.** The kit builds on the theme that follows the base branch, normally live. **Live is a campaign theme** on another branch and the ticket is for the regular theme: ask the dev for the theme that follows the base branch and record it: `kit.mjs set <KEY> baseTheme=<id>` (drift check, `pull-live`, the draft copy and QA's comparison then use it). **The ticket targets the campaign theme itself:** out of scope, stop.
+6. **A/B ports only.** Look things up first; ask only what's still open, in one AskUserQuestion round:
+   - **The winner:** from the ticket and its comments; ask only when they name none or several.
+   - **The A/B code:** look yourself with Glob (`shadow-drip-exps/src/*/<TEST-KEY>/` and `DripExperiments/` one and two folders above this repo, and paths the ticket names; read only). Found → copy it into `.claude/logs/<KEY>/abtest/` and say where from. Not found → ask: "I'll put the files in .claude/logs/<KEY>/abtest/" or "It's at <path>". Prefer the built bundle (`build/*.js`, `build/*.css`), which is what ran; note whether only source was provided.
+   - **The testing tool** (recon's `experimentTools`, the ticket) and **whether it still runs.** Fetched HTML runs no JavaScript, so markers the test adds never show there: evidence is the tool's script tag or the experiment's id in that HTML, the ticket, or the dev's word; without it, `abtest.running=unknown`, not "no". Record: `kit.mjs set <KEY> abtest.tool=<tool> abtest.running=<yes|no|unknown>`.
+   - **If it still runs:** QA compares the draft with the live winner. Targeted by country or audience: a link or cookie that forces the variation (from the ticket or the code; not found → ask): `kit.mjs set <KEY> abtest.reference=<link>`. Don't ask whether it excludes `preview_theme_id` URLs: QA checks the draft for the test's markers.
 
-   The kit only implements tickets that change theme code. For a feasibility check, a debugging task or a question, suggest `/shopify-investigate <KEY>` and stop. App development and content-only work are out of scope.
-5. **Which theme.** The kit builds on the theme that follows the base branch, normally the **live** theme.
-   - **Live is a campaign theme** on another branch, and the ticket is for the regular theme: ask the dev for the theme that follows the base branch, and record it with `kit.mjs set <KEY> baseTheme=<id>` (the guard asks the dev). The drift check, `pull-live`, the draft copy and QA's regression comparison then use it instead of live.
-   - **The ticket targets the campaign theme itself:** say that it's out of scope for the kit, and stop.
-6. **A/B ports only.** Look things up first, and ask only what's still open, in one AskUserQuestion round:
-   - **The winner:** from the ticket and its comments. Ask only when they don't name it, or name more than one.
-   - **The A/B code:** look for it yourself with Glob: `shadow-drip-exps/src/*/<TEST-KEY>/` and `DripExperiments/` one and two folders above this repo (`../`, `../../`), and the paths the ticket names. Read only; never write there. Found → copy it into `.claude/logs/<KEY>/abtest/` and say where it came from. Not found → ask: "I'll put the files in .claude/logs/<KEY>/abtest/" or "It's at <path>".
-   - **The testing tool:** from recon's `experimentTools` and the ticket. **Still running:** the fetched HTML has no JavaScript run, so markers the test code adds (a body class, an element) never show there. Evidence is the tool's script tag or the experiment's id in that HTML, the ticket, or the dev's word; without it, record `abtest.running=unknown` and say so, rather than "no". The go-live order at handoff needs both.
-   - **If it still runs:** QA compares the draft with the live winner, and the tool must stay off the draft.
-     - Targeting by country or audience: a link or cookie that forces the variation (the tool's preview or QA link), from the ticket or the code. Not found → ask; without one, QA can't see the winner from outside the targeted markets. Record it: `kit.mjs set <KEY> abtest.reference=<link>`.
-     - Whether the experiment excludes `preview_theme_id` URLs: don't ask. QA checks the draft for the test's markers anyway; if they appear, then ask the dev to exclude the draft in the tool.
-
-   Prefer the built bundle (`build/*.js`, `build/*.css`), because that's what actually ran. Note whether only source code was provided.
-
-   The variation and the code's location go in `brief.md` § Asked. Record the rest; `done` refuses without it: `kit.mjs set <KEY> abtest.tool=<tool> abtest.running=<yes|no|unknown>`.
-7. **Bug fixes only.** Make sure you have the steps to reproduce, the page URL, and expected vs actual. Ask for whatever is missing.
-8. **Figma.** `jira.mjs` lists the ticket's Figma links (`figmaLinks`). A **feature** whose ticket links its design: record it with `kit.mjs set <KEY> design.figma=<link>`; if it links several files, ask which is final. A/B ports and bug fixes skip this: the winning code is the source. A design check can still be added at QA if the dev doubts the draft matches.
-9. **Write `brief.md` § Asked**, using the headings already in the file:
+   The variation and the code's location go in `brief.md` § Asked.
+7. **Bug fixes only.** Steps to reproduce, the page URL, expected vs actual: ask for what's missing.
+8. **Figma.** A **feature** whose ticket links its design (`jira.mjs` lists `figmaLinks`): `kit.mjs set <KEY> design.figma=<link>`; several files → ask which is final. A/B ports and bug fixes skip this (the winning code is the source); a design check can still be added at QA.
+9. **Write `brief.md` § Asked**, under the headings in the file:
    - type, tickets, and the winning variation with its code location (A/B ports)
    - a summary of three lines at most
-   - **numbered acceptance criteria quoted from the tickets, not paraphrased**; mark any you inferred with "(inferred)"
+   - **numbered acceptance criteria quoted from the tickets, not paraphrased**; mark inferred ones "(inferred)"
    - scope: pages and templates, locales and markets, devices
-   - **what the tickets say should be editable**: one table row per line about who may change what, quoted in full with its AC number. Don't narrow a line to the part a neighbouring AC mentions: "manage the mobile navigation without developer support" covers the whole navigation, including images, icons and the utility links. Write "none" if no line says so.
-   - what's unclear (list it only; questions are asked in the plan stage). Don't list as unclear what an editability line already settles.
+   - **what the tickets say should be editable**: one row per line about who may change what, quoted in full with its AC number. Don't narrow a line to the part a neighbouring AC mentions ("manage the mobile navigation without developer support" covers the whole navigation, images, icons and utility links included). "none" if no line says so.
+   - what's unclear (list only; questions are asked in the plan stage), not what an editability line already settles.
 
-**Done when:** § Asked has the quoted criteria and the type and its facts are recorded. Then run `kit.mjs done <KEY> intake`.
+**Done when:** § Asked has the quoted criteria and the type and its facts are recorded. Then `kit.mjs done <KEY> intake`.
 
 ## Stage: analyze
 
-**Goal:** `brief.md` § Found, written from a fresh reading of the theme (and of the A/B code for ports).
+**Goal:** `brief.md` § Found, from a fresh reading of the theme (and the A/B code for ports).
 
-1. Spawn these in **one message, so they run in parallel**:
-   - `theme-recon`, with: KEY, type, target pages/templates, and the selectors, classes or sections the A/B code touches. For a bug fix, add the reproduction.
-   - `abtest-analyst` (A/B ports only), with: KEY, the A/B code path, the winning variation, and the acceptance criteria.
-   - `design-extractor` (when status shows a Figma design), with: KEY, the Figma link and frames, the target pages, the viewports in scope, and the acceptance criteria.
-2. **Write § Found** from the reports, under its headings:
-   - the commit stamp from recon
-   - the A/B inventory table (ports)
-   - the render path for each target page
-   - the closest existing pattern and how it works
-   - the repo facts that change how the task is built: CSS/JS approach, the cart and event contract if relevant, the build step, what git tracks, minified files, `.context.*` siblings, an experiment tool targeting the same element
-   - risks
-
-   Keep the citations. Cut what the plan won't need, and keep the section under about 150 lines.
-3. **Write `design.md`** (Figma design only). Copy `.claude/kit/templates/design.md` to `.claude/logs/<KEY>/design.md` and fill it from the extractor's report. Then fill § Differs from the theme or the A/B code yourself, from the recon and analyst reports: a Figma colour that isn't in the theme's colour schemes, a size off the theme's type scale, a value the winning variation changed. In § Found, add one line: "Design: design.md, N elements, M spacing checks".
+1. Spawn in **one message, so they run in parallel**:
+   - `theme-recon`: KEY, type, target pages/templates, and the selectors, classes or sections the A/B code touches (a bug fix: the reproduction).
+   - `abtest-analyst` (A/B ports): KEY, the A/B code path, the winning variation, the acceptance criteria.
+   - `design-extractor` (a Figma design in status): KEY, the Figma link and frames, target pages, viewports in scope, acceptance criteria.
+2. **Write § Found** from the reports, under its headings: recon's commit stamp; the A/B inventory (ports); the render path per target page; the closest existing pattern and how it works; the repo facts that change how the task is built (CSS/JS approach, the cart and event contract, the build step, what git tracks, minified files, `.context.*` siblings, an experiment tool targeting the same element); risks. Keep the citations; cut what the plan won't need; under about 150 lines.
+3. **Write `design.md`** (Figma design only): copy `.claude/kit/templates/design.md` to `.claude/logs/<KEY>/design.md` and fill it from the extractor's report, then fill § Differs yourself from the recon and analyst reports (a colour not in the theme's schemes, a size off its type scale, a value the winner changed). Add one line to § Found: "Design: design.md, N elements, M spacing checks".
    - **Save the extractor's JSON** as `.claude/logs/<KEY>/design-checks.json`, as it is.
-   - **Pick the mode** from the task and the code you now know, and record it: `kit.mjs set <KEY> design.mode=exact|reference`. Write the reason in design.md's Mode line.
-     - **exact:** the build must reproduce the design, and Figma is its only spec. Examples: a new custom component or section with no existing code to follow, a landing or campaign section, a complex UI (cards, sliders, states), or a ticket that says to match Figma. QA audits every value automatically.
-     - **reference:** the build mostly reuses what the theme already has (its sections, blocks, colour schemes, type scale), so Figma shows layout and content rather than values to match. QA checks layout, order and visibility only.
-     - When unsure, pick exact: its QA is one audit call per viewport, not more work.
-   - **Tell the dev in one line**, with the way to switch: "Design check: exact (new custom section, Figma is the only spec). Say 'reference' to check layout only." Don't ask; switch if they reply.
-   - **`NO FIGMA ACCESS`:** ask the dev whether to connect Figma and run the extractor again, to paste the key values per viewport (you write `design.md` from those), or to skip the design check (`kit.mjs set <KEY> design.figma=none`).
-4. If a report says something is missing or unclear (A/B code incomplete, target template not found, src and build disagree), ask the dev now rather than planning around a guess.
+   - **Pick the mode** and record it: `kit.mjs set <KEY> design.mode=exact|reference`, with the reason in design.md's Mode line. **exact:** the build must reproduce the design and Figma is its only spec (a new custom component with no code to follow, a landing or campaign section, complex UI, a ticket that says match Figma); QA audits every value. **reference:** the build mostly reuses the theme's sections, schemes and type scale, so Figma shows layout and content; QA checks layout, order and visibility. Unsure: exact (its QA is one audit call per viewport).
+   - **Tell the dev in one line** how to switch: "Design check: exact (new custom section, Figma is the only spec). Say 'reference' to check layout only." Don't ask; switch if they reply.
+   - **`NO FIGMA ACCESS`:** ask whether to connect Figma and run the extractor again, to paste the key values per viewport, or to skip the design check (`kit.mjs set <KEY> design.figma=none`).
+4. A report says something is missing or unclear (A/B code incomplete, template not found, src and build disagree): ask the dev now rather than planning around a guess.
 
-**Done when:** § Found has the render path, the closest pattern and the risks, plus the inventory for A/B ports and `design.md` for a Figma design. Then run `kit.mjs done <KEY> analyze`.
+**Done when:** § Found has the render path, the closest pattern and the risks, plus the inventory for A/B ports and `design.md` for a Figma design. Then `kit.mjs done <KEY> analyze`.
