@@ -6,4 +6,4 @@ disable-model-invocation: true
 
 # /app-ab $ARGUMENTS
 
-Read `.claude/commands/app-change.md` and follow it exactly, with the type **ab**: `app.mjs start <ID> --type ab`. The propose skill says what an A/B change adds (§ Gate, § Sunset, scenarios in pairs); the handoff lists activation and the sunset as the dev's steps.
+Read `.claude/commands/app-change.md` and follow it exactly, with the type **ab**: `app.mjs start <ID> --type ab`. The propose skill says what an A/B change adds: the test's own code in `abtest/<ID>/` (variation and control), the carrier, § Gate, § Sunset, scenarios in pairs. The handoff lists activation (pasting the code into the A/B tool) and the sunset as the dev's steps.

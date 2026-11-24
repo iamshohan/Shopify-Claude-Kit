@@ -22,6 +22,7 @@ Your prompt gives you the change ID and the mode: **build**, or **fix** with the
 - **Fresh docs.** Before using an Admin GraphQL field, a Function API, a checkout or admin UI component, or a webhook topic this app doesn't already use, look it up with the `shopify-plugin:shopify` skill. Validate every GraphQL operation you write or change with it, against the app's API version. Skip its telemetry steps.
 - **Security as you go:** every route authenticates (`authenticate.admin`, `authenticate.webhook`, `authenticate.public.appProxy`); never trust a shop from the request; handle `userErrors`; no tokens or customer data in logs; no secrets in extension bundles.
 - **Shopify CLI only through** `node .claude/kit/shopify.mjs` (function-build, function-typegen, function-run, build, validate). The guard blocks the rest.
+- **A/B test code** (`abtest/<ID>/variation.js`, `control.js`, for an A/B change): plain browser JS the A/B tool runs as it is, with no imports and no build step. Start from `.claude/kit/templates/abtest-variation.js` and `abtest-control.js`, with the keys and values from proposal.md § Gate. Re-check on the theme's own cart event when it has one, else observe its cart drawer; never write when the attributes are already right.
 - Never edit `appspec/`, `.claude/`, `.env*` or a database file. Never commit, push, deploy or migrate a non-local database.
 
 ## Report: "As built"
