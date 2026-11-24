@@ -2,8 +2,8 @@
 // reading. Zero dependencies and no repo paths: each kit adds its own (the theme kit's lib.mjs, the app kit's repo.mjs).
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { writeFileSync, renameSync, mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { writeFileSync, renameSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 
 export const WIN = process.platform === 'win32';
 
@@ -194,5 +194,20 @@ export function gqlOperations(text) {
   return { ops, code };
 }
 
-// The guard records what it showed the dev; the wrapper runs only that, once.
+// ── Seals ──
+// The guard records what it showed the dev in a task's folder; the wrapper runs only that, once.
+
+export const SEAL_FILE = 'guard-seal.json';
 export const sealDigest = (text, varsText = '') => createHash('sha256').update(`${text}\0${varsText}`).digest('hex');
+
+/** Stops unless the guard showed the dev exactly `expected` within the last 15 minutes. The seal is used up either way. */
+export function consumeSeal(folder, expected) {
+  const path = join(folder, SEAL_FILE);
+  let seal = null;
+  try { seal = JSON.parse(readFileSync(path, 'utf8')); } catch { /* none */ }
+  rmSync(path, { force: true });
+  const fresh = seal && Date.now() - Date.parse(seal.at) < 15 * 60 * 1000;
+  if (!fresh || !Object.entries(expected).every(([k, v]) => seal[k] === v)) {
+    fail(`The dev wasn't shown this exact ${expected.verb}${seal ? ': it changed after the prompt, or the prompt is over 15 minutes old' : ''}. Run the command again on its own, so the guard shows the dev what will run.`);
+  }
+}

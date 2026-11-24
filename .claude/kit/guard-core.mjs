@@ -5,10 +5,11 @@
 // exercise it. The source is shared/guard-core.mjs in the kit repo; scripts/sync-shared.mjs copies it into each kit.
 // Threat model: a well-meaning agent's mistakes, not an agent working around the guard on purpose. A rule that only stops
 // a deliberate disguise (quote-joined names, $(which …), env-var routing) costs false positives and doesn't belong here.
-import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { homedir } from 'node:os';
+import { SEAL_FILE } from './core.mjs';
 
 // ── Reading a shell command ──
 // Close enough to a shell's own parsing to find the program each segment runs and its arguments.
@@ -763,4 +764,75 @@ export function emit(result) {
     hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: result.decision, permissionDecisionReason: result.reason },
   }));
   process.exit(0);
+}
+
+// ── After the decision, and the hook entry (both guards) ──
+
+/**
+ * A seal is good only for the very next guarded call. The guard can't see the dev's answer, so after a No the seal
+ * would otherwise stay valid for 15 minutes; any call in between (writing a helper, running it) now voids it.
+ */
+function clearSeals(logs) {
+  try { for (const k of readdirSync(logs)) rmSync(join(logs, k, SEAL_FILE), { force: true }); } catch { /* no logs yet */ }
+}
+
+/** What the dev is about to be shown, for the wrapper to compare with what it runs. */
+function writeSeal(logs, folder, seal) {
+  try {
+    mkdirSync(join(logs, folder), { recursive: true });
+    writeFileSync(join(logs, folder, SEAL_FILE), JSON.stringify({ ...seal, at: new Date().toISOString() }));
+  } catch { /* no seal: the wrapper refuses, which is the safe side */ }
+}
+
+/**
+ * Every decision is logged: denies (a block on a harmless command is a guard bug), asks, and "log" notes (allowed, worth
+ * a look). branch lets the retro pick a task's entries. A mode block is the dev's setup, not something to review.
+ */
+function logDecision(logs, root, branch, input, result) {
+  if (!result || result.byMode) return;
+  try {
+    const ti = input.tool_input || {};
+    // Redacted before it's cut: the log reaches the retro output and the logs exported to the maintainer.
+    const entry = {
+      at: new Date().toISOString(), kind: result.decision, tool: input.tool_name, branch: branch(),
+      reason: redact(result.reason).slice(0, 200), command: redact(ti.command || logPath(ti.file_path || ti.notebook_path, root)).slice(0, 200),
+    };
+    mkdirSync(logs, { recursive: true });
+    appendFileSync(join(logs, '_guard.jsonl'), `${JSON.stringify(entry)}\n`);
+  } catch { /* logging never changes the decision */ }
+}
+
+/**
+ * The hook: reads the call from stdin, decides, logs, seals and answers. --selftest and --mode-probe run instead.
+ *   sealKey     the field of result.seal that names its task folder ('key', 'id'); the rest is what the wrapper compares
+ *   failClosed  { text, file }: on a guard error, deny a call whose input or file matches; anything else passes
+ */
+export function runGuard({ decide, selftest, root, label, branch, sealKey, failClosed }) {
+  if (process.argv.includes('--selftest')) return selftest();
+  // Reaching this line means the hook let the call through, so the session's permission mode shows the kit's prompts.
+  if (process.argv.includes('--mode-probe')) return console.log('ok: this session\'s permission mode shows the kit\'s confirmation prompts.');
+  const logs = join(root, '.claude', 'logs');
+  let raw = '';
+  process.stdin.setEncoding('utf8');
+  process.stdin.on('data', (c) => { raw += c; });
+  process.stdin.on('end', () => {
+    let input;
+    try { input = JSON.parse(raw); } catch {
+      // Exit 2 blocks the call: input the guard can't read is input it can't vouch for.
+      process.stderr.write(`${label}: unreadable hook input; blocked to be safe.\n`);
+      process.exit(2);
+    }
+    try {
+      const result = enforceMode(decide(input), input);
+      logDecision(logs, root, branch, input, result);
+      clearSeals(logs);
+      if (result?.seal) { const { [sealKey]: folder, ...seal } = result.seal; writeSeal(logs, folder, seal); }
+      // "log": allowed without a prompt, and recorded above.
+      emit(result?.decision === 'log' ? null : result);
+    } catch (e) {
+      const text = JSON.stringify(input.tool_input || {});
+      if (failClosed.text.test(text) || failClosed.file.test(String(input.tool_input?.file_path || ''))) emit({ decision: 'deny', reason: `${label} error (${e.message}); blocked to be safe.` });
+      process.exit(0);
+    }
+  });
 }

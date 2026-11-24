@@ -5,7 +5,7 @@
 // real limits. Three tiers: ask only for what's hard to undo, deny with a pointer where there's an alternative, log the rest.
 // Flow: Claude Code sends the tool call as JSON on stdin → decide() → enforceMode() → emit() allow, ask or deny.
 // Self-test: node .claude/hooks/guard.mjs --selftest · Mode check: node .claude/hooks/guard.mjs --mode-probe
-import { readFileSync, existsSync, appendFileSync, mkdirSync, writeFileSync, readdirSync, rmSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { basename, dirname, join, resolve, relative, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
@@ -16,7 +16,7 @@ import {
   stripMessageBodies, segments, stripRedirects, program, redirects, substitutes, realPath, gitCommand, cdArg, dirAfter, innerCommand, onlyReadsText,
   WRITE_VERBS, INLINE_WRITE, scriptProblem, shellWrites, isGlob, searchesSecrets, gitConfigRisk, pushRouting, discardsWork, checkPush as checkPushCore,
   tagPush, ghMerges, pushesOtherwise, textFromFile, ghRunsWorkflow, ghReleases, runsShopifyCli, repoGit, WRAPPER_PATH, CLI_WORD, CLI_PATH, cliPackage, envFileIn, secretText, dumpsEnv,
-  ENV_DUMP_WHY, CLI_LOGIN, DOTENV, SECRET_VAR, SECRET_READ, SECRET_PATH, forceAdd, redact, logPath, enforceMode, emit, scriptDir, userSettings, pushIn,
+  ENV_DUMP_WHY, CLI_LOGIN, DOTENV, SECRET_VAR, SECRET_READ, SECRET_PATH, forceAdd, redact, logPath, enforceMode, emit, scriptDir, userSettings, pushIn, runGuard,
 } from '../kit/guard-core.mjs';
 
 // ── Rules: patterns, verb lists and messages ──
@@ -511,46 +511,6 @@ export function decide(input, ctx = defaultCtx) {
   return null;
 }
 
-// ── After the decision: seal, guard log ──
-
-/**
- * A seal is good only for the very next guarded call. The guard can't see the dev's answer, so after a No the seal
- * would otherwise stay valid for 15 minutes; any call in between (writing a helper, running it) now voids it.
- */
-function clearSeals() {
-  try {
-    const logs = join(ROOT, '.claude', 'logs');
-    for (const k of readdirSync(logs)) rmSync(join(logs, k, SEAL_FILE), { force: true });
-  } catch { /* no logs yet */ }
-}
-
-/** What the dev is about to be shown, for the wrapper to compare with what it runs. */
-function writeSeal({ key, ...seal }) {
-  try {
-    mkdirSync(join(ROOT, '.claude', 'logs', key), { recursive: true });
-    writeFileSync(join(ROOT, '.claude', 'logs', key, SEAL_FILE), JSON.stringify({ ...seal, at: new Date().toISOString() }));
-  } catch { /* no seal: the wrapper refuses, which is the safe side */ }
-}
-
-/**
- * Every decision is logged for the retro: denies (a block on a harmless command is a guard bug), asks, and "log" notes
- * (allowed, worth a look). branch lets the retro pick a task's entries; gate marks a recorded gate answer, which is
- * not a block. A mode block is the dev's setup, not something to review.
- */
-function logBlock(input, result) {
-  if (!result || result.byMode) return;
-  try {
-    const ti = input.tool_input || {};
-    // Redacted before it's cut: the log reaches retro output and the feedback file the maintainer receives.
-    const entry = {
-      at: new Date().toISOString(), kind: result.decision, tool: input.tool_name, branch: git.branch(),
-      reason: redact(result.reason).slice(0, 200), command: redact(ti.command || logPath(ti.file_path || ti.notebook_path, ROOT)).slice(0, 200),
-    };
-    mkdirSync(join(ROOT, '.claude', 'logs'), { recursive: true });
-    appendFileSync(join(ROOT, '.claude', 'logs', '_guard.jsonl'), `${JSON.stringify(entry)}\n`);
-  } catch { /* logging never changes the decision */ }
-}
-
 // ── Self-test ──
 // cases: [tool input, expected decision]; checks: [condition, description]. Every rule and bypass gets one.
 
@@ -1033,33 +993,8 @@ function selftest() {
 
 // ── Hook entry ──
 
-if (process.argv.includes('--selftest')) selftest();
-// Reaching this line means the hook let the call through, so the session's permission mode shows the kit's prompts.
-else if (process.argv.includes('--mode-probe')) console.log('ok: this session\'s permission mode shows the kit\'s confirmation prompts.');
-else {
-  let raw = '';
-  process.stdin.setEncoding('utf8');
-  process.stdin.on('data', (c) => { raw += c; });
-  process.stdin.on('end', () => {
-    let input;
-    try { input = JSON.parse(raw); } catch {
-      // Exit 2 blocks the call: input the guard can't read is input it can't vouch for.
-      process.stderr.write('Kit guard: unreadable hook input; blocked to be safe.\n');
-      process.exit(2);
-    }
-    try {
-      const result = enforceMode(decide(input), input);
-      logBlock(input, result);
-      clearSeals();
-      if (result?.seal) writeSeal(result.seal);
-      // "log": allowed without a prompt, and recorded above for the retro.
-      emit(result?.decision === 'log' ? null : result);
-    } catch (e) {
-      // Fail closed where a wrong allow could reach the store, a protected branch, a secret, or the kit and its state.
-      const text = JSON.stringify(input.tool_input || {});
-      const guardedFile = /\.claude|\.git[\\/]|\.mcp\.json/i.test(String(input.tool_input?.file_path || ''));
-      if (/shopify|git\s+push|\btheme\s|\.env|credential/i.test(text) || guardedFile) emit({ decision: 'deny', reason: `Kit guard error (${e.message}); blocked to be safe.` });
-      process.exit(0);
-    }
-  });
-}
+runGuard({
+  decide, selftest, root: ROOT, label: 'Kit guard', branch: () => git.branch(), sealKey: 'key',
+  // Fail closed where a wrong allow could reach the store, a protected branch, a secret, or the kit and its state.
+  failClosed: { text: /shopify|git\s+push|\btheme\s|\.env|credential/i, file: /\.claude|\.git[\\/]|\.mcp\.json/i },
+});

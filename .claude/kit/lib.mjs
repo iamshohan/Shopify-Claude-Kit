@@ -6,10 +6,10 @@ import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync, mkdtemp
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir, hostname, tmpdir } from 'node:os';
-import { now, print, fail, parseArgsWith, WIN, run as runIn, parseCliJson, gqlScan, sealDigest, protectedBranches, TEST_SUFFIX } from './core.mjs';
+import { now, print, fail, parseArgsWith, WIN, run as runIn, parseCliJson, gqlScan, sealDigest, SEAL_FILE, consumeSeal, protectedBranches, TEST_SUFFIX } from './core.mjs';
 
 // The helpers both kits share live in core.mjs (generated from shared/); the kit's scripts import them from here.
-export { now, print, fail, WIN, parseCliJson, gqlScan, sealDigest, protectedBranches, TEST_SUFFIX };
+export { now, print, fail, WIN, parseCliJson, gqlScan, sealDigest, SEAL_FILE, consumeSeal, protectedBranches, TEST_SUFFIX };
 
 // ── Paths and theme files ──
 // Located from this file, not from cwd: commands may run from a subfolder.
@@ -475,8 +475,6 @@ export function mutationProblems(text, varsText = '', createdIds = []) {
   return problems;
 }
 
-// The guard records what it showed the dev in this file; the wrapper runs only that, once.
-export const SEAL_FILE = 'guard-seal.json';
 
 /** Absolute path, and true only if it sits inside this task's log folder. */
 export function inTaskFolder(key, file) {

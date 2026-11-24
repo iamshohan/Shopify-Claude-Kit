@@ -9,7 +9,7 @@ import { existsSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync,
 import { join, resolve, relative, isAbsolute } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { tmpdir } from 'node:os';
-import { print, fail, now, parseCliJson, gqlOperations, sealDigest } from './core.mjs';
+import { print, fail, now, parseCliJson, gqlOperations, sealDigest, consumeSeal } from './core.mjs';
 import { ROOT, LOGS, KIT_VERSION, parseArgs, readConfig, devStore, run, normId, readChange, writeChange } from './repo.mjs';
 import { parseToml } from './toml.mjs';
 import { readItems, treeReader, extensionList, stable } from './surfaces.mjs';
@@ -111,18 +111,6 @@ function changeFile(id, file) {
   if (rel.startsWith('..') || isAbsolute(rel)) fail(`Mutation files live in .claude/logs/${id}/ (got ${file}).`);
   if (!existsSync(abs)) fail(`No such file: ${file}`);
   return abs;
-}
-
-/** mutate runs only what the guard showed the dev, once. A call the guard never saw has no seal. */
-function consumeSeal(id, expected) {
-  const path = join(LOGS, id, 'guard-seal.json');
-  let seal = null;
-  try { seal = JSON.parse(readFileSync(path, 'utf8')); } catch { /* none */ }
-  rmSync(path, { force: true });
-  const fresh = seal && Date.now() - Date.parse(seal.at) < 15 * 60 * 1000;
-  if (!fresh || !Object.entries(expected).every(([k, v]) => seal[k] === v)) {
-    fail(`The dev wasn't shown this exact ${expected.verb}${seal ? ': it changed after the prompt, or the prompt is over 15 minutes old' : ''}. Run the command again on its own, so the guard shows the dev what will run.`);
-  }
 }
 
 function storeOrFail(cfg) {
@@ -400,7 +388,7 @@ switch (verb) {
     const varsText = varsAbs ? readFileSync(varsAbs, 'utf8') : '';
     // Order matters: the file checks, then the guard's seal, then the one real run.
     if (flags['dry-run']) { print({ wouldRun: text, variables: varsText || null, store: storeOrFail(cfg) }); break; }
-    consumeSeal(id, { verb: 'mutate', sha: sealDigest(text, varsText), store: devStore(cfg) });
+    consumeSeal(join(LOGS, id), { verb: 'mutate', sha: sealDigest(text, varsText), store: devStore(cfg) });
     const res = execute(cfg, abs, varsAbs, { allowMutation: true, sealed: { text, varsText } });
     st.mutations = [...(st.mutations || []), { at: now(), file: relative(ROOT, abs).replaceAll('\\', '/'), fields: res.fields, store: res.store }];
     writeChange(cfg, id, st);

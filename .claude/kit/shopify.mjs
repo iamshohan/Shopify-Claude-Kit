@@ -11,7 +11,7 @@ import { createHash } from 'node:crypto';
 import {
   ROOT, LOGS, KIT_DIR, KIT_VERSION, THEME_DIRS, MERCHANT_JSON, WIN, print, fail, parseArgs, normKey, now, run, git,
   currentBranch, parseCliJson, diagnosticJson, readConfig, readState, writeState, secret, inTaskFolder,
-  storefrontGet, renderedTheme, storefrontPath, isThemePath, isStorable, mutationProblems, gqlScan, createdIds, namesKey, sealDigest, SEAL_FILE, draftNameFor, effectiveBase,
+  storefrontGet, renderedTheme, storefrontPath, isThemePath, isStorable, mutationProblems, gqlScan, createdIds, namesKey, sealDigest, SEAL_FILE, consumeSeal, draftNameFor, effectiveBase,
   shopifyIgnore, themeDigest, authSessionProps, execErrorProps, lastVerified, shapeOf,
 } from './lib.mjs';
 
@@ -160,20 +160,7 @@ function checkThemeList(store) {
 // ── Write gates ──
 // Checks the store-writing verbs run before they act. assertOwnDraft (Draft theme section) is the other one.
 
-/**
- * mutate and delete-draft run only what the guard showed the dev, once. A call the guard never
- * saw (a script, a chained command it refused) has no seal, and a file changed since has another digest.
- */
-function consumeSeal(key, expected) {
-  const path = join(LOGS, key, SEAL_FILE);
-  let seal = null;
-  try { seal = JSON.parse(readFileSync(path, 'utf8')); } catch { /* none */ }
-  rmSync(path, { force: true });
-  const fresh = seal && Date.now() - Date.parse(seal.at) < 15 * 60 * 1000;
-  if (!fresh || !Object.entries(expected).every(([k, v]) => seal[k] === v)) {
-    fail(`The dev wasn't shown this exact ${expected.verb}${seal ? ': it changed after the prompt, or the prompt is over 15 minutes old' : ''}. Run the command again on its own, so the guard shows the dev what will run.`);
-  }
-}
+// mutate and delete-draft run only what the guard showed the dev, once (consumeSeal, in core.mjs).
 
 /** Task state for a verb that writes to the store; investigations are read-only. */
 function writableTask(key) {
@@ -1061,7 +1048,7 @@ switch (verb) {
     const problems = mutationProblems(text, varsText, st.mutations.flatMap((m) => m.ids || []));
     if (problems.length) fail(`The kit won't run this mutation:\n- ${problems.join('\n- ')}`);
     if (flags['dry-run']) { print({ dryRun: true, store: cfg.store, mutation: text, variables: vars ? varsText : null }); break; }
-    consumeSeal(key, { verb: 'mutate', sha: sealDigest(text, varsText) });
+    consumeSeal(join(LOGS, key), { verb: 'mutate', sha: sealDigest(text, varsText) });
     // The CLI gets the exact bytes that were checked and sealed, from a private copy: a file changed since can't run.
     const tmp = mkdtempSync(join(tmpdir(), 'kit-mutate-'));
     let data;
@@ -1098,7 +1085,7 @@ switch (verb) {
     }
     assertOwnDraft(key, st, target);
     if (flags['dry-run']) { print({ dryRun: true, wouldDelete: target }); break; }
-    consumeSeal(key, { verb: 'delete-draft', themeId: st.draft.themeId });
+    consumeSeal(join(LOGS, key), { verb: 'delete-draft', themeId: st.draft.themeId });
     const r = cli(['theme', 'delete', '--store', cfg.store, '--theme', String(target.id), '--force']);
     if (r.code !== 0) failCli(cfg.store, r, 'Deleting the draft');
     st.draft.deletedAt = now();
