@@ -17,6 +17,16 @@
 
 **Kept, deliberately:** the wrapper's own-draft check and live-theme block, the mutation allowlist with its sealed approval, the one push form (`--no-verify` still refused), secret files and printing the environment, `gh` merges, workflow runs and releases, refusing to run a script that calls the CLI (an agent wrote one in a real run), and the guard reading through `timeout`/`env` prefixes, `bash -c` and Windows short paths.
 
+**Decided against, so reviews needn't raise them again:**
+- **Gate answers pass without a guard prompt.** The skill asks the dev and state.json records their words; a guard prompt would ask twice per gate and refuse every gate in bypass mode. Nothing past a gate reaches live without the dev's merge.
+- **GitHub GraphQL ref writes** (`createCommitOnBranch`, `updateRef`) and setting push routing aren't checked: only an agent working around the push rule would use them, and branch protection on GitHub holds.
+- **The guard fails closed on its own errors only for the CLI, pushes, themes and secrets**: its self-test runs at every setup, and a broader fail-closed would block ordinary work whenever it has a bug.
+- **A deleted template heading switches its check off** (`hasHeading`): that keeps tasks started on an older kit working, and deleting a heading to skip a check is deliberate.
+- **The retro still skips `gate: true` entries:** guard logs from before 1.16 hold them, and tasks started then are still open.
+- **The app kit's § Retires line** splits its reason at the last `: `; a test name with ": " is as likely as a reason with one, so it stays until a real case shows which.
+
+**Release pace:** at most one release a week from now on; a safety fix may go out at once, marked as one.
+
 **Wording checks are warnings.** A stage exit that only disliked the wording (a missing "Surprises:" or "Client surprises:" line, ticket numbers in code comments, the "client's call" row count, report.md named in the PR, the GitHub-draft "Save" line, investigation keyword gaps, the stays-in-code phrasing) now passes and prints "Worth a look before you go on". Fact checks stay refusals: QA rows recorded and fresh, draft at HEAD, branch pushed, theme check, repro with both sides, AC coverage, and an outside check skipped on a task that isn't a small fix. 1 of 14 real refusals was a wording check.
 
 **Video: editor scenes are stills.** Theme-editor and admin scenes are one still per sentence with a slow zoom, taken with Claude in Chrome's zoom screenshot (`video.mjs still`). No screen recording, no Windows-only capture, no corner marks, no minutes away from the computer. Storefront scenes still record. Scenes already recorded the old way still assemble.
@@ -34,6 +44,8 @@
 - A script file is read when it runs (`bash deploy.sh`, `./x.sh`, `node scripts/x.mjs`) and refused if it calls the CLI; writing one stays logged.
 - `git switch -` before a commit or merge asks (the guard can't see which branch that is).
 - `update.mjs` refuses a clone off main or with uncommitted changes (`--force` overrides).
+- `export-logs.mjs` writes each theme task's `summary.json` (minutes per stage, loops back, refusals, QA verdicts) next to its logs, the numbers the next round starts from; it deletes only your own exports older than 90 days, not a teammate's.
+- `qa-row` calls run one at a time (parallel ones overwrite each other's row).
 - The investigation's read-only check reads non-ASCII paths; `video start` warns about unaccepted code on GitHub-connected drafts too; design-audit measures the right gutter without the scrollbar.
 - Stale comments and docs (gate answers aren't logged since 1.16.0; the QA skill's "you don't fix").
 

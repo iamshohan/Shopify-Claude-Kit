@@ -43,9 +43,10 @@ const SPEC = {
 /** Where the kit's records live, relative to the repo root: always appspec/. */
 export const specPaths = () => SPEC;
 
-// App code (the guard's pattern) and lockfiles, which pin what runs; not build output, CI or the kit's records. Results
-// are recorded against it, so committing docs or .gitignore doesn't make them stale, and dist/ needn't be committed.
-const APP_CODE = /^(app|extensions|prisma|web|src|server|lib|shared|public)\/|\.(m?[jt]sx?|cjs|liquid|graphql|gql|prisma|toml|json|ya?ml|html|css|scss)$|(^|\/)(yarn\.lock|bun\.lockb?)$/i;
+// App code and lockfiles, which pin what runs; not build output, CI or the kit's records. Results are recorded against it,
+// so committing docs or .gitignore doesn't make them stale, and dist/ needn't be committed. The guard uses it too: there
+// lockfiles count as generated first, so they stay editable before Gate 1.
+export const APP_CODE = /^(app|extensions|prisma|web|src|server|lib|shared|public)\/|\.(m?[jt]sx?|cjs|liquid|graphql|gql|prisma|toml|json|ya?ml|html|css|scss)$|(^|\/)(yarn\.lock|bun\.lockb?)$/i;
 // <any folder>/<extension>/dist/: extensions may live in any extension_directories folder, not only extensions/.
 const BUILD_OUTPUT = /^(\.shopify\/|\.react-router\/|build\/|dist\/|node_modules\/|\.playwright-mcp\/|[^/]+\/[^/]+\/(dist|generated|node_modules)\/|extensions\/[^/]+\/schema\.graphql$)|\.generated\.[jt]sx?$|\.d\.ts$/;
 export const isAppCode = (p) => APP_CODE.test(p) && !BUILD_OUTPUT.test(p) && !/^(appspec|\.claude|\.github)\//.test(p);

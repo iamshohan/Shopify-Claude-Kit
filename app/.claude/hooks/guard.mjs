@@ -19,7 +19,7 @@ import {
 } from '../kit/guard-core.mjs';
 import { gqlOperations, sealDigest, SEAL_FILE } from '../kit/core.mjs';
 // The wrapper's own argv parser: the guard must read a command exactly as the wrapper will run it.
-import { parseArgs, protectedBranches as branchesFrom, devStore, specPaths, listChanges, DEFAULTS, TEST_SUFFIX } from '../kit/repo.mjs';
+import { parseArgs, protectedBranches as branchesFrom, devStore, specPaths, listChanges, DEFAULTS, TEST_SUFFIX, APP_CODE } from '../kit/repo.mjs';
 
 // ── Rules: patterns, verb lists and messages ──
 
@@ -65,8 +65,6 @@ const CONFIG_KEYS = {
 // Wrapper verbs that run without asking: local, or read-only on the dev store. Anything else, including verbs added later, asks.
 // generate-extension scaffolds local files from Shopify's template: nothing changes on Shopify until the dev deploys.
 const SAFE_VERBS = new Set(['cli-check', 'info', 'validate', 'generate-extension', 'build', 'function-build', 'function-typegen', 'function-run', 'security', 'query', 'help', '--help']);
-// Source, config and data the app runs on; other files (logs, notes) are free to write.
-const APP_CODE = /^(app|extensions|prisma|web|src|server|lib|shared|public)\/|\.(m?[jt]sx?|cjs|liquid|graphql|gql|prisma|toml|json|ya?ml|html|css|scss)$/i;
 // Files that can switch the guard or git's safety off: settings.local.json can disable hooks, .mcp.json adds servers,
 // .git/config can hold an alias or a push refspec, .git/hooks run on commit. Writing them asks (.git/info/exclude doesn't).
 const GUARD_OFF = /^(\.claude\/[^/]+\.json|\.mcp\.json|\.git\/(config$|hooks(\/|$))|\.git$)/i;

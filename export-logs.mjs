@@ -4,7 +4,7 @@
 //   node export-logs.mjs          tasks changed since the last export
 //   node export-logs.mjs --all    every task again
 // Repos come from the installers' list (.installs.json; node update.mjs --scan adds older ones). Text files only:
-// no screenshots, theme pulls or A/B code. Exports older than 90 days are deleted. kit-logs/<date>/<person>/ is
+// no screenshots, theme pulls or A/B code. Your own exports older than 90 days are deleted. kit-logs/<date>/<person>/ is
 // committed to the kit repo (keep it private: the logs hold ticket text and store details); the script prints the
 // git commands and never pushes by itself.
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -58,6 +58,14 @@ for (const [repo, kit] of repos) {
   if (!existsSync(repo)) continue;
   const to = join(dest, label(repo));
   const tasks = copyTasks(join(repo, '.claude', 'logs'), join(to, 'logs'));
+  // The numbers the next round starts from (minutes per stage, loops back, refusals, QA verdicts), as the repo's own kit
+  // computes them. The app kit's change.json already holds its history and gates.
+  if (kit !== 'app') {
+    for (const key of tasks) {
+      const s = spawnSync(process.execPath, [join(repo, '.claude', 'kit', 'kit.mjs'), 'summary', key], { cwd: repo, encoding: 'utf8', timeout: 30000 });
+      if (s.status === 0 && s.stdout.trim().startsWith('{')) writeFileSync(join(to, 'logs', key, 'summary.json'), s.stdout);
+    }
+  }
   // The app kit's changes live in appspec/ (committed), its notes in .claude/logs/.
   if (kit === 'app') tasks.push(...copyTasks(join(repo, 'appspec', 'changes'), join(to, 'changes')), ...copyTasks(join(repo, 'appspec', 'archive'), join(to, 'archive')));
   // The guard log and kit-feedback.md sit at the top of .claude/logs/.
@@ -69,11 +77,14 @@ for (const [repo, kit] of repos) {
   if (tasks.length || top.length) index.push(`- **${label(repo)}** (${kit} kit, ${repo}): ${tasks.length ? tasks.join(', ') : 'guard log only'}`);
 }
 
-// Old exports go, so the folder never grows past about three months.
+// Your own old exports go, so the folder never grows past about three months; a teammate's are theirs to prune.
 const cutoff = startedAt.getTime() - KEEP_DAYS * 86400000;
 let removed = 0;
 for (const d of existsSync(OUT) ? readdirSync(OUT) : []) {
-  if (/^\d{4}-\d{2}-\d{2}$/.test(d) && Date.parse(d) < cutoff) { rmSync(join(OUT, d), { recursive: true, force: true }); removed++; }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || Date.parse(d) >= cutoff || !existsSync(join(OUT, d, person))) continue;
+  rmSync(join(OUT, d, person), { recursive: true, force: true });
+  removed++;
+  if (!readdirSync(join(OUT, d)).length) rmSync(join(OUT, d), { recursive: true, force: true });
 }
 
 if (index.length) {

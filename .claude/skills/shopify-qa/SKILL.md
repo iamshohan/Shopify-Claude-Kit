@@ -23,7 +23,7 @@ Never write "QA passed" while any row is FAIL, NOT TESTED or BLOCKED.
 
 1. `node .claude/kit/kit.mjs status <KEY>` gives the draft theme id, the preview URL, the editor URL and the feature prefix.
 2. Copy every row of `plan.md` § QA criteria into `report.md` § Criteria, Expected filled and Measured empty, before measuring anything, so results can't shape the expectations.
-3. **Record each row as soon as it's measured** (a compaction then loses nothing): `kit.mjs qa-row <KEY> <#> --measured "…" --how "…" --verdict PASS`. Never type, edit or blank a verdict in the table yourself; a criterion changed in `plan.md` after it was measured gets measured again.
+3. **Record each row as soon as it's measured** (a compaction then loses nothing): `kit.mjs qa-row <KEY> <#> --measured "…" --how "…" --verdict PASS`, one call at a time (parallel calls overwrite each other's row). Never type, edit or blank a verdict in the table yourself; a criterion changed in `plan.md` after it was measured gets measured again.
 4. **Two browsers, each for what it's safe for.**
    - **Storefront (the draft, live for comparison): `kit-browser`** (`mcp__kit-browser__*`), isolated and logged in nowhere. Missing: stop and ask the dev to add it (the command is in `/shopify-setup`) and restart; the storefront isn't measured in Chrome, which can't set the viewport.
    - **Theme editor and admin: Chrome** (load the `claude-in-chrome` skill, open a new tab and keep it in front: background tabs freeze timers). It runs as the dev's admin account.

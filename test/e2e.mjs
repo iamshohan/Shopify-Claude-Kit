@@ -7,7 +7,7 @@
 import { spawnSync, execFileSync } from 'node:child_process';
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { delimiter, dirname, join, resolve } from 'node:path';
-import { tmpdir } from 'node:os';
+import { hostname, tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
 // ── Harness ──
@@ -1013,7 +1013,10 @@ try {
   mkdirSync(join(twin, '.claude', 'logs', 'XYZ-9'), { recursive: true });
   writeFileSync(join(twin, '.claude', 'logs', 'XYZ-9', 'plan.md'), '# plan\n');
   writeFileSync(process.env.SHOPIFY_KIT_REGISTRY, JSON.stringify({ [resolve(repo)]: 'theme', [resolve(twin)]: 'theme' }));
-  mkdirSync(join(exportsDir, '2000-01-01'), { recursive: true });
+  // An old export of this person's goes; a teammate's from the same day stays theirs to prune.
+  const me = (spawnSync('git', ['config', 'user.name'], { cwd: KIT, encoding: 'utf8' }).stdout.trim() || hostname()).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'dev';
+  mkdirSync(join(exportsDir, '2000-01-01', me), { recursive: true });
+  mkdirSync(join(exportsDir, '2000-01-01', 'teammate-x'), { recursive: true });
   const exportEnv = { ...process.env, SHOPIFY_KIT_EXPORT: exportsDir };
   const exported = spawnSync(process.execPath, [join(KIT, 'export-logs.mjs')], { encoding: 'utf8', env: exportEnv });
   const exportAgain = spawnSync(process.execPath, [join(KIT, 'export-logs.mjs')], { encoding: 'utf8', env: exportEnv });
@@ -1022,9 +1025,11 @@ try {
   const people = today ? readdirSync(join(exportsDir, today)) : [];
   const personDir = people.length === 1 ? join(exportsDir, today, people[0]) : '';
   const exportedRepos = personDir ? readdirSync(personDir).filter((d) => d !== 'index.md') : [];
-  ok('export-logs copies every repo\'s tasks into a dated folder per person, keeps same-named repos apart, exports only changes, drops old exports and prints the git steps',
+  const withKey = exportedRepos.find((d) => existsSync(join(personDir, d, 'logs', KEY, 'brief.md')));
+  ok('export-logs copies every repo\'s tasks into a dated folder per person with each task\'s summary, keeps same-named repos apart, exports only changes, drops only your own old exports and prints the git steps',
     exported.status === 0 && exportedRepos.length === 2 && exportedRepos.every((d) => /^theme-[0-9a-f]{6}$/.test(d))
-      && exportedRepos.some((d) => existsSync(join(personDir, d, 'logs', KEY, 'brief.md'))) && existsSync(join(personDir, 'index.md')) && !existsSync(join(exportsDir, '2000-01-01'))
+      && Boolean(withKey) && /"minutesPerStage"/.test(readFileSync(join(personDir, withKey, 'logs', KEY, 'summary.json'), 'utf8'))
+      && existsSync(join(personDir, 'index.md')) && !existsSync(join(exportsDir, '2000-01-01', me)) && existsSync(join(exportsDir, '2000-01-01', 'teammate-x'))
       && /git add kit-logs/.test(exported.stdout) && /Nothing changed/.test(exportAgain.stdout), exported.stdout + exported.stderr + exportAgain.stdout + JSON.stringify(people) + JSON.stringify(exportedRepos));
   // VERSION stays put between releases, so the build id carries the kit commit the installer recorded.
   const installed = JSON.parse(readFileSync(manifestPath, 'utf8'));
