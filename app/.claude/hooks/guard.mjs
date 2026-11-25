@@ -15,7 +15,7 @@ import {
   textFromFile, ghRunsWorkflow, ghReleases, enforceMode, emit, realPath, redirects, substitutes, onlyReadsText, WRITE_VERBS, scriptProblem, shellWrites, isGlob,
   searchesSecrets, pushRouting, discardsWork, runsShopifyCli, repoGit, WRAPPER_PATH, CLI_WORD, CLI_PATH, cliPackage, envFileIn,
   secretText, dumpsEnv, ENV_DUMP_WHY, CLI_LOGIN, SECRET_VAR, SECRET_READ, SECRET_PATH, redact, logPath, scriptDir, userSettings, pushIn, runGuard,
-  scriptRun, secretFiles,
+  scriptRun, secretFiles, runCodeDecision, RUN_CODE_TOOL,
 } from '../kit/guard-core.mjs';
 import { gqlOperations, sealDigest, SEAL_FILE } from '../kit/core.mjs';
 // The wrapper's own argv parser: the guard must read a command exactly as the wrapper will run it.
@@ -551,9 +551,13 @@ const defaultCtx = {
   secrets: () => secretFiles(ROOT), dirty: (paths, dir) => git.dirty(paths, dir),
 };
 
+// kit-browser's run_code runs in Node with the dev's access: only the kit's QA probe runs from a file.
+const RUN_CODE_FILES = /^\.claude\/kit\/qa-probe\.init\.js$/i;
+
 export function decide(input, ctx = defaultCtx) {
   const tool = input.tool_name;
   const ti = input.tool_input || {};
+  if (RUN_CODE_TOOL.test(tool || '')) return runCodeDecision(ti, input.cwd, ROOT, RUN_CODE_FILES);
   if (['Edit', 'Write', 'MultiEdit', 'NotebookEdit'].includes(tool)) return decideFile(ti, input.cwd, ctx);
   // Bash, PowerShell, Monitor, and any later tool that runs a command: all read the same way.
   if (typeof ti.command === 'string') return decideCommand(ti.command, ctx, 0, input.cwd || null);
@@ -768,6 +772,11 @@ function selftest() {
     [bash('cd .claude && git commit -m x'), 'deny', ctx({ branch: 'main' })], [bash(`cd ${OUT} && git push origin main`), 'deny'],
     // Monitor runs commands too
     [{ tool_name: 'Monitor', tool_input: { command: 'shopify app deploy --force' } }, 'deny'], [{ tool_name: 'Monitor', tool_input: { command: 'cat .env' } }, 'deny'],
+    // kit-browser's run_code: the kit's probe file runs; other files and Node APIs in inline code don't.
+    [{ tool_name: 'mcp__kit-browser__browser_run_code_unsafe', tool_input: { filename: '.claude/kit/qa-probe.init.js' }, cwd: ROOT }, null],
+    [{ tool_name: 'mcp__kit-browser__browser_run_code_unsafe', tool_input: { filename: '.claude/logs/X/steal.js' }, cwd: ROOT }, 'deny'],
+    [{ tool_name: 'mcp__kit-browser__browser_run_code_unsafe', tool_input: { code: "async (page) => require('fs').readFileSync('.env')" }, cwd: ROOT }, 'deny'],
+    [{ tool_name: 'mcp__kit-browser__browser_run_code_unsafe', tool_input: { code: 'async (page) => page.setViewportSize({ width: 360, height: 800 })' }, cwd: ROOT }, null],
     [{ tool_name: 'Monitor', tool_input: { command: 'npm test' } }, null],
     // pushes routed elsewhere by git's settings: the config, a branch's upstream
     [bash('GIT_AUTHOR_NAME=x git commit -m y'), null],

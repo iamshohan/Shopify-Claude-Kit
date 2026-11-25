@@ -11,9 +11,13 @@ The dev approves behaviour, not code. Everything you write here is read by someo
 ## 1. Understand
 
 - **Investigated first?** `.claude/logs/<KEY>/investigation.md` (from `/app-investigate`) is this change's starting context. Check what it cites against the current code, and carry its decisions into § Decided for you instead of asking again.
-- Read `appspec/project.md` and the ticket (`node .claude/kit/jira.mjs <KEY>`).
+- **The ticket:** `node .claude/kit/app.mjs ticket <ID>` saves it to `.claude/logs/<ID>/ticket.json` and lists its Figma links. Read every comment: later ones often change the AC. Read `appspec/project.md` (the client's checkout layout, Plus, what differs on the dev store).
+- **Figma:** when the ticket links it, run the `design-extractor` agent on every frame the change builds (each variation and viewport) and save its report as `.claude/logs/<ID>/design.md`, its JSON block as `design-checks.json`. Its "Can't be expressed" list is a decision for § Decided for you or a question, never a silent substitute.
 - Map the code with the `app-recon` agent: the routes, webhooks, extensions, Prisma models, GraphQL operations and tests in the area, and the archived changes that touched it, with `file:line` evidence.
+- **Precedent:** a new extension or target → `node .claude/kit/app.mjs precedent <ID> <target, component, API or feature words>` searches this repo's and the sibling app repos' archived changes. Read the closest hits. What you borrow is an option, not a fact: check it in the docs for this app's API version, and say in § Decided for you what you took from where (or "Precedent: none found").
 - Shopify facts come from `shopify-plugin:shopify`. Choose the **narrowest scope** that does the job.
+- **"Can't be done" is a claim with evidence.** Before writing that Shopify doesn't allow something (a placement, a prop, a format, a colour), read the target's or component's own reference page for the app's API version, not a guide's summary list, and put its link in the same line. ASM-924 told the dev there was no slot under "Gesamt" from a testing guide that omitted the ORDER_SUMMARY placements.
+- **Least intervention by default.** Prefer the path that needs no step from the dev or on the client's store (an inlined asset over an upload to the client's Files), even when it relies on behaviour the docs don't promise: then it goes in § Not proven yet with its fallback and the scenario that proves it, and QA settles it.
 - **Open questions:** decide what the ticket, the code, the archived changes or the docs answer, and record each in § Decided for you. Ask only what `app-runs.md` lists, in one AskUserQuestion round before writing the scenarios.
 - **A change to `shopify.app*.toml` or an extension toml:** write it and run `node .claude/kit/shopify.mjs validate` before Gate 1. The docs don't list every required key (validate caught a missing `[auth]` in the first real run).
 - **A new extension:** generate it on the change branch before writing § Surfaces: `node .claude/kit/shopify.mjs generate-extension <template> <name> --flavor <flavor>` (the name is the feature, never the ticket key). Then copy the rows `node .claude/kit/app.mjs surfaces <ID>` prints, changed to the targets and capabilities the change will use, not the template's defaults. If the verb needs a login or a choice it can't make, it prints the command for the dev.
@@ -22,7 +26,9 @@ The dev approves behaviour, not code. Everything you write here is read by someo
 
 The template's comments say what each section holds. Beyond them:
 
-- **§ Scenarios:** `test:` checks run with vitest; a package without it needs `+ dependency:vitest` in § Surfaces and a setup task, or `qa:` checks.
+- **§ Asked first, then the scenarios from it.** Each AC line and deciding comment quoted word for word (gate compares it with ticket.json), each Figma frame as its own row. A scenario's THEN keeps the row's meaning-carrying words: counts, order, "most recent", where a link lands. Every variation and every viewport a frame shows gets a `qa:` scenario.
+- **§ Scenarios:** `test:` checks run with vitest; a package without it needs `+ dependency:vitest` in § Surfaces and a setup task, or `qa:` checks. Logic in a checkout or admin UI extension (the A/B gate present and absent, the `shopify.extension.editor` branch, a cleared setting arriving as `undefined`, a fetch failing) is a `test:` too: pure functions in `src/` tested with vitest, or the component with Shopify's `@shopify/ui-extensions-tester` (look up its use for the extension's API version with `shopify-plugin:shopify`; `+ dependency:` row). Keep one `qa:` row per arm for the real render.
+- **Gated checkout blocks, every time:** what the checkout editor shows (`shopify.extension.editor`: a gated block renders nothing there unless it says otherwise); where the block renders on the client's checkout layout on mobile (one-page shows the summary twice; app blocks may render only in one copy); asset delivery (s-image and data URIs: check the docs for the API version; a hosted file means a client step); the 64 KB compressed bundle; `network_access` for any fetch.
 - **§ Surfaces:** be exact: verify compares this table with what the branch really changes.
 - **§ Design:** besides the template's list, old code must run against the new schema during the deploy.
 
@@ -35,16 +41,19 @@ By type:
 
 ## 3. Gate 1
 
-1. Run `node .claude/kit/app.mjs gate <ID>` until it passes.
-2. Commit the change folder on the change branch.
-3. **Hand the proposal over, don't ask yet.** Say it's ready at `appspec/changes/<ID>/proposal.md` and show, from gate's output, in at most 15 lines:
-   - what needs the dev first: `attention`, any departure from the ticket, what you're unsure of
+1. **Outside review.** Run the `outcome-checker` agent (mode `proposal`, with the change ID). Fix what it finds that's real (a dropped AC word, an uncovered frame or arm, an unproven claim), and record it: `node .claude/kit/app.mjs review <ID> outside --found "<its findings, one clause each, and what you changed>"`. A `--quick` change skips this.
+2. Run `node .claude/kit/app.mjs gate <ID>` until it passes.
+3. Commit the change folder on the change branch.
+4. **Hand the proposal over, don't ask yet.** Say it's ready at `appspec/changes/<ID>/proposal.md` and show, from gate's output, in at most 15 lines:
+   - what needs the dev first: `attention`, any departure from the ticket, `notProvenYet`, what the outside review found that you didn't change, what you're unsure of
    - the behaviour as groups, not every row ("S1–S4: the block shows for variation 1 and 2, nothing without the key"); values in full only where they're the point
    - the surfaces in one line, `pcdScopes` first; `design` in a line when there is one
    - `decided`: "N decisions in § Decided for you", plus the one or two the dev would most likely change
    - fix: `reproduce`; A/B: the key and values from `abGate`, and `completion` in a line
    - `warnings`, one line each: fix them before handing over, or say why not (`done propose` comes after the dev's approval)
    End with: "Review it and tell me: approve, what to change, or any question." Then stop and wait; no AskUserQuestion. Questions → answer and wait. Changes → edit, run gate again, say what changed, wait.
-4. On an explicit approval: `node .claude/kit/app.mjs done <ID> propose --answer "<the dev's words>"`. A reply that could be read either way: ask.
+5. On an explicit approval: `node .claude/kit/app.mjs done <ID> propose --answer "<the dev's words>"`. A reply that could be read either way: ask.
+
+**A small fix** (a colour, a size, a text, no surfaces; often right after a handoff): start it with `--quick`. The proposal still needs § Why, § Asked, the scenarios and § Tasks, and Gate 1 is still the dev's one-line yes; the outside review, precedent search and blind QA are skipped.
 
 **Done when:** gate passes, the dev approved, and `done propose` succeeded.

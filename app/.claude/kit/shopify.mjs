@@ -19,10 +19,14 @@ const HELP = `Usage: node .claude/kit/shopify.mjs <verb> ...
 Local (no store):
   cli-check [--force]                    the CLI still has every command and flag the kit uses (cached per CLI version)
   info                                   app name, extensions, local scopes vs scopes granted on Shopify (never secrets)
-  validate                               app config validate: the app and extension configs are valid
+  validate [--all]                       app config validate: the app and extension configs are valid; --all: every
+                                         shopify.app*.toml (the production config too)
+  dev-status                             the dev's running app dev, from its log: which store, whether it rebuilt after
+                                         the last edit, build errors, bundle sizes (no CLI call)
   generate-extension <template> <name> [--flavor F]
                                          scaffold an extension from Shopify's template (local files; e.g. checkout_ui trust-list --flavor react)
-  build                                  shopify app build, then each checkout UI bundle's size against the 64 KB limit
+  build                                  shopify app build (Theme Check included), then each checkout UI bundle against the
+                                         64 KB compressed limit and each theme app extension against its size limits
   function-build <extension>             build one Function to wasm
   function-typegen <extension>           regenerate one Function's input types
   function-run <extension> [--fixture <file.json>]
@@ -62,10 +66,10 @@ export function configFlag(cfg) {
 // The kit says telemetry is opted out; the CLI reports usage (the security check's finding counts too) unless told not to.
 const NO_ANALYTICS = { SHOPIFY_CLI_NO_ANALYTICS: '1' };
 
-function cli(args, cfg, { path = ROOT } = {}) {
+function cli(args, cfg, { path = ROOT, config } = {}) {
   // The CLI wants forward slashes in some paths on Windows (theme kit finding, CLI 4.9.4).
   const posix = args.map((a) => (/^[A-Za-z]:\\/.test(a) ? a.replaceAll('\\', '/') : a));
-  const r = run('shopify', [...posix, '--path', path.replaceAll('\\', '/'), ...configFlag(cfg), '--no-input'], { shell: true, dropEnv: /^SHOPIFY_FLAG_/, env: NO_ANALYTICS });
+  const r = run('shopify', [...posix, '--path', path.replaceAll('\\', '/'), ...configFlag(config ? { appConfig: config } : cfg), '--no-input'], { shell: true, dropEnv: /^SHOPIFY_FLAG_/, env: NO_ANALYTICS });
   return { ...r, data: parseCliJson(r.stdout) };
 }
 
@@ -211,11 +215,56 @@ function build(cfg) {
     if (!existsSync(file)) { bundles.push({ extension: e.handle, verdict: 'MISSING', note: `no ${e.dir}/dist/${e.handle}.js after the build` }); continue; }
     const raw = statSync(file).size;
     const gz = gzipSync(readFileSync(file)).length;
-    // Which size Shopify counts isn't settled here, so the raw size warns and the compressed size fails.
-    bundles.push({ extension: e.handle, rawBytes: raw, gzipBytes: gz, limitBytes: BUNDLE_LIMIT, verdict: gz > BUNDLE_LIMIT ? 'FAIL' : raw > BUNDLE_LIMIT ? 'WARN' : 'PASS' });
+    // Shopify counts the compressed size (optimize-bundle-size docs; the CLI's own log prints both): asmc's 59 KB raw
+    // bundle was 22 KB compressed, so a raw-size warning was noise.
+    bundles.push({ extension: e.handle, rawBytes: raw, gzipBytes: gz, limitBytes: BUNDLE_LIMIT, verdict: gz > BUNDLE_LIMIT ? 'FAIL' : 'PASS' });
   }
+  for (const e of extensions(cfg).filter((x) => x.type === 'theme')) bundles.push({ extension: e.handle, ...themeExtensionLimits(join(ROOT, e.dir)) });
   return { ok: r.code === 0 && !bundles.some((b) => b.verdict === 'FAIL' || b.verdict === 'MISSING'), exit: r.code, error: r.code ? cliError(r) : undefined, bundles };
 }
+
+/** A theme app extension against Shopify's limits: 100 KB of Liquid in all, 15 KB per locale file, 30 blocks. */
+export function themeExtensionLimits(dir) {
+  const files = (sub, re) => { const d = join(dir, sub); return existsSync(d) ? readdirSync(d).filter((f) => re.test(f)).map((f) => join(d, f)) : []; };
+  const liquid = ['blocks', 'snippets'].flatMap((s) => files(s, /\.liquid$/)).reduce((n, f) => n + statSync(f).size, 0);
+  const blocks = files('blocks', /\.liquid$/).length;
+  const bigLocales = files('locales', /\.json$/).filter((f) => statSync(f).size > 15 * 1024).map((f) => f.split(/[\\/]/).pop());
+  const problems = [liquid > 100 * 1024 && `${(liquid / 1024).toFixed(1)} KB of Liquid (limit 100 KB)`, blocks > 30 && `${blocks} blocks (limit 30)`, bigLocales.length && `locale files over 15 KB: ${bigLocales.join(', ')}`].filter(Boolean);
+  return { liquidBytes: liquid, blocks, verdict: problems.length ? 'FAIL' : 'PASS', ...(problems.length ? { note: problems.join('; ') } : {}) };
+}
+
+/**
+ * The dev's app dev, from the CLI's own log (.shopify/dev/app-dev-<config>-*.jsonl: { timestamp, source, message }).
+ * The kit can't run app dev; this says whether what QA is about to measure is the current code on the dev store.
+ */
+export function devStatus(cfg, root = ROOT) {
+  const dir = join(root, '.shopify', 'dev');
+  const logs = existsSync(dir) ? readdirSync(dir).filter((f) => f.startsWith(`app-dev-${cfg.appConfig}-`) && f.endsWith('.jsonl')).map((f) => join(dir, f)) : [];
+  if (!logs.length) return { running: false, problems: [`no app dev log for ${cfg.appConfig}: ask the dev to start the appDev command from shopify.mjs info, in a separate terminal`] };
+  const file = logs.sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0];
+  const lines = readFileSync(file, 'utf8').split(/\r?\n/).filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+  const last = (re) => [...lines].reverse().find((l) => re.test(l.message || ''));
+  const store = (last(/(?:Preparing|Updated) dev preview on (\S+)/)?.message.match(/on (\S+?\.myshopify\.com)/) || [])[1] || null;
+  const updated = last(/Updated dev preview|Ready, watching for changes/)?.timestamp || null;
+  // Edits the dev server hasn't picked up yet: extension files newer than its last update.
+  const newest = extensions(cfg).flatMap((e) => walkFiles(join(root, e.dir))).reduce((m, f) => Math.max(m, statSync(f).mtimeMs), 0);
+  const stale = updated && newest > Date.parse(updated) + 2000;
+  const errors = lines.filter((l) => l.level === 'error' || /\b(error|failed)\b/i.test(l.message || '')).slice(-5).map((l) => `${l.timestamp} ${l.source}: ${String(l.message).slice(0, 200)}`);
+  const sizes = Object.fromEntries(lines.map((l) => (l.message || '').match(/^(\S+) successfully built in \S+ \(([^)]+)\)/)).filter(Boolean).map((m) => [m[1], m[2]]));
+  const want = devStore(cfg);
+  return {
+    running: Boolean(updated), log: relative(root, file).replaceAll('\\', '/'), store, lastUpdate: updated, lastLine: lines.at(-1)?.timestamp || null, sizes, errors,
+    // The preview link, without the GraphiQL key the same log holds.
+    preview: (last(/^Preview URL:/)?.message || '').replace(/^Preview URL:\s*/, '').replace(/([?&]key=)[^&\s]+/g, '$1…') || null,
+    problems: [
+      store && want && store !== want && `app dev is previewing on ${store}, not the dev store ${want}: ask the dev to restart it with the appDev command`,
+      stale && 'extension files changed after app dev\'s last update: wait for "Updated dev preview" (or ask the dev to restart it) before measuring',
+      errors.length && 'the log has build errors (see errors): fix them before measuring',
+    ].filter(Boolean),
+    note: 'The log can outlive the process: if lastLine is old and nothing updates after an edit, app dev has stopped.',
+  };
+}
+const walkFiles = (d) => { try { return readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.name === 'node_modules' || e.name === 'dist' || e.name.startsWith('.') ? [] : e.isDirectory() ? walkFiles(join(d, e.name)) : [join(d, e.name)])); } catch { return []; } };
 
 /** Each fixture (payload: { export, input, output }) run through the built Function. */
 function functionRun(cfg, name, fixture) {
@@ -348,11 +397,20 @@ switch (verb) {
     break;
   }
   case 'validate': {
+    if (flags.all) {
+      // The production config is deployed by the dev; a broken one would only show at their deploy (asmc first run).
+      const configs = readdirSync(ROOT).filter((f) => /^shopify\.app(\.[\w-]+)?\.toml$/.test(f));
+      const results = configs.map((c) => { const r = cli(['app', 'config', 'validate', '--json'], cfg, { config: c }); return { config: c, valid: Boolean(r.data?.valid), ...(r.data?.valid ? {} : { error: (r.data ? JSON.stringify(r.data) : cliError(r)).slice(0, 400) }) }; });
+      print({ valid: results.every((x) => x.valid), results });
+      if (!results.every((x) => x.valid)) process.exit(1);
+      break;
+    }
     const r = cli(['app', 'config', 'validate', '--json'], cfg);
     print(r.data ?? { error: cliError(r) });
     if (!r.data?.valid) process.exit(1);
     break;
   }
+  case 'dev-status': { const s = devStatus(cfg); print(s); if (s.problems.length) process.exit(1); break; }
   case 'build': { const b = build(cfg); print(b); if (!b.ok) process.exit(1); break; }
   case 'function-build':
   case 'function-typegen': {

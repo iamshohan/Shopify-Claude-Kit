@@ -11,6 +11,18 @@
 
 <!-- The behaviour, as the merchant or buyer sees it, in a few bullets. -->
 
+## Asked
+
+<!-- What the change must deliver, from `node .claude/kit/app.mjs ticket {{ID}}` (.claude/logs/{{ID}}/ticket.json): every
+acceptance criterion and every ticket or comment line that decides behaviour, quoted word for word in "…" (gate checks
+the quote against the ticket), and every Figma frame the change builds as "Figma: <frame> · <node> · <width>px" (one row
+per variation and viewport). Scenarios: the IDs that prove the row; a scenario's THEN keeps the row's words ("the two most
+recent", not "2 cards"). A row nothing proves: "out of scope", with why under § Out of scope. A line the dev said in chat
+instead of a ticket: start it "Dev:". Maintenance: "none". -->
+
+| # | Asked (quoted) | Scenarios |
+| --- | --- | --- |
+
 {{TYPE_SECTIONS}}## Scenarios
 
 <!-- One row per behaviour, with concrete values: amounts, currencies, counts, the exact text shown. Cover the boundary,
@@ -40,6 +52,16 @@ Scenario: the ID of the scenario that needs each new scope and webhook. Write "n
 <!-- Required when § Surfaces adds or changes a data model, a webhook, an app proxy or the app config (not a new extension):
 the decisions (options weighed, why this one), the data model and migration (what happens to existing rows), which
 authenticate.* each new route uses, and the deploy order with how each step rolls back. Otherwise "none". -->
+
+## Not proven yet
+
+<!-- What the design relies on that Shopify's docs don't promise for this app's API version: a workaround seen working in
+another app, an undocumented behaviour, a component used against its docs. Evidence: the doc page (shopify.dev link,
+version) and where it was seen working. Fallback: what you switch to if QA disproves it. Scenario: the qa: or test row
+that proves it. Gate 2 lists these first. Usually "none". -->
+
+| Claim | Evidence | Fallback | Scenario |
+| --- | --- | --- | --- |
 
 ## Retires
 

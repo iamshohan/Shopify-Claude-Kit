@@ -14,6 +14,7 @@
       "Bash(node .claude/kit/shopify.mjs cli-check:*)",
       "Bash(node .claude/kit/shopify.mjs info:*)",
       "Bash(node .claude/kit/shopify.mjs validate:*)",
+      "Bash(node .claude/kit/shopify.mjs dev-status:*)",
       "Bash(node .claude/kit/shopify.mjs generate-extension:*)",
       "Bash(node .claude/kit/shopify.mjs build:*)",
       "Bash(node .claude/kit/shopify.mjs function-build:*)",
@@ -48,6 +49,7 @@
       "PowerShell(node .claude/kit/shopify.mjs cli-check:*)",
       "PowerShell(node .claude/kit/shopify.mjs info:*)",
       "PowerShell(node .claude/kit/shopify.mjs validate:*)",
+      "PowerShell(node .claude/kit/shopify.mjs dev-status:*)",
       "PowerShell(node .claude/kit/shopify.mjs generate-extension:*)",
       "PowerShell(node .claude/kit/shopify.mjs build:*)",
       "PowerShell(node .claude/kit/shopify.mjs function-build:*)",
@@ -78,7 +80,23 @@
       "mcp__claude-in-chrome__get_page_text",
       "mcp__claude-in-chrome__find",
       "mcp__claude-in-chrome__read_console_messages",
-      "mcp__claude-in-chrome__read_network_requests"
+      "mcp__claude-in-chrome__read_network_requests",
+      "mcp__kit-browser__browser_find",
+      "mcp__kit-browser__browser_navigate",
+      "mcp__kit-browser__browser_navigate_back",
+      "mcp__kit-browser__browser_resize",
+      "mcp__kit-browser__browser_snapshot",
+      "mcp__kit-browser__browser_take_screenshot",
+      "mcp__kit-browser__browser_evaluate",
+      "mcp__kit-browser__browser_click",
+      "mcp__kit-browser__browser_hover",
+      "mcp__kit-browser__browser_select_option",
+      "mcp__kit-browser__browser_press_key",
+      "mcp__kit-browser__browser_wait_for",
+      "mcp__kit-browser__browser_console_messages",
+      "mcp__kit-browser__browser_network_requests",
+      "mcp__kit-browser__browser_tabs",
+      "mcp__kit-browser__browser_close"
     ],
     "deny": [
       "Read(./.env)",
@@ -139,12 +157,14 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash|PowerShell|Monitor|Edit|Write|MultiEdit|NotebookEdit",
+        "matcher": "Bash|PowerShell|Monitor|Edit|Write|MultiEdit|NotebookEdit|mcp__kit-browser__browser_run_code_unsafe",
         "hooks": [
           {
             "type": "command",
             "command": "node",
-            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/guard.mjs"],
+            "args": [
+              "${CLAUDE_PROJECT_DIR}/.claude/hooks/guard.mjs"
+            ],
             "timeout": 10,
             "onFailure": "block"
           }

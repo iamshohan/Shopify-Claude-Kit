@@ -27,7 +27,7 @@ You are running the Shopify App Kit for one change.
    - **Not started:**
      1. `git status --porcelain`. Uncommitted app changes → ask the dev what to do with them. Never stash or discard without asking.
      2. `git fetch origin`, then the `git switch -c <branch> --no-track …` status printed (`--no-track`: a branch that tracks the base can send a push there). A branch that already exists: reuse it when it holds only this change's own commits, and say so; ask the dev only otherwise.
-     3. `node .claude/kit/app.mjs start <ID> --type <type> --title "<one line>"`, adding `--test` when the arguments include it or the dev calls it a test run.
+     3. `node .claude/kit/app.mjs start <ID> --type <type> --title "<one line>"`, adding `--test` when the arguments include it or the dev calls it a test run, and `--quick` for a small fix with no surfaces (a colour, a size, a text: often right after a handoff).
 5. Status names the current stage and its skill. **Load that skill with the Skill tool and do only that stage.**
 6. When the stage's "Done when" holds, run `node .claude/kit/app.mjs done <ID> <stage>` (gates also need `--answer "<the dev's words>"`). If it refuses, its message says what's missing.
 7. `done` and `back` print the new status: continue from it. Tell the dev in one line each time the stage changes, e.g. `✓ propose → build · nothing needed from you`.
@@ -43,5 +43,5 @@ Stages: **propose** (Gate 1) → build → verify → **accept** (Gate 2) → ha
 
 Besides `rules/runs.md` and `app-runs.md`:
 
-- **Only the kit's skills run inside a change:** the stage skill status names, `shopify-plugin:shopify` for docs and GraphQL validation, `node .claude/kit/jira.mjs <KEY>` for the ticket, `code-review` and `security-review`, and `claude-in-chrome` for QA in the admin and checkout (a Playwright browser for viewport rows: see app-verify). Don't load other dev, QA or investigate skills, even when a hook suggests them.
+- **Only the kit's skills and agents run inside a change:** the stage skill status names (and `app-qa`, which verify loads), `shopify-plugin:shopify` for docs and GraphQL validation, `app.mjs ticket` / `jira.mjs` for the ticket, the Figma tools through the `design-extractor` agent, `code-review` and `security-review`, the kit's agents (`app-recon`, `app-builder`, `design-extractor`, `outcome-checker`, `blind-qa`), kit-browser for the storefront and checkout, and `claude-in-chrome` for the admin and editors. Don't load other dev, QA or investigate skills, even when a hook suggests them.
 - **Scope is the change.** Other problems go in proposal.md § Out of scope or the handoff, not into the code.

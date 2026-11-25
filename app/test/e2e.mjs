@@ -28,7 +28,7 @@ const write = (rel, text) => { mkdirSync(dirname(join(repo, rel)), { recursive: 
 const read = (rel) => readFileSync(join(repo, rel), 'utf8');
 const commit = (msg) => { git('add', '-A'); git('commit', '-qm', msg); };
 const pathKey = Object.keys(process.env).find((k) => k.toUpperCase() === 'PATH') || 'PATH';
-const env = { ...process.env, [pathKey]: `${bin}${delimiter}${process.env[pathKey]}`, FAKE_SHOPIFY_DIR: fakeDir };
+const env = { ...process.env, [pathKey]: `${bin}${delimiter}${process.env[pathKey]}`, FAKE_SHOPIFY_DIR: fakeDir, APP_KIT_TODAY: '2026-11-25' };
 function node(script, args, extraEnv = {}, input) {
   const r = spawnSync(process.execPath, [join(repo, '.claude', script), ...args], { cwd: repo, env: { ...env, ...extraEnv }, encoding: 'utf8', input, timeout: 300000 });
   return { code: r.status, out: r.stdout, err: r.stderr, all: `${r.stdout}\n${r.stderr}` };
@@ -45,11 +45,14 @@ function guard(tool, input) {
 const decision = (tool, input) => guard(tool, input).permissionDecision;
 const calls = () => readFileSync(join(fakeDir, 'calls.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
 const C = (id, f) => `appspec/changes/${id}/${f}`;
+// What app.mjs ticket saves (jira.mjs isn't reachable offline).
+const ticket = (id, extra = {}) => write(`.claude/logs/${id}/ticket.json`, JSON.stringify([{ key: id, summary: 'Free gift', description: 'The merchant wants to reward carts of 50 EUR or more with a free gift.', fields: {}, comments: [], figmaLinks: [], ...extra }]));
+const outside = (id) => app('review', id, 'outside', '--found', 'Dropped words: none · Uncovered: none · Surprises: none');
 const check = (r, name) => (json(r).checks || []).find((c) => c.slice(5).startsWith(name)) || '';
 
 const ID = 'GIFT-1';
 const T1 = 'test: extensions/gift/tests/gift.test.js › gift added at threshold';
-const proposal = ({ id = ID, scenarios, surfaces = 'none', design = 'none', retires = 'none', attention = 'none: new files only.', decided = '- The gift is added as a free line by the cart transform: the ticket names it.', extra = '', tasks = '- [ ] The work (S1)' }) => `# ${id} · Proposal
+const proposal = ({ id = ID, scenarios, surfaces = 'none', design = 'none', retires = 'none', attention = 'none: new files only.', decided = '- The gift is added as a free line by the cart transform: the ticket names it.', extra = '', tasks = '- [ ] The work (S1)', asked = '| 1 | "reward carts of 50 EUR or more with a free gift" | S1 |' }) => `# ${id} · Proposal
 
 ## Why
 
@@ -58,6 +61,12 @@ The merchant wants to reward carts of 50 EUR or more with a free gift (ticket ${
 ## What changes
 
 - Carts at or above 50 EUR get the gift line, added by a cart transform Function.
+
+## Asked
+
+| # | Asked (quoted) | Scenarios |
+| --- | --- | --- |
+${asked}
 
 ${extra}## Scenarios
 
@@ -274,29 +283,41 @@ writeFileSync(outFile, JSON.stringify({ testResults: files.map((file) => ({ name
   const noTasks = app('gate', ID);
   ok('gate at propose lists the problems first: § Tasks is empty', noTasks.code !== 0 && json(noTasks).problems?.some((p) => /§ Tasks/.test(p)), noTasks.all);
   write(C(ID, 'proposal.md'), PROPOSAL);
+  // 0.5.0: the ticket read into the change, § Asked quoted from it, and an outside review before Gate 1.
+  const noTicket = json(app('gate', ID)).problems || [];
+  ok('gate wants the ticket read into the change and the outside review recorded', noTicket.some((p) => /app\.mjs ticket GIFT-1/.test(p)) && noTicket.some((p) => /outcome-checker/.test(p)), JSON.stringify(noTicket));
+  ticket(ID, { figmaLinks: ['https://www.figma.com/design/k/gift?node-id=12-34'] });
+  write(C(ID, 'proposal.md'), proposal({ scenarios: [S1, S2], surfaces: SCOPE, attention: '- New scope write_cart_transforms: stores approve it again on the next open.', asked: '| 1 | "reward every cart with a gift" | S1 |' }));
+  const para = json(app('gate', ID)).problems || [];
+  ok('§ Asked: a paraphrase isn\'t a quote, and a Figma frame the ticket links needs a row and design.md', para.some((p) => /isn't in the ticket word for word/.test(p)) && para.some((p) => /Figma node 12:34/.test(p)) && para.some((p) => /design-extractor/.test(p)), JSON.stringify(para));
+  write(C(ID, 'proposal.md'), proposal({ scenarios: [S1, S2], surfaces: SCOPE, attention: '- New scope write_cart_transforms: stores approve it again on the next open.', asked: '| 1 | "reward carts of 50 EUR or more with a free gift" | S1 |\n| 2 | Figma: Gift line · 12:34 · 390px | S2 |' }));
+  write(`.claude/logs/${ID}/design.md`, '# Design\n\n- Gift line: "Free" in #1d1d1b, 14px.\n');
+  ok('the outside review is recorded at propose', outside(ID).code === 0 && json(app('status', ID, '--json')).reviews?.outside?.found);
+  const PROPOSAL_ASKED = read(C(ID, 'proposal.md'));
   const v = app('gate', ID);
   ok('gate passes once the proposal and its tasks are written', v.code === 0 && json(v).ok === true, v.all);
+  ok('the Gate 1 view shows § Asked and the outside review', json(v).asked?.length === 2 && /Dropped words: none/.test(json(v).outsideReview || ''), JSON.stringify(json(v).asked));
   const gate = json(v);
   ok('the Gate 1 view shows each scenario with its values and check, the surfaces and the check counts in one go',
     gate.scenarios?.includes(`S1: GIVEN a cart with a subtotal of 50 EUR · WHEN the cart transform runs · THEN the gift is added → ${T1}`)
     && gate.surfaces?.some((a) => /^\+ scope:write_cart_transforms: new access scope/.test(a)) && gate.checks?.test === 1 && gate.checks?.qa === 1 && gate.attention?.length === 1, JSON.stringify(gate));
   // What the agent decided without asking is shown at Gate 1, and the gate wants it written (or "none").
-  write(C(ID, 'proposal.md'), PROPOSAL.replace('- The gift is added as a free line by the cart transform: the ticket names it.', ''));
+  write(C(ID, 'proposal.md'), PROPOSAL_ASKED.replace('- The gift is added as a free line by the cart transform: the ticket names it.', ''));
   const noDecided = app('gate', ID);
   ok('gate wants § Decided for you, and the Gate 1 view shows it', json(noDecided).problems?.some((p) => /Decided for you/.test(p)) && gate.decided?.length === 1, noDecided.all + JSON.stringify(gate.decided));
-  write(C(ID, 'proposal.md'), PROPOSAL.replace('- New scope write_cart_transforms: stores approve it again on the next open.', 'none'));
+  write(C(ID, 'proposal.md'), PROPOSAL_ASKED.replace('- New scope write_cart_transforms: stores approve it again on the next open.', 'none'));
   const noneAttn = app('gate', ID);
   ok('§ Needs your attention as "none" beside a surface that needs attention is flagged (a warning, not a refusal)',
     noneAttn.code === 0 && !json(noneAttn).problems?.length && json(noneAttn).warnings?.some((p) => /can't be "none".*scope:write_cart_transforms/.test(p)), noneAttn.all);
-  write(C(ID, 'proposal.md'), PROPOSAL.replace('| S1 |\n', '| S1 |\n| + | model:GiftRule | store the threshold per shop | S1 |\n'));
+  write(C(ID, 'proposal.md'), PROPOSAL_ASKED.replace('cart transform | S1 |\n', 'cart transform | S1 |\n| + | model:GiftRule | store the threshold per shop | S1 |\n'));
   const heavy = app('gate', ID);
   ok('a data model needs § Design at Gate 1 (no design stage)', heavy.code !== 0 && json(heavy).problems?.some((p) => /fill proposal\.md § Design.*model:GiftRule/.test(p)), heavy.all);
-  write(C(ID, 'proposal.md'), PROPOSAL.replace('| S1 |\n', '| S1 |\n| + | scope:read_orders | order history | S9 |\n'));
+  write(C(ID, 'proposal.md'), PROPOSAL_ASKED.replace('cart transform | S1 |\n', 'cart transform | S1 |\n| + | scope:read_orders | order history | S9 |\n'));
   ok('a new scope names a scenario of this change', json(app('gate', ID)).problems?.some((p) => /scope:read_orders.*name the scenario/.test(p)));
-  write(C(ID, 'proposal.md'), PROPOSAL.replace('| S2 |', '| S1 |').replace('qa: gift line says Free', 'tested'));
+  write(C(ID, 'proposal.md'), PROPOSAL_ASKED.replace('| S2 | the gift in the cart', '| S1 | the gift in the cart').replace('qa: gift line says Free', 'tested'));
   const badRows = json(app('gate', ID)).problems || [];
   ok('scenario rows need unique IDs and a readable check', badRows.some((p) => /two rows/.test(p)) && badRows.some((p) => /Check "tested"/.test(p)), JSON.stringify(badRows));
-  write(C(ID, 'proposal.md'), PROPOSAL);
+  write(C(ID, 'proposal.md'), PROPOSAL_ASKED);
   const g1 = app('done', ID, 'propose', '--answer', 'Approved: gift at 50 EUR, new scope ok');
   ok('Gate 1 opens the build, and prints no handover commit', g1.code === 0 && /build/.test(g1.out) && !/git commit/.test(g1.out), g1.all);
   ok('qa-row measures only in verify', /verify stage/.test(app('qa-row', ID, 'S2', '--verdict', 'BLOCKED').err));
@@ -349,6 +370,15 @@ writeFileSync(outFile, JSON.stringify({ testResults: files.map((file) => ({ name
   }
   const dv1 = app('done', ID, 'verify');
   ok('done verify waits for the QA scenario and the security review', dv1.code !== 0 && /QA S2/.test(dv1.err) && /security-review/.test(dv1.err) && !/code-review/.test(dv1.err), dv1.all);
+  ok('done verify also owes the blind QA run and a row measured against the Figma frame', /blind-qa agent/.test(dv1.err) && /§ Asked #2 .*--source figma --asked 2/.test(dv1.err), dv1.all);
+  ok('a figma row names its § Asked frame', /--asked <#>/.test(app('qa-add', ID, '--source', 'figma', '--criterion', 'gift line', '--expected', '14px').err));
+  ok('a review that didn\'t run on this code is refused', /didn't run on this code/.test(app('review', ID, 'security', '--found', 'carried over from the earlier review').err));
+  const qf = app('qa-add', ID, '--source', 'figma', '--asked', '2', '--criterion', 'Gift line at 390px: text and colour', '--expected', '"Free" in #1d1d1b, 14px');
+  ok('qa-add numbers the rows Q1, Q2, …', qf.code === 0 && /^Q1 \(figma\)/.test(qf.out), qf.all);
+  app('qa-row', ID, 'Q1', '--measured', '"Free", rgb(29, 29, 27), 14px', '--how', '__aq.box at 390px', '--verdict', 'PASS');
+  ok('the blind run is recorded only after its criteria are added', app('review', ID, 'blind', '--found', '1 criterion, no FAIL').code === 0 && /none of its criteria/.test(app('done', ID, 'verify').err));
+  app('qa-add', ID, '--source', 'blind', '--criterion', 'gift line text', '--expected', 'Free');
+  app('qa-row', ID, 'Q2', '--measured', 'Free', '--how', 'kit-browser checkout, 390px', '--verdict', 'PASS');
   ok('qa-row takes a qa: scenario, not a test one', /for a qa: scenario/.test(app('qa-row', ID, 'S1', '--verdict', 'PASS').err));
   const bare = app('qa-row', ID, 'S2', '--verdict', 'PASS');
   ok('a PASS needs --measured and --how in the same call', bare.code !== 0 && /--measured/.test(bare.err), bare.all);
@@ -361,7 +391,7 @@ writeFileSync(outFile, JSON.stringify({ testResults: files.map((file) => ({ name
   commit('docs');
   write('extensions/gift/dist/gift.js', '// built by the CLI during verify\n');
   // A scenario reworded after Gate 1: verify reruns, and Gate 2 lists the difference instead of refusing it.
-  write(C(ID, 'proposal.md'), PROPOSAL.replace('a cart with a subtotal of 50 EUR', 'a cart with a subtotal of exactly 50.00 EUR'));
+  write(C(ID, 'proposal.md'), PROPOSAL_ASKED.replace('a cart with a subtotal of 50 EUR', 'a cart with a subtotal of exactly 50.00 EUR'));
   const stale = app('done', ID, 'verify');
   ok('done verify wants verify again after the scenarios changed', stale.code !== 0 && /scenarios, § Surfaces or § Retires changed after the last verify/.test(stale.err), stale.all);
   const vr2b = app('verify', ID);
@@ -372,7 +402,10 @@ writeFileSync(outFile, JSON.stringify({ testResults: files.map((file) => ({ name
   const g2 = json(app('gate', ID));
   ok('the Gate 2 view shows results, QA as measured, changes since Gate 1 and the deploy steps', /Gate 2/.test(g2.gate) && g2.scenarios?.some((s) => /S2.*PASS: gift line shows "Free"/.test(s))
     && g2.changedSinceGate1?.length === 1 && g2.deploySteps?.some((s) => /shopify app deploy --config/.test(s)), JSON.stringify(g2));
+  ok('the Gate 2 view lists the rows beyond the scenarios', g2.qaBeyondScenarios?.some((q) => /^Q1 \[figma #2\].*PASS/.test(q)) && g2.qaBeyondScenarios?.some((q) => /^Q2 \[blind\]/.test(q)), JSON.stringify(g2.qaBeyondScenarios));
   ok('accept (Gate 2) moves to handoff', app('done', ID, 'accept', '--answer', 'Accept').code === 0);
+  ok('handoff wants the client comment read by the outside reviewer first', /mode handoff/.test(app('handoff', ID).err));
+  app('review', ID, 'handoff', '--found', 'Client surprises: none · Claims: none · Wording: fine');
 
   // ── Archive ──
   // A shared file that can't be written (a folder in its place): handoff stops before the move and simply runs again.
@@ -409,6 +442,7 @@ writeFileSync(outFile, JSON.stringify({ testResults: files.map((file) => ({ name
   app('start', ID2, '--type', 'change');
   const P2 = (o = {}) => proposal({ id: ID2, scenarios: ['| S1 | a cart that already has the gift | the transform runs | the cart has one gift | test: extensions/gift/tests/gift.test.js › one gift only |'], ...o });
   write(C(ID2, 'proposal.md'), P2());
+  outside(ID2);
   const g2a = app('done', ID2, 'propose', '--answer', 'ok');
   ok('a second change passes Gate 1', g2a.code === 0, g2a.all);
   write('extensions/gift/tests/gift.test.js', 'test("gift added at threshold", () => {});\ntest("one gift only", () => {}); // FAILS\n');
@@ -486,6 +520,8 @@ writeFileSync(outFile, JSON.stringify({ testResults: files.map((file) => ({ name
   git('switch', '-q', '-c', FX, ID);
   const fxStart = app('start', FX, '--type', 'fix');
   ok('a fix starts on the one stage graph, with § Reproduce in its proposal', fxStart.code === 0 && /FIX-3 · fix · stage 1\/5: propose/.test(fxStart.out) && /## Reproduce/.test(read(C(FX, 'proposal.md'))), fxStart.all);
+  ticket(FX);
+  outside(FX);
   const FXS = '| S1 | a cart with a subtotal of 49.99 EUR | the cart transform runs | no gift is added | test: extensions/gift/tests/default.test.js › gift runs below-threshold.json |';
   write(C(FX, 'proposal.md'), proposal({ id: FX, scenarios: [FXS] }));
   ok('a fix needs § Reproduce', /§ Reproduce/.test(app('done', FX, 'propose', '--answer', 'ok').err));
@@ -530,7 +566,8 @@ writeFileSync(outFile, JSON.stringify({ testResults: files.map((file) => ({ name
   const MN = 'MNT-4';
   git('switch', '-q', '-c', MN, 'origin/main');
   app('start', MN, '--type', 'maintain');
-  const MNP = (scenarios, o = {}) => proposal({ id: MN, scenarios, attention: 'none: the regression covers the Function.', ...o }).replace(/## What changes\n\n.*\n/, '## What changes\n\n- extensions/gift/src/run.js: a named constant for the threshold, no behaviour change.\n');
+  ticket(MN);
+  const MNP = (scenarios, o = {}) => proposal({ id: MN, scenarios, attention: 'none: the regression covers the Function.', asked: '', ...o }).replace(/## What changes\n\n.*\n/, '## What changes\n\n- extensions/gift/src/run.js: a named constant for the threshold, no behaviour change.\n');
   write(C(MN, 'proposal.md'), MNP([], { retires: '- test: extensions/gift/tests/gift.test.js › gift added at 50: never ledgered' }));
   ok('§ Retires lists only tests an archived change bound', json(app('gate', MN)).problems?.some((p) => /§ Retires → .*gift added at 50 isn't a test an archived change bound/.test(p)));
   write(C(MN, 'proposal.md'), MNP([]));
@@ -560,6 +597,8 @@ writeFileSync(outFile, JSON.stringify({ testResults: files.map((file) => ({ name
   const AB = 'AB-5';
   git('switch', '-q', '-c', AB, ID);
   app('start', AB, '--type', 'ab');
+  ticket(AB);
+  outside(AB);
   const abScen = ['| S1 | the cart attribute _ab_gift is B | the buyer opens checkout | the banner is shown | qa: banner shown |', '| S2 | no _ab_gift attribute | the buyer opens checkout | no banner | qa: no banner |',
     '| S3 | a cart with one item | the variation code runs | /cart.js has _ab_gift = B, after one update | qa: variation writes once |', '| S4 | a cart with _ab_gift = B | the control code runs | the attribute is cleared | qa: control clears |'];
   // Without the test code's own scenarios (S3, S4), gate refuses an A/B change.
@@ -572,6 +611,12 @@ writeFileSync(outFile, JSON.stringify({ testResults: files.map((file) => ({ name
   const abSurf = '| Change | Surface | Why | Scenario |\n| --- | --- | --- | --- |\n| + | extension:ab-ship | the gated banner | S1 |\n| + | target:ab-ship/purchase.checkout.block.render | where the banner shows | S1 |';
   write(C(AB, 'proposal.md'), proposal({ id: AB, scenarios: abScen, surfaces: abSurf, design: '- A checkout UI block, placed by the dev; no data, no server.', attention: '- A new checkout block: the dev places it after the release.',
     extra: '## Gate\n\nCart attribute _ab_gift: B shows the banner; missing or A shows nothing.\n\n## Sunset\n\nThe test ends on 2026-12-15; the dev removes the block, then a maintain change deletes the extension.\n\n' }));
+  ok('a new extension wants a precedent search first', json(app('gate', AB)).problems?.some((p) => /app\.mjs precedent AB-5/.test(p)), app('gate', AB).out);
+  // A sibling app repo next to this one solved the same placement: precedent finds it.
+  mkdirSync(join(tmp, 'sibling-app', 'appspec', 'archive', '2026-11-01-SEE-1'), { recursive: true });
+  writeFileSync(join(tmp, 'sibling-app', 'appspec', 'archive', '2026-11-01-SEE-1', 'proposal.md'), '# SEE-1\n\n- Trust list at ORDER_SUMMARY4 with purchase.checkout.block.render.\n');
+  const prec = app('precedent', AB, 'purchase.checkout.block.render', 'banner');
+  ok('precedent searches the sibling repos\' archived changes and records the search', prec.code === 0 && json(prec).hits?.some((h) => /sibling-app\/appspec\/archive\/2026-11-01-SEE-1/.test(h.change)) && json(app('status', AB, '--json')).precedent?.query, prec.all);
   const abYes = app('done', AB, 'propose', '--answer', 'Approved: banner for B only');
   ok('an A/B change passes Gate 1', abYes.code === 0, abYes.all);
   // The dev generated the extension (into a folder extension_directories names): its template rows come with it.
@@ -592,6 +637,52 @@ writeFileSync(outFile, JSON.stringify({ testResults: files.map((file) => ({ name
   ok('build refuses to run a web build command that deploys', unsafeBuild.code !== 0 && json(unsafeBuild).skipped === true && /shopify\.web\.toml builds with "npm run deploy/.test(json(unsafeBuild).error)
     && calls().filter((c) => c.cmd === 'app build').length === before, unsafeBuild.all);
   rmSync(join(repo, 'shopify.web.toml'));
+
+  // ── 0.5.0 tools: revert, dev-status, debug leftovers, capabilities, a quick fix ──
+  write('checkout/ab-ship/src/Checkout.jsx', 'export default function Banner() { return "experiment"; }\n');
+  write('checkout/ab-ship/src/probe.js', 'export const x = 1;\n');
+  const rv = app('revert', AB, 'checkout/ab-ship/src/Checkout.jsx', 'checkout/ab-ship/src/probe.js');
+  const kept = readdirSync(join(repo, `.claude/logs/${AB}`)).find((d) => d.startsWith('reverted-'));
+  ok('revert puts app files back as committed and keeps the edits (a patch, the new file) in the logs', rv.code === 0 && read('checkout/ab-ship/src/Checkout.jsx') === 'export default function Banner() { return null; }\n'
+    && !existsSync(join(repo, 'checkout/ab-ship/src/probe.js')) && kept && /experiment/.test(read(`.claude/logs/${AB}/${kept}/changes.patch`)) && existsSync(join(repo, `.claude/logs/${AB}/${kept}/new/checkout/ab-ship/src/probe.js`)), rv.all);
+  ok('revert takes only app files', app('revert', AB, 'README.md').code !== 0);
+  const devLog = (store, at) => write('.shopify/dev/app-dev-shopify.app.toml-ab12.jsonl', [
+    { timestamp: '2026-11-25T10:10:23Z', source: 'app dev', level: 'info', message: 'GraphiQL URL (Admin API): http://localhost:3457/graphiql?key=SECRETKEY' },
+    { timestamp: '2026-11-25T10:10:23Z', source: 'app dev', level: 'info', message: 'Preview URL: https://admin.shopify.com/store/x/apps/1?dev-console=show&key=SECRETKEY' },
+    { timestamp: '2026-11-25T10:10:23Z', source: 'app-preview', message: `Preparing dev preview on ${store}` },
+    { timestamp: '2026-11-25T10:10:23Z', source: 'ab-ship', message: 'ab-ship successfully built in 108ms (59.0 KB original, ~22.1 KB compressed)' },
+    { timestamp: at, source: 'app dev', level: 'info', message: 'Ready, watching for changes in your app' },
+  ].map((l) => JSON.stringify(l)).join('\n'));
+  devLog('prod-shop.myshopify.com', new Date(Date.now() + 60000).toISOString());
+  const ds = shop('dev-status');
+  ok('dev-status reads app dev\'s log: the wrong store is a problem, sizes are read, and the GraphiQL key never prints', ds.code !== 0 && json(ds).problems?.some((p) => /prod-shop\.myshopify\.com, not the dev store/.test(p))
+    && json(ds).sizes?.['ab-ship'] === '59.0 KB original, ~22.1 KB compressed' && !/SECRETKEY/.test(ds.all), ds.all);
+  devLog(STORE, '2026-01-01T00:00:00Z');
+  ok('dev-status: edits newer than the last update mean the preview is stale', json(shop('dev-status')).problems?.some((p) => /changed after app dev's last update/.test(p)));
+  devLog(STORE, new Date(Date.now() + 60000).toISOString());
+  ok('dev-status passes on the dev store with current code', shop('dev-status').code === 0, shop('dev-status').all);
+  rmSync(join(repo, '.shopify/dev'), { recursive: true, force: true });
+  // A/B through verify: a debug line and a fetch without network_access fail it.
+  write('checkout/ab-ship/src/Checkout.jsx', 'export default function Banner() { const v = shopify.attributes.value.find((a) => a.key === "_ab_gift"); debugger; fetch("https://example.invalid"); return v ? "banner" : null; }\n');
+  write('abtest/AB-5/variation.js', 'var ID = "AB_GIFT"; var VAR = "B"; /* writes _ab_gift */ fetch("/cart/update.js", { method: "POST", body: JSON.stringify({ attributes: { "_ab_gift": "B" } }) });\n');
+  write('abtest/AB-5/control.js', 'var ID = "AB_GIFT"; fetch("/cart/update.js", { method: "POST", body: JSON.stringify({ attributes: { "_ab_gift": "" } }) });\n');
+  commit('ab-ship reads the gate');
+  app('review', AB, 'code', '--found', 'no findings');
+  app('done', AB, 'build');
+  const abv = app('verify', AB);
+  ok('verify fails on debug code the branch adds, and on fetch without network_access', /^FAIL debug leftovers: checkout\/ab-ship\/src\/Checkout\.jsx/.test(check(abv, 'debug leftovers')) && /^FAIL capabilities: ab-ship calls fetch\(\) without/.test(check(abv, 'capabilities')), abv.out);
+  ok('verify validates every app config', /^PASS app configs/.test(check(abv, 'app configs')), abv.out);
+
+  // A quick fix: no surfaces, no outside review.
+  commit('ab-5 verify');
+  git('switch', '-q', '-c', 'quick-free', ID);
+  const qs = app('start', 'quick-free', '--type', 'change', '--quick');
+  ok('a quick change says so in its status', qs.code === 0 && /QUICK: a small fix/.test(qs.out), qs.all);
+  write(C('quick-free', 'proposal.md'), proposal({ id: 'quick-free', scenarios: [S2], asked: '| 1 | Dev: "the gift line should say Free" | S2 |', surfaces: SCOPE }));
+  ok('a quick change can\'t declare surfaces', json(app('gate', 'quick-free')).problems?.some((p) => /--quick change has no surfaces/.test(p)), app('gate', 'quick-free').out);
+  write(C('quick-free', 'proposal.md'), proposal({ id: 'quick-free', scenarios: [S2], asked: '| 1 | Dev: "the gift line should say Free" | S2 |' }));
+  const qg = app('gate', 'quick-free');
+  ok('a quick change passes Gate 1 without an outside review', qg.code === 0 && /not needed/.test(json(qg).outsideReview || ''), qg.all);
 
 } catch (e) {
   ok('e2e harness', false, e.stack);

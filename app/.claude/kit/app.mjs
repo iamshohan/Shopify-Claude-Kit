@@ -4,7 +4,7 @@
 // A change is a folder in git, appspec/changes/<ID>/: proposal.md (its scenarios, surfaces and tasks) and change.json,
 // written only by this script. Archive moves the folder to appspec/archive/ (the test ledger is read from there) and
 // records its surfaces in appspec/surfaces.json. Kit notes and the guard's log stay local in .claude/logs/.
-import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, renameSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, renameSync, mkdtempSync, rmSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir, homedir } from 'node:os';
 import { createHash } from 'node:crypto';
@@ -24,10 +24,15 @@ const HELP = `Usage: node .claude/kit/app.mjs <verb> ...
   onboard                                create appspec/ (project.md, changes/, archive/), surfaces.json from the config
                                          files, and the security baseline
   list                                   open changes and their stage (abandoned ones are listed apart)
-  start <ID> --type change|fix|maintain|ab [--title "..."] [--test]
+  start <ID> --type change|fix|maintain|ab [--title "..."] [--test] [--quick]
                                          start a change on its branch (check it out first), or restart an abandoned one;
-                                         --test: branch <ID>-kit-test, never pushed
+                                         --test: branch <ID>-kit-test, never pushed; --quick: a small fix with no surfaces
+                                         (no outside review, precedent search or blind QA)
   status <ID> [--json]                   stage, the skill to load, gates, what's open; for an archived ID, what's left
+  ticket <ID>                            read the change's Jira ticket(s) and keep them in .claude/logs/<ID>/ticket.json
+                                         (gate checks § Asked's quotes and the Figma frames against it)
+  precedent <ID> <words…>                search this and the sibling app repos' archived changes (same target, component,
+                                         API) and record the search; hits are options, each still checked in the docs
   gate <ID>                              what the current gate shows the dev: Gate 1 at propose (exit 1 while proposal.md
                                          has problems, listed first), Gate 2 at accept
   surfaces <ID>                          what the code changes in surfaces (last archive → working tree) against § Surfaces
@@ -35,12 +40,19 @@ const HELP = `Usage: node .claude/kit/app.mjs <verb> ...
                                          finish the current stage; gates need --answer with the dev's words
   back <ID> <stage> --reason "TEXT"      reopen an earlier stage (it clears the gates from there on)
   verify <ID> [--skip-tests]             run every check and record the result against the current code
-  review <ID> code|security --found "TEXT"
-                                         record a review of the committed code: what it found and what was done
-  qa-row <ID> <scenario> --measured T --how T --verdict PASS|FAIL|BLOCKED
-                                         record a measured qa: scenario (verify stage only; PASS/FAIL need both texts)
-  waive <ID> <scenario> --reason "TEXT" --answer "DEV'S WORDS"  accept a qa: scenario that can't be measured (verify stage; the dev confirms;
+  review <ID> code|security|outside|blind|handoff --found "TEXT"
+                                         record a review: code and security of the committed code (build, verify);
+                                         outside: the outcome-checker on the proposal (propose); blind: the blind-qa
+                                         agent's run (verify); handoff: the outcome-checker on the client comment (handoff)
+  qa-add <ID> --source asked|figma|blind|journey|data --criterion T --expected T [--asked N]
+                                         add a QA row beyond the scenarios (verify stage): Q1, Q2, …; --asked: the § Asked
+                                         row it checks (figma rows need it)
+  qa-row <ID> <S#|Q#> --measured T --how T --verdict PASS|FAIL|BLOCKED
+                                         record a measured qa: scenario or Q row (verify stage only; PASS/FAIL need both texts)
+  waive <ID> <S#|Q#> --reason "TEXT" --answer "DEV'S WORDS"  accept a row that can't be measured (verify stage; the dev confirms;
                                          the handoff lists it)
+  revert <ID> <file…>                    undo uncommitted edits to app files (build, verify): saves them as a patch in
+                                         .claude/logs/<ID>/ first, so nothing is lost
   handoff <ID>                           update surfaces.json and the security baseline, write handoff.md, and move the
                                          change to archive/ (its bound tests join the ledger)
   drift [--regression]                   surfaces changed outside a change, ledgered tests that are gone; --regression runs
@@ -75,7 +87,7 @@ function gitBashRoot() {
 }
 export const unMsys = (s) => unMsysFrom(s, typeof s === 'string' && /^[A-Za-z]:\//.test(s) ? gitBashRoot() : null);
 const freeText = (s) => (WIN ? unMsys(s) : s);
-const TEXT_FLAGS = ['answer', 'note', 'measured', 'how', 'reason', 'title', 'found'];
+const TEXT_FLAGS = ['answer', 'note', 'measured', 'how', 'reason', 'title', 'found', 'criterion', 'expected'];
 
 // ── Files of a change ──
 
@@ -104,6 +116,74 @@ function added(cfg, id, st, heading) {
   return sectionLines(proposalOf(cfg, id), heading).filter((l) => !base.has(l));
 }
 const filled = (cfg, id, st, heading) => added(cfg, id, st, heading).length > 0;
+
+// ── What was asked ──
+// asmc ASM-924: scenarios paraphrased the AC ("two most recent" became "2 review cards"), Figma was never opened, and
+// verify graded the agent's own scenarios. § Asked quotes the ticket and the frames, each tied to the scenarios that prove it.
+
+/** Changes started before 0.5.0 (schemaVersion 2) predate § Asked, the outside review and the extra QA rows. */
+const strict = (st) => (st?.schemaVersion || 2) >= 3;
+// A quick fix and maintenance (no behaviour change; the regression is the proof) skip the outside review, precedent and blind QA.
+const light = (st) => Boolean(st?.quick) || typeOf(st) === 'maintain';
+const ticketFile = (id) => join(LOGS, id, 'ticket.json');
+const ticketsOf = (id) => { try { return JSON.parse(readFileSync(ticketFile(id), 'utf8')); } catch { return null; } };
+/** Lower case, one space, no markdown emphasis or typographic quotes: a quote copied from Jira matches its source. */
+const plain = (s) => String(s || '').toLowerCase().replace(/[*_`]/g, '').replace(/[‘’]/g, "'").replace(/[“”„]/g, '"').replace(/\s+/g, ' ').trim();
+const ticketText = (tickets) => plain((tickets || []).map((t) => [t.summary, t.description, ...Object.values(t.fields || {}), ...(Array.isArray(t.comments) ? t.comments.map((c) => c.text) : [])].join('\n')).join('\n'));
+/** Figma node ids a link names (node-id=12-34 → 12:34), or [] for a file link. */
+export const figmaNodes = (url) => [...String(url).matchAll(/node-id=(\d+)(?:-|:|%3A)(\d+)/gi)].map((m) => `${m[1]}:${m[2]}`);
+
+/** Rows of § Asked: [{ n, asked, scenarios: ['S1'], outOfScope }]. */
+export function askedFrom(md) {
+  return tableUnder(md, '## Asked').filter((r) => r.asked || r['asked (quoted)'])
+    .map((r, i) => {
+      const asked = (r['asked (quoted)'] || r.asked || '').trim();
+      const sc = r.scenarios || r.scenario || '';
+      return { n: (r['#'] || String(i + 1)).replace(/[^\w]/g, '') || String(i + 1), asked, scenarios: [...sc.matchAll(/\bS\d+\b/gi)].map((m) => m[0].toUpperCase()), outOfScope: /out of scope/i.test(sc) };
+    });
+}
+const isFigmaRow = (a) => /^figma\b/i.test(a.asked);
+
+/**
+ * § Not proven yet: what the design relies on that the docs don't promise (a workaround seen working elsewhere, an
+ * undocumented behaviour), each with its fallback and the scenario that proves it. asmc ASM-924 shipped data-URI icons
+ * against the s-image docs with the risk buried in § Design.
+ */
+export function notProvenFrom(md) {
+  return tableUnder(md, '## Not proven yet').filter((r) => r.claim).map((r) => ({ claim: r.claim, evidence: r.evidence || '', fallback: r.fallback || '', scenarios: [...String(r.scenario || r.scenarios || '').matchAll(/\bS\d+\b/gi)].map((m) => m[0].toUpperCase()) }));
+}
+const quotesIn = (s) => [...String(s).matchAll(/["“„]([^"“”„]{3,})["”]/g)].map((m) => m[1]);
+
+/** § Asked against the scenarios and the cached ticket: refusals only for what is missing or untrue. */
+export function askedProblems(md, rows, tickets, id) {
+  const asked = askedFrom(md);
+  if (!asked.length) return ['fill proposal.md § Asked: every acceptance criterion and deciding ticket line quoted word for word in "…", and every Figma frame the change builds, each with the scenarios that prove it'];
+  const ids = new Set(rows.map((s) => s.id.toUpperCase()));
+  const qa = new Set(rows.filter((s) => s.check.kind === 'qa').map((s) => s.id.toUpperCase()));
+  const text = tickets ? ticketText(tickets) : null;
+  const out = [];
+  for (const a of asked) {
+    const unknown = a.scenarios.filter((s) => !ids.has(s));
+    if (unknown.length) out.push(`§ Asked #${a.n}: ${unknown.join(', ')} isn't in § Scenarios`);
+    if (!a.scenarios.length && !a.outOfScope) out.push(`§ Asked #${a.n} ("${a.asked.slice(0, 60)}"): name the scenarios that prove it, or write "out of scope" and say why under § Out of scope`);
+    if (isFigmaRow(a)) {
+      if (!a.outOfScope && !a.scenarios.some((s) => qa.has(s))) out.push(`§ Asked #${a.n} is a Figma frame: tie it to a qa: scenario, which verify measures against the frame`);
+      continue;
+    }
+    if (/^dev\b/i.test(a.asked)) continue;
+    const quotes = quotesIn(a.asked);
+    if (!quotes.length) out.push(`§ Asked #${a.n}: quote the ticket word for word in "…" (a paraphrase is how "two most recent" became "2 review cards"), or start the row with Figma: or Dev:`);
+    else if (text) for (const q of quotes) if (!text.includes(plain(q))) out.push(`§ Asked #${a.n}: "${q.slice(0, 80)}" isn't in the ticket word for word (.claude/logs/${id}/ticket.json): copy it exactly`);
+  }
+  // Every frame the ticket links is either built (a Figma row names its node) or said to be out of scope.
+  const figmaText = plain([...asked.map((a) => a.asked), ...sectionLines(md, '## Out of scope')].join(' '));
+  for (const link of (tickets || []).flatMap((t) => t.figmaLinks || [])) {
+    const nodes = figmaNodes(link);
+    if (nodes.length) { for (const n of nodes) if (!figmaText.includes(n) && !figmaText.includes(n.replace(':', '-'))) out.push(`the ticket links Figma node ${n}: add a § Asked row "Figma: <frame> · ${n} · <width>px" with its qa: scenarios, or name the node under § Out of scope`); }
+    else if (!asked.some(isFigmaRow) && !/figma/.test(plain(sectionLines(md, '## Out of scope').join(' ')))) out.push(`the ticket links a Figma file (${link.slice(0, 80)}): add a § Asked row per frame the change builds ("Figma: <frame> · <node> · <width>px")`);
+  }
+  return out;
+}
 
 // ── Surfaces of a change ──
 
@@ -251,18 +331,56 @@ export function sinceGate1(st, md) {
 // ── QA and reviews ──
 
 const qaScenarios = (rows) => rows.filter((s) => s.check.kind === 'qa');
-const findScenario = (rows, n) => rows.find((s) => s.id.toLowerCase() === String(n || '').toLowerCase());
+/** A qa: scenario or a Q row, as { id, expected }. */
+function qaTarget(st, rows, n) {
+  const key = String(n || '').toUpperCase();
+  const s = rows.find((x) => x.id.toUpperCase() === key && x.check.kind === 'qa');
+  if (s) return { id: s.id, expected: s.check.expected };
+  const q = (st.qa?.extra || []).find((x) => x.id === key);
+  return q ? { id: q.id, expected: q.expected } : null;
+}
 
-/** qa: scenarios that aren't PASS (or waived) on the current code. */
+/** QA rows beyond the scenarios (qa-add): what the ticket, Figma, the blind QA agent, the journey and the data check found to measure. */
+const extraRows = (st) => st.qa?.extra || [];
+const QA_SOURCES = ['asked', 'figma', 'blind', 'journey', 'data'];
+
+/** qa: scenarios and Q rows that aren't PASS (or waived) on the current code. */
 function openQa(cfg, st, rows) {
   const digest = codeDigest(cfg);
-  return qaScenarios(rows).map((s) => {
-    const r = st.qa?.rows?.[s.id];
+  const items = [...qaScenarios(rows).map((s) => ({ id: s.id, label: `qa: ${s.check.expected}` })), ...extraRows(st).map((q) => ({ id: q.id, label: `${q.source}: ${q.criterion}` }))];
+  return items.map(({ id, label }) => {
+    const r = st.qa?.rows?.[id];
     if (r?.verdict === 'WAIVED') return null;
-    if (!r || r.verdict !== 'PASS') return `${s.id} (qa: ${s.check.expected}): ${r?.verdict || 'not measured'}`;
-    if (r.digest !== digest) return `${s.id}: measured on older code; measure it again`;
+    if (!r || r.verdict !== 'PASS') return `${id} (${label.slice(0, 120)}): ${r?.verdict || 'not measured'}`;
+    if (r.digest !== digest) return `${id}: measured on older code; measure it again`;
     return null;
   }).filter(Boolean);
+}
+
+/**
+ * The QA a change owes beyond its own scenarios (asmc ASM-924: verify passed, then a blind human QA found 5 bugs). A UI
+ * change: a blind QA run by someone who never read the proposal. Each Figma frame in § Asked: a row measured against it.
+ * An A/B change: the real journey for each arm and control. A change that fetches data: the data checked against its source.
+ */
+export function owedQa({ rows, extra, reviews, asked, values, ab, fetches, quick }) {
+  const has = (src, pred = () => true) => extra.some((q) => q.source === src && pred(q));
+  const ui = rows.some((s) => s.check.kind === 'qa');
+  return [
+    ui && !quick && !reviews?.blind && 'run the blind-qa agent (it gets the ticket, design.md and the dev store, never the proposal), add each criterion it reports with qa-add --source blind, measure them, and record the run: app.mjs review <ID> blind --found "…"',
+    ui && !quick && reviews?.blind && !has('blind') && 'the blind QA run is recorded but none of its criteria are: add each with qa-add --source blind',
+    ...asked.filter(isFigmaRow).filter((a) => !a.outOfScope && !has('figma', (q) => String(q.asked) === a.n))
+      .map((a) => `§ Asked #${a.n} (${a.asked.slice(0, 70)}): measure the build against that frame at its width: qa-add --source figma --asked ${a.n} (sizes, colours, spacing, assets from design.md)`),
+    ab && ui && !quick && extra.filter((q) => q.source === 'journey').length < values.length + 1
+      && `an A/B change runs the real journey per arm (${values.map((v) => `"${v}"`).join(', ')}) and control: from a product page and a collection page, add to cart, the trigger, checkout. qa-add --source journey, one row each (${extra.filter((q) => q.source === 'journey').length} of ${values.length + 1} so far)`,
+    fetches && !quick && !has('data') && 'the change fetches data (network_access): check what it shows against the source itself (the newest items really are the newest, the counts match): qa-add --source data',
+  ].filter(Boolean);
+}
+function owedQaOf(cfg, id, st, md) {
+  const decl = declaredSurfaces(md);
+  return owedQa({
+    rows: scenariosFrom(md), extra: extraRows(st), reviews: st.reviews, asked: askedFrom(md), values: abGateOf(md).values, ab: typeOf(st) === 'ab', quick: light(st),
+    fetches: decl !== 'none' && decl.some((d) => d.op === '+' && /^capability:[^/]+\/network_access$/.test(d.key)),
+  });
 }
 
 /** A review recorded against the code as it is now, or why it doesn't count. */
@@ -336,7 +454,40 @@ function proposeProblems(cfg, id, st) {
       && 'an A/B change measures its own test code: add qa: scenarios for "the variation code writes the key and value to /cart.js (once, no update loop)" and "the control code clears it"',
     ...retiresFrom(md).filter((c) => !ledger.has(testKey(c.file, c.name))).map((c) => `§ Retires → ${checkKey(c)} isn't a test an archived change bound; list only those there`),
     !sectionLines(md, '## Tasks').some((l) => /^- \[[ x]\] \S/.test(l)) && 'fill proposal.md § Tasks: one "- [ ] …" line per task, each naming the scenarios it satisfies',
+    ...(strict(st) ? strictProposeProblems(cfg, id, st, md, rows, decl) : []),
   ].filter(Boolean);
+}
+
+/** A digest of what the outside reviewer read: the proposal without its task ticks and client comment. */
+const reviewedText = (md) => sha(md.replace(/^- \[x\]/gim, '- [ ]').replace(/## Client comment[\s\S]*$/, ''));
+// A claim that something can't be done decides the design; asmc ASM-924 approved one read from an outdated guide list.
+const IMPOSSIBLE = /\b(not possible|impossible|not supported|unsupported|isn'?t supported|platform limit|not reachable|isn'?t reachable|no (?:slot|target|way|api)\b)/i;
+
+/** Proposals started with 0.5.0 or later: what was asked, the ticket, Figma, precedent and the outside review. */
+function strictProposeProblems(cfg, id, st, md, rows, decl) {
+  const tickets = ticketsOf(id);
+  const jira = /^[A-Z][A-Z0-9]+-\d+$/.test(id) || (st.tickets || []).length > 0;
+  const figma = (tickets || []).some((t) => (t.figmaLinks || []).length);
+  const newExtension = decl !== 'none' && decl.some((d) => d.op === '+' && /^(extension|target):/.test(d.key));
+  const claims = ['## Decided for you', '## Design', '## Needs your attention', '## What changes'].flatMap((h) => sectionLines(md, h)).filter((l) => IMPOSSIBLE.test(l) && !/shopify\.dev\//.test(l));
+  return [
+    jira && !tickets && `read the ticket into the change: node .claude/kit/app.mjs ticket ${id}`,
+    // Maintenance promises no behaviour change: § Asked may stay empty ("none").
+    ...(typeOf(st) === 'maintain' && !askedFrom(md).length ? [] : askedProblems(md, rows, tickets, id)),
+    st.quick && decl !== 'none' && `a --quick change has no surfaces (§ Surfaces declares ${decl.map((d) => `${d.op} ${d.key}`).join(', ')}): abandon it and start again without --quick`,
+    figma && !existsSync(join(LOGS, id, 'design.md')) && `the ticket links Figma: run the design-extractor agent on the frames § Asked lists and save its report as .claude/logs/${id}/design.md (its JSON block as design-checks.json). No Figma access: write that in design.md, and the dev checks the design by hand`,
+    !light(st) && newExtension && !st.precedent && `this change adds an extension or target: search earlier changes for the same target first: node .claude/kit/app.mjs precedent ${id} <target, component or API>`,
+    !light(st) && !st.reviews?.outside && 'run the outcome-checker agent (mode proposal) on this proposal and record what it found and what you changed: app.mjs review <ID> outside --found "…"'.replace('<ID>', id),
+    !light(st) && st.reviews?.outside && st.reviews.outside.proposal !== reviewedText(md) && warn('the proposal changed since the outside review: run the outcome-checker again if more than wording changed, then record it'),
+    ...notProvenFrom(md).flatMap((n) => [
+      !n.fallback.trim() && `§ Not proven yet → "${n.claim.slice(0, 60)}": name the fallback if QA disproves it`,
+      !n.scenarios.length && `§ Not proven yet → "${n.claim.slice(0, 60)}": name the scenario that proves it`,
+      ...n.scenarios.filter((s) => !rows.some((r) => r.id.toUpperCase() === s)).map((s) => `§ Not proven yet → "${n.claim.slice(0, 60)}": ${s} isn't in § Scenarios`),
+    ]),
+    // asm-924-c-icons passed Gate 1 as a fix with no failing test: nothing showed the bug before the fix.
+    typeOf(st) === 'fix' && !rows.some((s) => s.check.kind === 'test') && warn('a fix with no test: scenario has nothing that fails before the fix. Bind a test if the bug is in logic; for a visual bug, measure the qa: row on the unfixed build first in verify and say what it showed in § Reproduce'),
+    claims.length && warn(`a "can't be done" claim decides the design, so cite the target's or component's own reference page (shopify.dev, the app's API version) in the same line: ${claims.map((l) => `"${l.slice(0, 90)}"`).join(' · ')}`),
+  ];
 }
 
 const EXIT_CHECKS = {
@@ -363,6 +514,7 @@ const EXIT_CHECKS = {
       st.verify && !st.verify.ok && `verify failed: ${st.verify.checks.filter((c) => c.verdict === 'FAIL').map((c) => c.name).join(', ')}. Fix (back to build), then verify again`,
       dirtyCode(cfg).length && 'commit the work first',
       ...openQa(cfg, st, scenariosFrom(md)).map((q) => `QA ${q}`),
+      ...(strict(st) ? owedQaOf(cfg, id, st, md).map((q) => q.replace('<ID>', id)) : []),
       reviewProblem(cfg, st, 'code', digest)?.replace('<ID>', id),
       reviewProblem(cfg, st, 'security', digest)?.replace('<ID>', id),
     ];
@@ -377,6 +529,7 @@ const wrapper = (args) => spawnSync(process.execPath, [join(KIT_DIR, 'shopify.mj
 const parsedOut = (r) => { try { return JSON.parse(r.stdout); } catch { return null; } };
 
 const LOW_SEVERITY = new Set(['low', 'info', 'informational', 'none']);
+const REPO_HYGIENE = /^MISSING_DEPENDENCY_SECURITY_AUTOMATION$/i;
 /**
  * The security check's verdict. A finding in the baseline predates the change; with no baseline yet, so does a finding in
  * a file the change didn't touch. New findings block unless low: an unknown severity blocks, since it can mean the CLI's
@@ -388,7 +541,8 @@ export function securityVerdict(findings, baseline, changed) {
   const norm = (p) => String(p || '').replaceAll('\\', '/').replace(/^\.\//, '').toLowerCase();
   const isKnown = (f) => known.has(f.fingerprint) || (!baseline && !changed.includes(norm(f.file)));
   const fresh = findings.filter((f) => !isKnown(f));
-  const blocking = fresh.filter((f) => !LOW_SEVERITY.has(f.severity) && (baseline || f.severity !== 'medium'));
+  // Repo hygiene, not the change's code: asmc ASM-924 failed verify because its first package.json had no Dependabot.
+  const blocking = fresh.filter((f) => !LOW_SEVERITY.has(f.severity) && !REPO_HYGIENE.test(f.check) && (baseline || f.severity !== 'medium'));
   return { known: findings.filter(isKnown), fresh, blocking, verdict: blocking.length ? 'FAIL' : findings.length ? 'WARN' : 'PASS' };
 }
 
@@ -468,6 +622,40 @@ function abCodeProblems(id, md, base) {
   return out;
 }
 
+const walk = (d) => { try { return readdirSync(d, { withFileTypes: true }).flatMap((e) => (['node_modules', 'dist', 'generated'].includes(e.name) || e.name.startsWith('.') ? [] : e.isDirectory() ? walk(join(d, e.name)) : [join(d, e.name)])); } catch { return []; } };
+const sourceOf = (dir) => walk(join(ROOT, dir)).filter((f) => /\.(m?[jt]sx?)$/.test(f) && !/(^|[\\/])(tests?|__tests__)[\\/]|\.test\./.test(f)).map((f) => codeOnly(readFileSync(f, 'utf8'))).join('\n');
+
+/** Checkout UI extensions whose capabilities don't match their code: fetch needs network_access (or the deploy works and every request fails). */
+function capabilityProblems(exts) {
+  const fail = []; const warn = [];
+  for (const e of exts) {
+    const toml = read(`${e.dir}/shopify.extension.toml`);
+    const src = sourceOf(e.dir);
+    const network = /network_access\s*=\s*true/.test(toml);
+    if (/\bfetch\s*\(/.test(src) && !network) fail.push(`${e.handle} calls fetch() without [extensions.capabilities] network_access = true`);
+    if (network && !/\bfetch\s*\(/.test(src)) warn.push(`${e.handle} asks for network_access but never calls fetch(): drop it (narrowest capability)`);
+  }
+  return { fail, warn };
+}
+
+/** API versions over 12 months old (the CLI refuses to deploy them); touched: an extension this change touched. */
+export function staleApiVersions(items, touched, today = new Date()) {
+  const cutoff = new Date(today.getFullYear() - 1, today.getMonth(), 1);
+  return Object.entries(items).filter(([k, v]) => /^(extension-api:|webhooks:api_version$)/.test(k) && /^\d{4}-\d{2}$/.test(String(v)))
+    .filter(([, v]) => new Date(`${v}-01T00:00:00`) < cutoff).map(([k, v]) => ({ key: k, version: v, touched: touched.includes(k.slice('extension-api:'.length)) }));
+}
+
+/** Lines the branch added since its base: [{ file, line }]. */
+const addedLines = (base) => {
+  const out = [];
+  let file = '';
+  for (const l of git(['diff', '--unified=0', `${base}...HEAD`], { allowFail: true }).split(/\r?\n/)) {
+    if (l.startsWith('+++ ')) file = l.replace(/^\+\+\+ (b\/)?/, '');
+    else if (l.startsWith('+') && !l.startsWith('+++')) out.push({ file, line: l.slice(1) });
+  }
+  return out;
+};
+
 function runVerify(cfg, id, st, { skipTests }) {
   const P = specPaths(cfg);
   const checks = [];
@@ -528,10 +716,30 @@ function runVerify(cfg, id, st, { skipTests }) {
     const r = parsedOut(wrapper(['function-run', ext.handle]));
     add(`function ${ext.handle}`, r?.ok ? 'PASS' : 'FAIL', r ? r.results.map((x) => `${x.fixture.split('/').pop()}: ${x.verdict}${x.instructions ? ` ${(x.instructions / 1e6).toFixed(2)}M instr` : ''}${x.note ? ` (${x.note})` : ''}`).join(' · ') : 'function-run gave no result');
   }
-  if (exts.some((e) => e.type === 'ui_extension')) {
+  for (const ext of exts.filter((e) => e.type === 'function')) {
+    // Shopify refuses an input query over 3000 bytes at deploy (Functions limits, 2026-10); the fixtures never see it.
+    const big = walk(join(ROOT, ext.dir)).filter((f) => /\.graphql$/i.test(f) && !/schema\.graphql$/i.test(f) && statSync(f).size > 3000);
+    if (big.length) add(`function ${ext.handle} input query`, 'FAIL', `${big.map((f) => `${f.slice(ROOT.length + 1).replaceAll('\\', '/')} is ${statSync(f).size} bytes`).join(', ')}: the limit is 3000`);
+  }
+  if (exts.some((e) => e.type === 'ui_extension' || e.type === 'theme')) {
     const r = parsedOut(wrapper(['build']));
     // A web build the kit won't run leaves the sizes unmeasured: a warning, since the dev's own build is fine.
-    add('bundle size', r?.skipped ? 'WARN' : r?.ok ? 'PASS' : 'FAIL', r ? r.bundles.map((x) => `${x.extension}: ${x.verdict}${x.gzipBytes ? ` ${(x.gzipBytes / 1024).toFixed(1)} KB gz / ${(x.rawBytes / 1024).toFixed(1)} KB raw` : ''}`).join(' · ') || r.error : 'build gave no result');
+    add('build and size', r?.skipped ? 'WARN' : r?.ok ? 'PASS' : 'FAIL', r ? [r.error && !r.ok ? r.error.slice(0, 300) : '', ...r.bundles.map((x) => `${x.extension}: ${x.verdict}${x.gzipBytes ? ` ${(x.gzipBytes / 1024).toFixed(1)} KB gz` : ''}${x.liquidBytes !== undefined ? ` ${(x.liquidBytes / 1024).toFixed(1)} KB Liquid, ${x.blocks} blocks` : ''}${x.note ? ` (${x.note})` : ''}`)].filter(Boolean).join(' · ') : 'build gave no result');
+  }
+  const caps = capabilityProblems(exts.filter((e) => e.type === 'ui_extension'));
+  if (caps.fail.length || caps.warn.length) add('capabilities', caps.fail.length ? 'FAIL' : 'WARN', [...caps.fail, ...caps.warn].join(' · '));
+  // APP_KIT_TODAY: the e2e's fixed date, so its fixtures' versions don't age into failures.
+  const old = staleApiVersions(readItems(treeReader(ROOT), { configName: cfg.appConfig }).items, exts.map((e) => e.handle), process.env.APP_KIT_TODAY ? new Date(process.env.APP_KIT_TODAY) : new Date());
+  if (old.length) add('API versions', old.some((o) => o.touched) ? 'FAIL' : 'WARN', `${old.map((o) => `${o.key} = ${o.version}`).join(', ')}: over 12 months old, and the CLI refuses to deploy such a version${old.some((o) => o.touched) ? '. This change touches it: bump it (a maintain change, or declare ~ extension-api here)' : ''}`);
+  // Debug code that reached a client's checkout (asmc ASM-924: QA probes went out with a deploy).
+  const leftovers = addedLines(a.base).filter(({ file, line }) => isAppCode(file) && !/(^|\/)(tests?|__tests__|fixtures)\/|\.test\./.test(file) && /\bdebugger\b|\bPROBE\b|qa-probe|\bTODO:? remove\b|\bconsole\.(log|debug)\s*\(\s*['"`](qa|probe|debug)/i.test(line));
+  if (leftovers.length) add('debug leftovers', 'FAIL', leftovers.slice(0, 5).map(({ file, line }) => `${file}: ${line.trim().slice(0, 80)}`).join(' · '));
+  {
+    // The dev app's config must be valid; the production one may need a login the kit doesn't have, so it warns.
+    const r = parsedOut(wrapper(['validate', '--all']));
+    const bad = (r?.results || []).filter((x) => !x.valid);
+    if (r) add('app configs', bad.some((x) => x.config === cfg.appConfig) ? 'FAIL' : bad.length ? 'WARN' : 'PASS',
+      bad.map((x) => `${x.config}: ${x.error}`).join(' · ') || `${r.results.length} config${r.results.length === 1 ? '' : 's'} valid`);
   }
 
   if (typeOf(st) === 'ab') {
@@ -631,6 +839,17 @@ function stepsFor(cfg, st) {
   return deploySteps({ keys, ext, server, serverGone, configs, appConfig: cfg.appConfig });
 }
 
+/** Markdown lines as bullets: a wrapped line joins the bullet above it instead of becoming one (asmc ASM-924's PR text). */
+export function asBullets(lines) {
+  const out = [];
+  for (const l of lines) {
+    const t = l.replace(/^[-*]\s+/, '');
+    if (/^[-*]\s/.test(l) || !out.length) out.push(`- ${t}`);
+    else out[out.length - 1] += ` ${t}`;
+  }
+  return out;
+}
+
 function handoff(cfg, id, st) {
   const md = proposalOf(cfg, id);
   const rows = scenariosFrom(md);
@@ -651,10 +870,12 @@ function handoff(cfg, id, st) {
     `**${id}** (${typeOf(st)})${st.tickets?.length ? ` · tickets: ${st.tickets.join(', ')}` : ''}`,
     '',
     '### What changes',
-    ...(sectionLines(md, '## What changes').map((l) => (/^[-*]/.test(l) ? l : `- ${l}`))),
+    ...asBullets(sectionLines(md, '## What changes')),
     '',
     '### Scenarios',
     ...(rows.length ? rows.map((s) => `- ${scenarioLine(s)} (${resultOf(st, s)})`) : ['- none (maintenance: the regression covers it)']),
+    ...(extraRows(st).length ? ['', '### QA beyond the scenarios (ticket, Figma, blind QA, journeys, data)', ...extraRows(st).map((q) => `- ${q.id} [${q.source}] ${q.criterion}: expected ${q.expected} (${qaResult(st, q.id)})`)] : []),
+    ...(notProvenFrom(md).length ? ['', '### Not proven by the docs (relied on, measured in QA)', ...notProvenFrom(md).map((n) => `- ${n.claim}. Evidence: ${n.evidence || '—'}. Fallback: ${n.fallback}.`)] : []),
     '',
     '### Surfaces',
     ...(surf.length ? surf.map((s) => `- \`${s.change}\`: ${s.why}`) : ['- none']),
@@ -674,8 +895,8 @@ function handoff(cfg, id, st) {
     '## Deploy checklist (the dev deploys; the kit never does)',
     '',
     ...stepsFor(cfg, st).map((s) => `- [ ] ${s}`),
-    ...(design.length && !saysNone(design) ? ['', '### From proposal.md § Design (this change\'s own notes; the order above comes first)', ...design.map((l) => `- ${l.replace(/^[-*]\s*/, '')}`)] : []),
-    ...(abLines.length ? ['', '### A/B test: activation and completion', ...abSteps(id, md).map((l) => `- [ ] ${l}`), '', 'From proposal.md § Gate (targeting and trigger):', ...sectionLines(md, '## Gate').map((l) => `- ${l.replace(/^[-*]\s*/, '')}`)] : []),
+    ...(design.length && !saysNone(design) ? ['', '### From proposal.md § Design (this change\'s own notes; the order above comes first)', ...asBullets(design)] : []),
+    ...(abLines.length ? ['', '### A/B test: activation and completion', ...abSteps(id, md).map((l) => `- [ ] ${l}`), '', 'From proposal.md § Gate (targeting and trigger):', ...asBullets(sectionLines(md, '## Gate'))] : []),
     '',
     `Store mutations run on the dev store: ${(st.mutations || []).length}.`,
     '',
@@ -686,9 +907,12 @@ function handoff(cfg, id, st) {
 
 /** A scenario's result: QA as measured (and how), else verify's verdict. */
 function resultOf(st, s) {
-  const r = st.qa?.rows?.[s.id];
-  if (s.check.kind === 'qa') return r ? `${r.verdict}${r.measured ? `: ${r.measured} (${r.how})` : r.reason ? `: ${r.reason}` : ''}` : 'not measured';
+  if (s.check.kind === 'qa') return qaResult(st, s.id);
   return st.verify?.scenarios.find((x) => x.id === s.id)?.verdict || 'not run';
+}
+function qaResult(st, id) {
+  const r = st.qa?.rows?.[id];
+  return r ? `${r.verdict}${r.measured ? `: ${r.measured} (${r.how})` : r.reason ? `: ${r.reason}` : ''}` : 'not measured';
 }
 
 /** What a gate shows the dev, in one question: Gate 1 at propose, Gate 2 at accept. */
@@ -700,6 +924,11 @@ function gateView(cfg, id, st) {
   if (st.stage !== 'accept') {
     return {
       gate: 'Gate 1: the scenarios, the surfaces, how each scenario is checked',
+      ...(strict(st) ? {
+        asked: askedFrom(md).map((a) => `#${a.n} ${a.asked.slice(0, 120)} → ${a.outOfScope ? 'out of scope' : a.scenarios.join(', ')}`),
+        notProvenYet: notProvenFrom(md).map((n) => `${n.claim} (fallback: ${n.fallback}; proven by ${n.scenarios.join(', ')})`),
+        outsideReview: st.reviews?.outside?.found || (light(st) ? 'not needed (quick or maintenance)' : 'not run yet'),
+      } : {}),
       scenarios: rows.map(scenarioLine),
       checks: { test: count('test'), qa: count('qa'), manual: count('manual') },
       surfaces: decl === 'none' ? 'none' : decl.map((d) => `${d.op} ${d.key}: ${attentionFor(d) || 'no special attention'}`),
@@ -718,7 +947,11 @@ function gateView(cfg, id, st) {
     gate: 'Gate 2: the measured result',
     verify: v ? `${v.ok ? 'PASS' : 'FAIL'} on code ${v.digest}${v.digest === codeDigest(cfg) ? '' : ' (outdated: the code changed since)'}` : 'not run',
     checks: (v?.checks || []).map((c) => `${c.verdict} ${c.name}${c.verdict !== 'PASS' && c.note ? `: ${c.note.slice(0, 200)}` : ''}`),
+    // What the design relied on without the docs' promise, first: a row that isn't PASS is the dev's risk to name.
+    notProvenYet: notProvenFrom(md).map((n) => `${n.claim}: ${n.scenarios.map((s) => `${s} ${resultOf(st, rows.find((r) => r.id.toUpperCase() === s) || { id: s, check: { kind: 'qa' } }).split(':')[0]}`).join(', ')} (fallback: ${n.fallback})`),
     scenarios: rows.map((s) => `${scenarioLine(s)} → ${resultOf(st, s)}`),
+    qaBeyondScenarios: extraRows(st).map((q) => `${q.id} [${q.source}${q.asked ? ` #${q.asked}` : ''}] ${q.criterion} (expected ${q.expected}) → ${qaResult(st, q.id)}`),
+    blindQa: st.reviews?.blind?.found,
     changedSinceGate1: sinceGate1(st, md),
     surfaces: v?.checks.find((c) => c.name === 'surfaces')?.attention?.map((x) => `${x.change}: ${x.why}`) || [],
     deploySteps: stepsFor(cfg, st),
@@ -743,6 +976,8 @@ function runHandoff(cfg, id, st) {
     // A proposal from before 0.3.0 has no such heading; it isn't refused for it.
     md.split(/\r?\n/).some((l) => l.trim() === '## Client comment') && !sectionLines(md, '## Client comment').some((l) => l && !l.startsWith('<!--'))
       && 'write proposal.md § Client comment: the comment for the dev to post for the client (what\'s done and when shoppers see it, what differs from the ticket, what the client or CRO does next)',
+    // The client reads the comment, not the proposal: someone who didn't write it reads it as the client first.
+    strict(st) && !light(st) && !st.reviews?.handoff && `run the outcome-checker agent (mode handoff) on § Client comment and record it: app.mjs review ${id} handoff --found "…"`,
     ...openQa(cfg, st, rows),
   ].filter(Boolean);
   if (problems.length) fail(`Can't hand off ${id}:\n${problems.map((p) => `- ${p}`).join('\n')}`);
@@ -864,6 +1099,7 @@ function summaryLines(cfg, id, st) {
   const done = STAGES.slice(0, i === -1 ? STAGES.length : i).map((s) => (st.gates?.[s.name] ? `${s.name} ✓ ("${st.gates[s.name].answer.slice(0, 60)}")` : `${s.name} ✓`));
   if (done.length && !finished(st)) lines.push(`Done: ${done.join(' · ')}`);
   if (st.test) lines.push(`TEST RUN: the branch is ${st.branch} and is never pushed (the guard blocks it).`);
+  if (st.quick) lines.push('QUICK: a small fix with no surfaces. No outside review, precedent search or blind QA; § Asked, the scenarios and their QA still apply.');
   if (cfg.kind && cfg.kind !== appKindNow()) lines.push(`${CONFIG_REL} says kind "${cfg.kind}", but the app is now "${appKindNow()}" (${appKindNow() === 'admin' ? 'it has app/routes or prisma' : 'no app/routes or prisma'}): set kind to "${appKindNow()}" there (the guard shows the dev the change).`);
   const base = effectiveBase(st, cfg);
   lines.push(`Branch: ${st.branch} · diff base: ${base ? base.slice(0, 7) : '—'} · protected: ${protectedBranches(cfg).join(', ')} · dev store: ${devStore(cfg) || '(not set)'}`);
@@ -1104,6 +1340,38 @@ function selftest() {
   archived('2026-11-02-C-1', 'C-1', '2026-11-02T09:00:00Z', '| S3 | a | b | c | test: t.test.js › two |');
   eq('the ledger is read from the archive, in archive order', ledgerFrom(arch), [{ file: 't.test.js', name: 'two', change: 'C-1', scenario: 'S3' }]);
   eq('no archive, no ledger', ledgerFrom(join(pkgDir, 'none')), []);
+  // § Asked (0.5.0): quotes against the ticket, scenarios that exist, Figma frames tied to qa: rows.
+  const scen = (id, kind = 'qa') => ({ id, check: kind === 'qa' ? { kind: 'qa', expected: 'x' } : { kind: 'test', file: 'a.test.js', name: 'n' } });
+  const tk = [{ summary: 'Trust section', description: 'AC: Show the **two most recent** 5-star reviews.\nLink to the form section.', fields: {}, comments: [{ text: 'Use “WhatsApp Support”' }], figmaLinks: ['https://www.figma.com/design/abc/x?node-id=12-34'] }];
+  const askedMd = (rows) => `## Asked\n\n| # | Asked (quoted) | Scenarios |\n| --- | --- | --- |\n${rows.join('\n')}\n\n## Out of scope\n\n- none\n`;
+  eq('§ Asked: a quote found in the ticket passes; a paraphrase or a missing quote is refused', [
+    askedProblems(askedMd(['| 1 | AC: "two most recent 5-star reviews" | S1 |', '| 2 | "WhatsApp Support" | S1 |', '| 3 | Figma: Variation C · 12:34 · 360px | S1 |']), [scen('S1')], tk, 'X'),
+    askedProblems(askedMd(['| 1 | AC: "the 2 newest reviews" | S1 |', '| 2 | Figma: C · 12:34 · 360px | S1 |']), [scen('S1')], tk, 'X').length,
+    askedProblems(askedMd(['| 1 | show reviews | S1 |', '| 2 | Figma: C · 12:34 | S1 |']), [scen('S1')], tk, 'X').some((p) => /quote the ticket word for word/.test(p)),
+  ], [[], 1, true]);
+  eq('§ Asked: unknown scenarios, unproven rows, Figma rows without a qa: scenario, and unlisted Figma nodes are refused', [
+    askedProblems(askedMd(['| 1 | "two most recent" | S9 |']), [scen('S1')], null, 'X').some((p) => /S9 isn't in § Scenarios/.test(p)),
+    askedProblems(askedMd(['| 1 | "two most recent" | |']), [scen('S1')], null, 'X').some((p) => /name the scenarios/.test(p)),
+    askedProblems(askedMd(['| 1 | "two most recent" | out of scope: later ticket |']), [scen('S1')], null, 'X'),
+    askedProblems(askedMd(['| 1 | Figma: B · 1:2 · 1280px | S1 |']), [scen('S1', 'test')], null, 'X').some((p) => /tie it to a qa: scenario/.test(p)),
+    askedProblems(askedMd(['| 1 | "two most recent" | S1 |']), [scen('S1')], tk, 'X').some((p) => /Figma node 12:34/.test(p)),
+    askedProblems('## Asked\n\nnone\n', [], null, 'X').length,
+  ], [true, true, [], true, true, 1]);
+  eq('Figma node ids from links', [figmaNodes('https://figma.com/design/k/n?node-id=12-34&t=x'), figmaNodes('https://figma.com/design/k/n?node-id=1%3A2'), figmaNodes('https://figma.com/file/k/n')], [['12:34'], ['1:2'], []]);
+  const owe = (o) => owedQa({ rows: [scen('S1')], extra: [], reviews: {}, asked: [], values: [], ab: false, fetches: false, quick: false, ...o });
+  eq('owed QA: a UI change needs the blind run and its rows; each Figma row a figma row; an A/B change a journey per arm and control; fetched data its source', [
+    owe({}).length, owe({ reviews: { blind: { found: 'x' } }, extra: [{ source: 'blind' }] }).length,
+    owe({ reviews: { blind: {} }, extra: [{ source: 'blind' }], asked: [{ n: '2', asked: 'Figma: C · 1:2', scenarios: ['S1'] }] }).some((p) => /§ Asked #2/.test(p)),
+    owe({ reviews: { blind: {} }, extra: [{ source: 'blind' }, { source: 'figma', asked: '2' }], asked: [{ n: '2', asked: 'Figma: C · 1:2', scenarios: ['S1'] }] }).length,
+    owe({ reviews: { blind: {} }, extra: [{ source: 'blind' }, { source: 'journey' }, { source: 'journey' }], ab: true, values: ['1', '2'] }).some((p) => /2 of 3 so far/.test(p)),
+    owe({ reviews: { blind: {} }, extra: [{ source: 'blind' }], fetches: true }).some((p) => /source itself/.test(p)),
+    owe({ quick: true, ab: true, values: ['1'], fetches: true }).length, owe({ rows: [scen('S1', 'test')] }).length,
+  ], [1, 0, true, 0, true, true, 0, 0]);
+  eq('PR bullets: a wrapped line joins its bullet', asBullets(['- one that', 'wraps', '- two', 'and wraps']), ['- one that wraps', '- two and wraps']);
+  eq('API versions over 12 months old; touched ones flagged', staleApiVersions({ 'extension-api:a': '2025-07', 'extension-api:b': '2026-04', 'webhooks:api_version': '2025-10', 'scope:x': '' }, ['a'], new Date('2026-11-25')),
+    [{ key: 'extension-api:a', version: '2025-07', touched: true }, { key: 'webhooks:api_version', version: '2025-10', touched: false }]);
+  eq('security: a missing Dependabot setup is repo hygiene, not a blocking finding', securityVerdict([{ check: 'MISSING_DEPENDENCY_SECURITY_AUTOMATION', severity: 'unknown', file: 'package.json', fingerprint: 'd' }], { fingerprints: [] }, []).verdict, 'WARN');
+  eq('§ Not proven yet rows', notProvenFrom('## Not proven yet\n\n| Claim | Evidence | Fallback | Scenario |\n| --- | --- | --- | --- |\n| data-URI icons render | SEE-402 | hosted file | S3, S8 |\n'), [{ claim: 'data-URI icons render', evidence: 'SEE-402', fallback: 'hosted file', scenarios: ['S3', 'S8'] }]);
   rmSync(pkgDir, { recursive: true, force: true });
   const failed = checks.filter((c) => !c[1]);
   for (const [name, , got, want] of failed) print(`FAIL ${name}: got ${JSON.stringify(got)}, want ${JSON.stringify(want)}`);
@@ -1184,8 +1452,8 @@ switch (verb) {
       if (!lines.includes(extra.match(/^## .+$/m)[0]) && lines.includes('## Scenarios')) writeFileSync(join(dir, 'proposal.md'), md.replace(/^## Scenarios\s*$/m, `${extra}\n\n## Scenarios`));
     }
     const st = {
-      schemaVersion: 2, kitVersion: KIT_VERSION, id, type, title: typeof flags.title === 'string' ? flags.title : '', tickets: /^[A-Z][A-Z0-9]+-\d+$/.test(id) ? [id] : [],
-      createdAt: now(), owner: owner(), stage: STAGES[0].name, gates: {}, test: st0.test,
+      schemaVersion: 3, kitVersion: KIT_VERSION, id, type, title: typeof flags.title === 'string' ? flags.title : '', tickets: /^[A-Z][A-Z0-9]+-\d+$/.test(id) ? [id] : [],
+      createdAt: now(), owner: owner(), stage: STAGES[0].name, gates: {}, test: st0.test, ...(flags.quick ? { quick: true } : {}),
       ...(onOnboard ? { stackedOn: ONBOARD_BRANCH, stackedSha: git(['rev-parse', from], { allowFail: true }) || null } : {}),
       branch, base: effectiveBase(onOnboard ? { stackedOn: ONBOARD_BRANCH } : {}, cfg) || head(), history: [{ at: now(), event: 'start' }], qa: { rows: {} }, reviews: {}, mutations: [],
     };
@@ -1313,23 +1581,46 @@ switch (verb) {
   case 'review': {
     const id = normId(rawId);
     const kind = rest[0];
-    if (!['code', 'security'].includes(kind) || typeof flags.found !== 'string' || !flags.found.trim()) fail('Usage: review <ID> code|security --found "<what the review found and what was done about it>"');
-    const st = atStage(id, 'build', 'verify');
-    const dirty = dirtyCode(cfg);
-    if (dirty.length) fail(`Commit first: a review is recorded against committed code (uncommitted: ${dirty.slice(0, 5).join(', ')}).`);
+    const STAGE_OF = { code: ['build', 'verify'], security: ['build', 'verify'], outside: ['propose'], blind: ['verify'], handoff: ['handoff'] };
+    if (!STAGE_OF[kind] || typeof flags.found !== 'string' || !flags.found.trim()) fail('Usage: review <ID> code|security|outside|blind|handoff --found "<what the review found and what was done about it>"');
+    const st = atStage(id, ...STAGE_OF[kind]);
+    const found = flags.found.trim().replace(/\r?\n/g, ' ');
+    // asmc ASM-924 recorded "reviewed inline" and a security review "carried over" from an earlier commit: neither ran
+    // the review on this code.
+    if (/\b(reviewed inline|inline review|carried over|from (an |the )?earlier review|already reviewed|same as before|not re-?run)\b/i.test(found)) fail(`--found says the review didn't run on this code ("${found.slice(0, 80)}"). Run ${kind === 'code' ? '/code-review' : kind === 'security' ? '/security-review' : `the ${kind === 'blind' ? 'blind-qa' : 'outcome-checker'} agent`} now and record what it found.`);
+    if (['code', 'security', 'blind'].includes(kind)) {
+      const dirty = dirtyCode(cfg);
+      if (dirty.length) fail(`Commit first: a review is recorded against committed code (uncommitted: ${dirty.slice(0, 5).join(', ')}).`);
+    }
     const digest = codeDigest(cfg);
-    st.reviews = { ...st.reviews, [kind]: { found: flags.found.trim().replace(/\r?\n/g, ' '), digest, at: now(), stage: st.stage } };
+    st.reviews = { ...st.reviews, [kind]: { found, digest, at: now(), stage: st.stage, ...(kind === 'outside' ? { proposal: reviewedText(proposalOf(cfg, id)) } : {}) } };
     st.history.push({ at: now(), event: 'review', kind, digest });
     writeChange(cfg, id, st);
-    print(`${kind} review recorded on code ${digest}. A later code change needs it again.`);
+    print(['code', 'security'].includes(kind) ? `${kind} review recorded on code ${digest}. A later code change needs it again.` : `${kind} review recorded.`);
+    break;
+  }
+
+  case 'qa-add': {
+    const id = normId(rawId);
+    const st = atStage(id, 'verify');
+    const text = (f) => (typeof flags[f] === 'string' ? flags[f].trim().replace(/\r?\n/g, ' ') : '');
+    const source = text('source');
+    if (!QA_SOURCES.includes(source) || !text('criterion') || !text('expected')) fail(`Usage: qa-add <ID> --source ${QA_SOURCES.join('|')} --criterion "<what is checked>" --expected "<the value or behaviour, from the ticket or Figma>" [--asked <§ Asked #>]`);
+    const asked = text('asked').replace(/^#/, '');
+    if (source === 'figma' && !askedFrom(proposalOf(cfg, id)).some((a) => a.n === asked && isFigmaRow(a))) fail(`A figma row names the § Asked row of its frame: --asked <#> (the Figma rows: ${askedFrom(proposalOf(cfg, id)).filter(isFigmaRow).map((a) => `#${a.n}`).join(', ') || 'none'}).`);
+    const extra = extraRows(st);
+    const q = { id: `Q${extra.length + 1}`, source, criterion: text('criterion'), expected: text('expected'), ...(asked ? { asked } : {}), at: now() };
+    st.qa = { ...st.qa, rows: { ...st.qa?.rows }, extra: [...extra, q] };
+    writeChange(cfg, id, st);
+    print(`${q.id} (${source}): ${q.criterion} → expected ${q.expected}. Measure it: app.mjs qa-row ${id} ${q.id} --measured … --how … --verdict …`);
     break;
   }
 
   case 'qa-row': {
     const id = normId(rawId);
     const st = atStage(id, 'verify');
-    const s = findScenario(scenariosFrom(proposalOf(cfg, id)), rest[0]);
-    if (!s || s.check.kind !== 'qa') fail(`Usage: qa-row <ID> <scenario> --measured T --how T --verdict PASS|FAIL|BLOCKED, for a qa: scenario of proposal.md § Scenarios (got "${rest[0] || ''}").`);
+    const s = qaTarget(st, scenariosFrom(proposalOf(cfg, id)), rest[0]);
+    if (!s) fail(`Usage: qa-row <ID> <S#|Q#> --measured T --how T --verdict PASS|FAIL|BLOCKED, for a qa: scenario of proposal.md § Scenarios or a row qa-add made (got "${rest[0] || ''}").`);
     if (!['PASS', 'FAIL', 'BLOCKED'].includes(flags.verdict)) fail('--verdict is one of: PASS, FAIL, BLOCKED');
     // A verdict is only as good as what was observed: the value seen, and where and how.
     const text = (f) => (typeof flags[f] === 'string' ? flags[f].trim().replace(/\r?\n/g, ' ') : '');
@@ -1338,20 +1629,20 @@ switch (verb) {
     const hedge = flags.verdict === 'PASS' && text('measured').match(/\b(?:not provable|can(?:no|')t (?:be )?prove[nd]?|not (?:yet )?(?:verified|measured|tested|checked)|unverified|untested|assumed|only partly|partially)\b|\blimitations?\s*:/i);
     if (hedge) fail(`--measured says "${hedge[0]}", so part of ${s.id} wasn't shown. Measure it, or record BLOCKED with what's missing.`);
     // The code a verdict was measured on: a row measured before a fix doesn't count after it.
-    st.qa = { rows: { ...st.qa?.rows, [s.id]: { verdict: flags.verdict, measured: text('measured'), how: text('how'), digest: codeDigest(cfg), at: now() } } };
+    st.qa = { ...st.qa, rows: { ...st.qa?.rows, [s.id]: { verdict: flags.verdict, measured: text('measured'), how: text('how'), digest: codeDigest(cfg), at: now() } } };
     writeChange(cfg, id, st);
-    print(`${s.id}: ${flags.verdict} on code ${codeDigest(cfg)} (expected: ${s.check.expected})`);
+    print(`${s.id}: ${flags.verdict} on code ${codeDigest(cfg)} (expected: ${s.expected})`);
     break;
   }
 
   case 'waive': {
     const id = normId(rawId);
     const st = atStage(id, 'verify');
-    const s = findScenario(scenariosFrom(proposalOf(cfg, id)), rest[0]);
-    if (!s || s.check.kind !== 'qa' || typeof flags.reason !== 'string' || !flags.reason.trim()) fail('Usage: waive <ID> <scenario> --reason "why it can\'t be measured, and who checks it instead", for a qa: scenario');
+    const s = qaTarget(st, scenariosFrom(proposalOf(cfg, id)), rest[0]);
+    if (!s || typeof flags.reason !== 'string' || !flags.reason.trim()) fail('Usage: waive <ID> <S#|Q#> --reason "why it can\'t be measured, and who checks it instead", for a qa: scenario or a Q row');
     // Skipping a check is the dev's call, recorded in their words like a gate answer.
     if (typeof flags.answer !== 'string' || !flags.answer.trim()) fail(`Waiving ${s.id} is the dev's call: ask them, then add --answer "<their words>".`);
-    st.qa = { rows: { ...st.qa?.rows, [s.id]: { verdict: 'WAIVED', reason: flags.reason.trim(), answer: flags.answer.trim(), digest: codeDigest(cfg), at: now(), by: owner().name } } };
+    st.qa = { ...st.qa, rows: { ...st.qa?.rows, [s.id]: { verdict: 'WAIVED', reason: flags.reason.trim(), answer: flags.answer.trim(), digest: codeDigest(cfg), at: now(), by: owner().name } } };
     st.history.push({ at: now(), event: 'waive', row: s.id, reason: flags.reason.trim() });
     writeChange(cfg, id, st);
     print(`${s.id} waived: ${flags.reason.trim()}`);
@@ -1377,6 +1668,73 @@ switch (verb) {
   }
 
   case 'drift': print(drift(cfg, { regression: Boolean(flags.regression) })); break;
+
+  case 'ticket': {
+    const id = normId(rawId);
+    const st = readChange(cfg, id);
+    const keys = [...new Set([...(st.tickets || []), ...(/^[A-Z][A-Z0-9]+-\d+$/.test(id) ? [id] : [])])];
+    if (!keys.length) fail(`${id} names no Jira ticket. § Asked quotes what the dev asked for instead (rows starting "Dev:").`);
+    const got = keys.map((k) => {
+      const r = spawnSync(process.execPath, [join(KIT_DIR, 'jira.mjs'), k], { cwd: ROOT, encoding: 'utf8', timeout: 120000 });
+      try { return JSON.parse(r.stdout); } catch { fail(`jira.mjs ${k} failed: ${(r.stderr || r.stdout).trim().slice(0, 400)}`); }
+      return null;
+    });
+    mkdirSync(join(LOGS, id), { recursive: true });
+    writeFileSync(ticketFile(id), `${JSON.stringify(got, null, 2)}\n`);
+    print({ saved: `.claude/logs/${id}/ticket.json`, tickets: got.map((t) => `${t.key}: ${t.summary}`), figmaLinks: got.flatMap((t) => t.figmaLinks || []),
+      next: 'Quote every acceptance criterion and deciding line from it in proposal.md § Asked, word for word in "…"; one Figma row per frame the change builds.' });
+    break;
+  }
+
+  case 'precedent': {
+    const id = normId(rawId);
+    const st = atStage(id, 'propose');
+    const words = rest.map((w) => w.toLowerCase()).filter((w) => w.length > 2);
+    if (!words.length) fail('Usage: precedent <ID> <words…>: the target (purchase.checkout.block.render), the component (s-image), the API or the feature (trust list)');
+    // Archived changes here and in the sibling app repos (the folder that holds this one): the team's earlier answers to
+    // the same placement, asset or API question (asmc ASM-924 missed seeberger-cms SEE-402's).
+    const parent = dirname(ROOT);
+    const repos = [ROOT, ...readdirSync(parent, { withFileTypes: true }).filter((e) => e.isDirectory() && join(parent, e.name) !== ROOT).map((e) => join(parent, e.name))];
+    const hits = [];
+    for (const repo of repos) {
+      const arch = join(repo, 'appspec', 'archive');
+      if (!existsSync(arch)) continue;
+      for (const dir of readdirSync(arch)) {
+        const text = (() => { try { return readFileSync(join(arch, dir, 'proposal.md'), 'utf8'); } catch { return ''; } })();
+        const lower = text.toLowerCase();
+        const matched = words.filter((w) => lower.includes(w));
+        if (!matched.length) continue;
+        const lines = text.split(/\r?\n/).filter((l) => words.some((w) => l.toLowerCase().includes(w))).slice(0, 4).map((l) => l.trim().slice(0, 200));
+        hits.push({ change: `${repo === ROOT ? '(this repo)' : repo.split(/[\\/]/).pop()}/appspec/archive/${dir}`, matched, lines });
+      }
+    }
+    hits.sort((a, b) => b.matched.length - a.matched.length);
+    st.precedent = { query: words.join(' '), at: now(), hits: hits.slice(0, 10).map((h) => h.change) };
+    writeChange(cfg, id, st);
+    print({ searched: `${repos.length} repos under ${parent}`, hits: hits.slice(0, 10),
+      next: hits.length ? 'Read the closest hits\' proposal.md and handoff.md. Each borrowed pattern is an option, not a fact: check it in the docs for this app\'s API version (a sibling app\'s data-URI icons went against the s-image docs), and say in § Decided for you what you took from where.' : 'No earlier change matched: say "Precedent: none found (<words>)" in § Decided for you.' });
+    break;
+  }
+
+  case 'revert': {
+    const id = normId(rawId);
+    atStage(id, 'build', 'verify');
+    const files = rest.map((f) => f.replaceAll('\\', '/').replace(/^\.\//, ''));
+    if (!files.length) fail('Usage: revert <ID> <file…>: app files with uncommitted edits to put back as committed');
+    const bad = files.filter((f) => !isAppCode(f) || f.startsWith('..') || /^\//.test(f));
+    if (bad.length) fail(`Only app files in this repo (got ${bad.join(', ')}).`);
+    const tracked = files.filter((f) => run('git', ['ls-files', '--error-unmatch', '--', f]).code === 0);
+    const untracked = files.filter((f) => !tracked.includes(f) && existsSync(join(ROOT, f)));
+    // Kept first, so undoing the revert is git apply on the patch (or a copy back from the folder).
+    const stamp = now().replace(/[:.]/g, '-');
+    const dir = join(LOGS, id, `reverted-${stamp}`);
+    mkdirSync(dir, { recursive: true });
+    if (tracked.length) writeFileSync(join(dir, 'changes.patch'), run('git', ['diff', 'HEAD', '--', ...tracked]).stdout);
+    for (const f of untracked) { mkdirSync(dirname(join(dir, 'new', f)), { recursive: true }); renameSync(join(ROOT, f), join(dir, 'new', f)); }
+    if (tracked.length) { const r = run('git', ['checkout', 'HEAD', '--', ...tracked]); if (r.code !== 0) fail(`git checkout failed: ${r.stderr.trim()}. The patch is in ${dir}.`); }
+    print(`Reverted ${[...tracked, ...untracked].join(', ') || 'nothing (no such files)'}. Kept in .claude/logs/${id}/${dir.split(/[\\/]/).pop()}/ (changes.patch: git apply it to undo; new/: files that weren't committed).`);
+    break;
+  }
 
   case 'abandon': {
     const id = normId(rawId);

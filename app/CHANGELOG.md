@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.5.0 — 2026-11-26
+
+**QA that doesn't grade itself, and proposals anchored to the ticket.** In asmc ASM-924, verify passed and then a blind human QA found five bugs. The scenarios had paraphrased the AC ("two most recent" became "2 review cards"), Figma was never opened, a wrong "no slot there" claim reached Gate 1, and a sibling repo's earlier answer went unread.
+
+- **§ Asked:** every acceptance criterion and deciding comment, quoted word for word, plus every Figma frame, each tied to the scenarios that prove it. `app.mjs ticket <ID>` saves the ticket to `.claude/logs/<ID>/ticket.json`. Gate 1 refuses:
+  - a quote that isn't in the ticket
+  - a row no scenario proves
+  - a Figma frame without a `qa:` scenario
+  - a Figma node the ticket links but § Asked leaves out
+- **Figma:** a new `design-extractor` agent reads each frame (per variation and viewport) into `design.md` and maps each value to what checkout, admin or theme components can express. Gate 1 wants it when the ticket links Figma.
+- **Outside reviewer:** a new `outcome-checker` agent reads the ticket first, then the proposal. It looks for dropped words, uncovered frames, arms and surfaces, unproven claims, and precedent. It runs again on the client comment before handoff. Both runs are recorded (`review <ID> outside|handoff`) and required.
+- **§ Not proven yet:** what the design relies on that the docs don't promise, with its evidence, fallback and scenario. Gate 2 lists these first. A "can't be done" line without a shopify.dev link gets a warning.
+- **Precedent:** `app.mjs precedent <ID> <words>` searches this and the sibling app repos' archived changes. It is required before a change adds an extension or target. What it finds is an option, still checked in the docs.
+- **A QA stage** (`app-qa` skill, loaded by verify), with a probe for checkout, storefront and admin (`qa-probe.init.js`, kit-browser). The probe finds elements by text through shadow roots and lists every copy of a block (mobile one-page checkout shows the summary twice). It reads sizes, colours, gaps, wrapping, overflow, links and images. Verify now owes, beyond the scenarios:
+  - a **blind QA** run (new `blind-qa` agent: ticket, design and store only, never the proposal)
+  - a row per § Asked Figma frame, at its width
+  - the real journey per A/B arm and control
+  - live data checked against its source
+
+  Each is recorded with `qa-add` / `qa-row` (Q1, Q2, …) and shown at Gate 2 and in handoff.md.
+- **More automated checks in verify:**
+  - every `shopify.app*.toml` is validated (production warns)
+  - theme app extensions run Theme Check and their size limits
+  - a Function input query over 3000 bytes fails
+  - `fetch` without `network_access` fails
+  - API versions over 12 months old warn (and fail when the change touches them)
+  - debug code the branch adds (`debugger`, `PROBE`, qa logging) fails
+  - the bundle check counts only the compressed size Shopify limits
+- **`shopify.mjs dev-status`:** reads the dev's `app dev` log to report which store it previews, whether it rebuilt after the last edit, build errors and sizes. It never prints the GraphiQL key.
+- **Reviews must have run:** a `--found` saying "reviewed inline" or "carried over" is refused.
+- **Friction fixes:**
+  - `--quick` for small fixes with no surfaces: same gates, no outside review, precedent or blind QA; maintenance gets the same exemption
+  - `app.mjs revert <ID> <file…>` drops uncommitted experiments and keeps a patch
+  - a missing Dependabot setup no longer blocks verify
+  - handoff.md no longer breaks wrapped bullets
+  - QA records the editor placement with each placement row
+- **Setup:** checks kit-browser and notes Figma access. `project.md` records the client's store vs the dev store (checkout layout, Plus, branding) and the sibling repos.
+
+Changes started before 0.5.0 keep their old checks (`schemaVersion` 2).
+
+Theme kit: no counterpart in this release. It is held for a week to collect feedback. Its plan stage already has the outside reviewer and design extraction; a blind QA agent and § Not proven yet's Gate 2 ordering would be new there and are candidates for its next release.
+
 ## 0.4.0 — 2026-11-25
 
 **The dev store's editor setup is the agent's job in verify.** It reads and changes the theme editor and checkout editor setup in the dev's Chrome itself (app embed, app block, block settings), says so in one line, and checks the preview afterwards. Before, it asked the dev to place blocks and report the setup. Publishing a theme or checkout configuration stays the dev's. Theme kit: no counterpart needed, its QA already works in the draft theme's editor in Chrome without asking.
