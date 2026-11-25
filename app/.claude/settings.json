@@ -96,7 +96,26 @@
       "mcp__kit-browser__browser_console_messages",
       "mcp__kit-browser__browser_network_requests",
       "mcp__kit-browser__browser_tabs",
-      "mcp__kit-browser__browser_close"
+      "mcp__kit-browser__browser_close",
+      "mcp__claude-in-chrome__navigate",
+      "mcp__claude-in-chrome__tabs_create_mcp",
+      "mcp__claude-in-chrome__computer",
+      "mcp__claude-in-chrome__javascript_tool",
+      "mcp__claude-in-chrome__form_input",
+      "mcp__claude-in-chrome__resize_window",
+      "mcp__kit-browser__browser_run_code_unsafe",
+      "mcp__kit-browser__browser_type",
+      "mcp__kit-browser__browser_fill_form",
+      "mcp__figma-remote-mcp__create_session",
+      "mcp__figma-remote-mcp__get_metadata",
+      "mcp__figma-remote-mcp__get_design_context",
+      "mcp__figma-remote-mcp__get_screenshot",
+      "mcp__figma-remote-mcp__get_variable_defs",
+      "Bash(gh pr create --draft:*)",
+      "PowerShell(gh pr create --draft:*)",
+      "Bash(node *search_docs.mjs*)",
+      "Bash(node *validate.mjs*)",
+      "mcp__figma-remote-mcp__download_assets"
     ],
     "deny": [
       "Read(./.env)",
@@ -157,7 +176,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash|PowerShell|Monitor|Edit|Write|MultiEdit|NotebookEdit|mcp__kit-browser__browser_run_code_unsafe|Agent|Task|Skill",
+        "matcher": "^(Bash|PowerShell|Monitor|Edit|Write|MultiEdit|NotebookEdit|mcp__kit-browser__browser_run_code_unsafe|mcp__claude-in-chrome__navigate|mcp__claude-in-chrome__tabs_create_mcp|Agent|Task|Skill)$",
         "hooks": [
           {
             "type": "command",

@@ -54,6 +54,6 @@ By type:
    End with: "Review it and tell me: approve, what to change, or any question." Then stop and wait; no AskUserQuestion. Questions → answer and wait. Changes → edit, run gate again, say what changed, wait.
 5. On an explicit approval: `node .claude/kit/app.mjs done <ID> propose --answer "<the dev's words>"`. A reply that could be read either way: ask.
 
-**A small fix** (a colour, a size, a text, no surfaces; often right after a handoff): start it with `--quick`. The proposal still needs § Why, § Asked, the scenarios and § Tasks, and Gate 1 is still the dev's one-line yes; the outside review, precedent search and blind QA are skipped.
+**A small fix** (a colour, a size, a text, no surfaces; often right after a handoff): start it with `--quick`, on the branch it fixes when that change's PR is still open (same branch, same PR), else on its own branch. The proposal needs § Why, § Asked (a "Dev:" row with the dev's words is enough), the scenarios and § Tasks; Gate 1 is the dev's one-line yes. Skipped: the outside review, precedent search, blind QA, the security review and the handoff review.
 
 **Done when:** gate passes, the dev approved, and `done propose` succeeded.

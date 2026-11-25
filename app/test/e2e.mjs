@@ -694,6 +694,25 @@ writeFileSync(outFile, JSON.stringify({ testResults: files.map((file) => ({ name
   write(C('quick-free', 'proposal.md'), proposal({ id: 'quick-free', scenarios: [S2], asked: '| 1 | Dev: "the gift line should say Free" | S2 |' }));
   const qg = app('gate', 'quick-free');
   ok('a quick change passes Gate 1 without an outside review', qg.code === 0 && /not needed/.test(json(qg).outsideReview || ''), qg.all);
+  commit('quick-free proposal');
+
+  // A blind run's table in one call, then a fix the rows can't see: carried, not re-measured.
+  git('switch', '-q', AB);
+  write(`.claude/logs/${AB}/blind.json`, JSON.stringify([{ source: 'blind', criterion: 'banner text', expected: 'Free shipping', verdict: 'PASS', measured: 'Free shipping', how: 'kit-browser checkout, 360px' },
+    { source: 'journey', criterion: 'arm B from a product page', expected: 'banner shows' }]));
+  const qb = app('qa-add', AB, '--file', `.claude/logs/${AB}/blind.json`);
+  ok('qa-add takes a whole table in one call, with the verdicts already measured', qb.code === 0 && /Q1 \(blind\).*PASS/.test(qb.out) && /Q2 \(journey\)/.test(qb.out) && json(app('status', AB, '--json')).qa?.rows?.Q1?.verdict === 'PASS', qb.all);
+  write('checkout/ab-ship/src/Checkout.jsx', read('checkout/ab-ship/src/Checkout.jsx').replace('debugger; ', ''));
+  commit('ab-ship: drop the debugger');
+  ok('a row measured before a fix is stale', /Q1: measured on older code/.test(app('done', AB, 'verify').err));
+  const carry = app('qa-row', AB, 'Q1', '--carry', 'the fix only removed a debugger statement');
+  ok('qa-row --carry keeps a PASS row past a fix it can\'t reach, with why', carry.code === 0 && !/Q1: measured on older code/.test(app('done', AB, 'verify').err)
+    && /removed a debugger/.test(json(app('status', AB, '--json')).qa?.rows?.Q1?.carried || ''), carry.all);
+  ok('only a PASS row can be carried', app('qa-row', AB, 'Q2', '--carry', 'x').code !== 0);
+  // A quick fix on the branch it fixes: same branch, same PR.
+  commit('ab-5 rows');
+  const qs2 = app('start', 'icon-colour', '--type', 'change', '--quick');
+  ok('a quick fix starts on the branch it fixes', qs2.code === 0 && /Branch: AB-5/.test(qs2.out), qs2.all);
 
 } catch (e) {
   ok('e2e harness', false, e.stack);

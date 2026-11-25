@@ -77,6 +77,39 @@
   - input query size ignores comments and line endings
   - the old-API-version check only warns, since the deploy refusal isn't confirmed
 
+**Round 3: the dev's experience** (a DX review counted about 6 real decisions per A/B run and 30–70 prompts that protected nothing):
+- **Prompts that guarded nothing are gone:**
+  - `dev-status` is a safe verb; it prompted every QA round and was refused in bypass mode
+  - allowed: the Figma read tools; kit-browser's run-code, type and fill tools, run-code still screened by the guard; Claude in Chrome's navigate, tabs, computer, javascript and form tools; the Shopify plugin's docs and validation helpers; `gh pr create --draft`
+  - Chrome navigation without a prompt stays on the dev store, its admin, Shopify's docs, Figma and localhost; any other store or site asks
+- **Fix loops are lighter:**
+  - `qa-row <ID> S1,Q4 --carry "<why>"` keeps PASS rows a fix can't reach (shown in the handoff), instead of measuring every row again
+  - a security review carries past a fix that only touched styles, locale files or tests (under 30 lines); the kit decides from the diff
+- **Batches:** `qa-add <ID> --file blind.json` adds a blind QA run's whole table, with its measurements, in one call.
+- **The post-handoff fix lane:** `--quick` may start on the branch it fixes while its PR is open (same branch, same PR). The agent edits directly, without the builder, and runs a `low` code review. Skipped: the security review, the outside reviews, precedent and blind QA.
+- **Handoff:** no PR question. The draft PR opens when `gh` is logged in, else the compare link is shown; merge commands only on request.
+- **Fewer false refusals:**
+  - the AC section ends at bold labels and rules
+  - only "acceptance" fields count, not "success" or "targeting criteria"
+  - bare links aren't AC
+  - an AC line split across rows counts
+  - a corporate-identity Figma link (a file's first page) isn't a frame
+  - "first", "last" and "top" don't trigger the dropped-words warning
+  - "not checked" in a measurement is allowed
+  - dashes and ellipses are normalised in quotes
+- **Fixed from the round-2 review:**
+  - the review trace only counts runs on this change's branch, applies only to 0.5.0 changes, and its message names the real causes (a session started before the update, a /code-review typed by hand)
+  - design.md with "NO FIGMA ACCESS" needs no logged run
+  - `revert` lets git write the patch, so files in other encodings survive
+  - `dev-status` tracks errors per extension
+  - `__aq.compare` resolves `between` through the frame's element names, skips pad and edge spacing, and handles `letter-spacing: normal`, unitless line heights, font-family lists, short hex and alpha
+  - the hook matcher is anchored, so `Task` doesn't catch other tools
+  - `precedent` also searches sibling repos' extension code and tomls (most were built before the kit)
+  - a figma row's width comes from design-checks.json
+  - a data row is owed whenever the branch adds a `fetch`
+
+Not done, on purpose: saving the dev store's password in app-kit.json (it saves one question per run, but stores a password); taking the dev's request as the Gate 1 answer for a quick fix (Gate 1 stays an explicit yes).
+
 Changes started before 0.5.0 keep their old checks (`schemaVersion` 2).
 
 Theme kit: no counterpart in this release. It is held for a week to collect feedback. Its plan stage already has the outside reviewer and design extraction; a blind QA agent and § Not proven yet's Gate 2 ordering would be new there and are candidates for its next release.

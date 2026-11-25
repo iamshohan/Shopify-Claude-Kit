@@ -64,7 +64,8 @@ const CONFIG_KEYS = {
 };
 // Wrapper verbs that run without asking: local, or read-only on the dev store. Anything else, including verbs added later, asks.
 // generate-extension scaffolds local files from Shopify's template: nothing changes on Shopify until the dev deploys.
-const SAFE_VERBS = new Set(['cli-check', 'info', 'validate', 'generate-extension', 'build', 'function-build', 'function-typegen', 'function-run', 'security', 'query', 'help', '--help']);
+// dev-status only reads app dev's log file.
+const SAFE_VERBS = new Set(['cli-check', 'info', 'validate', 'dev-status', 'generate-extension', 'build', 'function-build', 'function-typegen', 'function-run', 'security', 'query', 'help', '--help']);
 // Files that can switch the guard or git's safety off: settings.local.json can disable hooks, .mcp.json adds servers,
 // .git/config can hold an alias or a push refspec, .git/hooks run on commit. Writing them asks (.git/info/exclude doesn't).
 const GUARD_OFF = /^(\.claude\/[^/]+\.json|\.mcp\.json|\.git\/(config$|hooks(\/|$))|\.git$)/i;
@@ -551,6 +552,19 @@ const defaultCtx = {
   secrets: () => secretFiles(ROOT), dirty: (paths, dir) => git.dirty(paths, dir),
 };
 
+const CHROME_NAV = /^mcp__claude-in-chrome__(navigate|tabs_create_mcp)$/;
+/** A Chrome page outside the dev store and the tools QA uses asks first: the dev's other admin sessions are theirs. */
+function chromeHost(url, ctx) {
+  let host;
+  try { host = new URL(/^[a-z]+:/i.test(url) ? url : `https://${url}`).hostname.toLowerCase(); } catch { return { decision: 'ask', reason: `Open "${url.slice(0, 120)}" in your Chrome? The guard couldn't read the address.` }; }
+  const store = String(devStore(ctx.config()) || '').toLowerCase();
+  const handle = store.replace(/\.myshopify\.com$/, '');
+  const ok = (store && host === store) || /^(localhost|127\.0\.0\.1)$/.test(host) || /(^|\.)(shopify\.dev|figma\.com)$/.test(host)
+    || (host === 'admin.shopify.com' && handle && new RegExp(`^https?://admin\\.shopify\\.com/store/${handle}(/|$|\\?)`, 'i').test(url.startsWith('http') ? url : `https://${url}`))
+    || /\.shopifypreview\.com$/.test(host);
+  return ok ? null : { decision: 'ask', reason: `Open ${host} in your Chrome (your logged-in admin)? The kit works in the dev store (${store || 'not set'}), its admin and the docs; other stores and sites are yours to open.` };
+}
+
 // kit-browser's run_code runs in Node with the dev's access: only the kit's QA probe runs from a file.
 const RUN_CODE_FILES = /^\.claude\/kit\/qa-probe\.init\.js$/i;
 
@@ -562,6 +576,9 @@ export function decide(input, ctx = defaultCtx) {
   // the agent or skill ran (0.5.0 review: a record alone proved nothing).
   if (tool === 'Agent' || tool === 'Task') return { decision: 'log', reason: `ran agent ${String(ti.subagent_type || 'general-purpose').slice(0, 60)}` };
   if (tool === 'Skill') return { decision: 'log', reason: `ran skill ${String(ti.skill || '').slice(0, 60)}` };
+  // The dev's Chrome runs as their admin: settings let the agent work in it without a prompt, so new pages stay on the
+  // dev store, Shopify's admin, and the docs and design tools QA reads.
+  if (CHROME_NAV.test(tool || '') && ti.url) return chromeHost(String(ti.url), ctx);
   if (['Edit', 'Write', 'MultiEdit', 'NotebookEdit'].includes(tool)) return decideFile(ti, input.cwd, ctx);
   // Bash, PowerShell, Monitor, and any later tool that runs a command: all read the same way.
   if (typeof ti.command === 'string') return decideCommand(ti.command, ctx, 0, input.cwd || null);
@@ -776,6 +793,14 @@ function selftest() {
     [bash('cd .claude && git commit -m x'), 'deny', ctx({ branch: 'main' })], [bash(`cd ${OUT} && git push origin main`), 'deny'],
     // Monitor runs commands too
     [{ tool_name: 'Monitor', tool_input: { command: 'shopify app deploy --force' } }, 'deny'], [{ tool_name: 'Monitor', tool_input: { command: 'cat .env' } }, 'deny'],
+    // Chrome stays on the dev store, its admin and the docs without a prompt; other stores ask.
+    [{ tool_name: 'mcp__claude-in-chrome__navigate', tool_input: { url: 'https://admin.shopify.com/store/dev/settings/checkout' } }, null],
+    [{ tool_name: 'mcp__claude-in-chrome__navigate', tool_input: { url: 'https://dev.myshopify.com/checkouts/cn/abc' } }, null],
+    [{ tool_name: 'mcp__claude-in-chrome__navigate', tool_input: { url: 'https://admin.shopify.com/store/client-live/settings' } }, 'ask'],
+    [{ tool_name: 'mcp__claude-in-chrome__navigate', tool_input: { url: 'https://admin.shopify.com/store/devx' } }, 'ask'],
+    [{ tool_name: 'mcp__claude-in-chrome__tabs_create_mcp', tool_input: { url: 'https://www.asmc.de/' } }, 'ask'],
+    [{ tool_name: 'mcp__claude-in-chrome__navigate', tool_input: { url: 'https://shopify.dev/docs/api/checkout-ui-extensions' } }, null],
+    [bash('node .claude/kit/shopify.mjs dev-status'), null],
     // Agents and skills pass and are logged by name, so app.mjs review can tell they ran.
     [{ tool_name: 'Agent', tool_input: { subagent_type: 'outcome-checker', prompt: 'x' } }, 'log'], [{ tool_name: 'Skill', tool_input: { skill: 'code-review' } }, 'log'],
     // kit-browser's run_code: the kit's probe file runs; other files and Node APIs in inline code don't.

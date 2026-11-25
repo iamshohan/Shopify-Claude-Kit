@@ -44,12 +44,14 @@ const HELP = `Usage: node .claude/kit/app.mjs <verb> ...
                                          record a review: code and security of the committed code (build, verify);
                                          outside: the outcome-checker on the proposal (propose); blind: the blind-qa
                                          agent's run (verify); handoff: the outcome-checker on the client comment (handoff)
-  qa-add <ID> --source asked|figma|blind|journey|data --criterion T --expected T [--asked N]
+  qa-add <ID> --source asked|figma|blind|journey|data --criterion T --expected T [--asked N]   (or --file rows.json:
+                                         several at once, each with its verdict, measured and how if already measured)
                                          add a QA row beyond the scenarios (verify stage): Q1, Q2, …; --asked: the § Asked
                                          row it checks (figma rows need it)
   qa-row <ID> <S#|Q#> --measured T --how T --verdict PASS|FAIL|BLOCKED   (or --file rows.json for several)
                                          record a measured qa: scenario or Q row (verify stage; PASS/FAIL need both texts);
                                          --baseline: a fix's qa: row on the unfixed build, at propose
+  qa-row <ID> <S#,Q#,…> --carry "WHY"    after a fix: keep PASS rows the fix can't reach, with why (the handoff shows it)
   waive <ID> <S#|Q#> --reason "TEXT" --answer "DEV'S WORDS"  accept a row that can't be measured (verify stage; the dev confirms;
                                          the handoff lists it)
   predeploy [ID]                         for the dev before deploying (read-only): the tree is clean, on the merged base,
@@ -131,11 +133,12 @@ const light = (st) => Boolean(st?.quick) || typeOf(st) === 'maintain';
 const ticketFile = (id) => join(LOGS, id, 'ticket.json');
 const ticketsOf = (id) => { try { return JSON.parse(readFileSync(ticketFile(id), 'utf8')); } catch { return null; } };
 /** Lower case, one space, no markdown emphasis or typographic quotes: a quote copied from Jira matches its source. */
-const plain = (s) => String(s || '').toLowerCase().replace(/[*_`]/g, '').replace(/[‘’]/g, "'").replace(/[“”„]/g, '"').replace(/\s+/g, ' ').trim();
+const plain = (s) => String(s || '').toLowerCase().replace(/[*_`]/g, '').replace(/[‘’]/g, "'").replace(/[“”„]/g, '"').replace(/[–—]/g, '-').replace(/…/g, '...').replace(/ /g, ' ').replace(/\s+/g, ' ').trim();
 const ticketText = (tickets) => plain((tickets || []).map((t) => [t.summary, t.description, ...Object.values(t.fields || {}), ...(Array.isArray(t.comments) ? t.comments.map((c) => c.text) : [])].join('\n')).join('\n'));
 /** Figma node ids a link names (node-id=12-34 → 12:34), or [] for a file link. */
 // Only the node-id parameter itself: a prototype link's starting-point-node-id isn't a frame to build.
-export const figmaNodes = (url) => [...String(url).matchAll(/[?&]node-id=(\d+)(?:-|:|%3A)(\d+)/gi)].map((m) => `${m[1]}:${m[2]}`);
+// 0:1 is a file's first page (a brand or corporate-identity link), not a frame.
+export const figmaNodes = (url) => [...String(url).matchAll(/[?&]node-id=(\d+)(?:-|:|%3A)(\d+)/gi)].map((m) => `${m[1]}:${m[2]}`).filter((n) => n !== '0:1');
 
 /** Rows of § Asked: [{ n, asked, scenarios: ['S1'], outOfScope }]. */
 export function askedFrom(md) {
@@ -187,6 +190,7 @@ export function askedProblems(md, rows, tickets, id, designFrames = []) {
   const listed = (n) => new RegExp(`(^|[^\\d])${n.split(':')[0]}[:-]${n.split(':')[1]}([^\\d]|$)`).test(figmaText);
   for (const link of (tickets || []).flatMap((t) => t.figmaLinks || [])) {
     const nodes = figmaNodes(link);
+    if (!nodes.length && /[?&]node-id=/.test(link)) continue; // only a file's first page: a brand link, not a design
     if (nodes.length) { for (const n of nodes) if (!listed(n)) out.push(`the ticket links Figma node ${n}: add a § Asked row "Figma: <frame> · ${n} · <width>px" with its qa: scenarios, or name the node under § Out of scope`); }
     else if (!asked.some(isFigmaRow) && !/figma/.test(plain(outOfScope.join(' ')))) out.push(`the ticket links a Figma file (${link.slice(0, 80)}): add a § Asked row per frame the change builds ("Figma: <frame> · <node> · <width>px")`);
   }
@@ -197,9 +201,12 @@ export function askedProblems(md, rows, tickets, id, designFrames = []) {
   const texts = [...asked.map((a) => a.asked), outOfScope.join(' ')].map(words);
   for (const ac of acLines(tickets)) {
     const w = [...words(ac)];
-    if (w.length < 3) continue;
+    // Labels and sub-headings ("Desktop:", "Kostenlose Retoure") belong to the line around them.
+    if (w.length < 4) continue;
+    // One row covering most of the line, or the rows together covering nearly all of it (a line split across rows).
+    const all = new Set(texts.flatMap((t) => [...t]));
     const best = Math.max(0, ...texts.map((t) => w.filter((x) => t.has(x)).length / w.length));
-    if (best < 0.6) out.push(`the ticket's acceptance criterion "${ac.slice(0, 90)}" has no § Asked row: quote it with the scenarios that prove it, or name it under § Out of scope with why`);
+    if (best < 0.6 && w.filter((x) => all.has(x)).length / w.length < 0.85) out.push(`the ticket's acceptance criterion "${ac.slice(0, 90)}" has no § Asked row: quote it with the scenarios that prove it, or name it under § Out of scope with why`);
   }
   return out;
 }
@@ -208,15 +215,19 @@ export function askedProblems(md, rows, tickets, id, designFrames = []) {
 export function acLines(tickets) {
   const out = [];
   const items = (text) => String(text || '').split(/\r?\n/).map((l) => l.trim()).filter((l) => /^([-*•]|\d+[.)])\s+\S/.test(l)).map((l) => l.replace(/^([-*•]|\d+[.)])\s+/, ''));
+  // A section ends at the next heading, bold label ("**Tracking:**") or rule: Jira authors use all three.
+  const HEAD = /^(#+\s*)?[*_]*\s*(acceptance criteria|akzeptanzkriterien|AC)\b[\s:*_]*$/i;
+  const ENDS = (l) => /^#+\s/.test(l) || /^[*_]{2}[^*_]+[*_]{2}:?\s*$/.test(l) || /^-{3,}$/.test(l);
+  const section = (lines, from) => { const end = lines.findIndex((l, i) => i > from && ENDS(l.trim()) && !HEAD.test(l.trim())); return lines.slice(from + 1, end === -1 ? undefined : end); };
   for (const t of tickets || []) {
-    for (const [name, v] of Object.entries(t.fields || {})) if (/acceptance|akzeptanz|criteria|kriterien|^ac$/i.test(name)) out.push(...(items(v).length ? items(v) : String(v).split(/\r?\n/).map((l) => l.trim()).filter(Boolean)));
+    // Only acceptance criteria: "Success criteria" or "Targeting criteria" fields are KPIs and audiences.
+    for (const [name, v] of Object.entries(t.fields || {})) if (/acceptance|akzeptanz|^ac$/i.test(name)) out.push(...(items(v).length ? items(v) : String(v).split(/\r?\n/).map((l) => l.trim()).filter(Boolean)));
     const lines = String(t.description || '').split(/\r?\n/);
-    const at = lines.findIndex((l) => /^(#+\s*|\*+)?\s*(acceptance criteria|akzeptanzkriterien|AC)\b[\s:*]*$/i.test(l.trim()));
-    if (at === -1) continue;
-    const end = lines.findIndex((l, i) => i > at && /^#+\s/.test(l.trim()));
-    out.push(...items(lines.slice(at + 1, end === -1 ? undefined : end).join('\n')));
+    const at = lines.findIndex((l) => HEAD.test(l.trim()));
+    if (at !== -1) out.push(...items(section(lines, at).join('\n')));
   }
-  return [...new Set(out)];
+  // A bare link is a reference (a prototype, a page), not a criterion to quote.
+  return [...new Set(out)].filter((l) => !/^<?https?:\/\/\S+>?$/.test(l));
 }
 
 /**
@@ -225,7 +236,8 @@ export function acLines(tickets) {
  */
 const NUMBER_WORDS = { one: '1', two: '2', three: '3', four: '4', five: '5', six: '6', seven: '7', eight: '8', nine: '9', ten: '10', eins: '1', zwei: '2', drei: '3', vier: '4', fünf: '5' };
 export function droppedWords(asked, rows) {
-  const KEY = /\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten|zwei|drei|vier|fünf|most recent|newest|latest|oldest|neueste[nr]?|first|last|top|section|anchor|new tab|neuen tab)\b/gi;
+  // Not "first", "last" or "top": they're mostly position words that a scenario says another way.
+  const KEY = /\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten|zwei|drei|vier|fünf|most recent|newest|latest|oldest|neueste[nr]?|section|anchor|new tab|neuen tab)\b/gi;
   const out = [];
   for (const a of asked.filter((x) => !isFigmaRow(x) && x.scenarios.length)) {
     const said = plain(a.scenarios.map((id) => rows.find((r) => r.id.toUpperCase() === id)).filter(Boolean).map((r) => `${r.given} ${r.when} ${r.then} ${r.checkText}`).join(' '));
@@ -381,6 +393,8 @@ export function sinceGate1(st, md) {
 // ── QA and reviews ──
 
 const qaScenarios = (rows) => rows.filter((s) => s.check.kind === 'qa');
+// A PASS whose measurement says part of it wasn't shown (the theme kit refuses these since 1.13.10's review).
+const HEDGE = /\b(?:not provable|can(?:no|')t (?:be )?prove[nd]?|not (?:yet )?(?:verified|measured|tested)|unverified|untested|assumed|only partly|partially)\b|\blimitations?\s*:/i;
 /** A qa: scenario or a Q row, as { id, expected }. */
 function qaTarget(st, rows, n) {
   const key = String(n || '').toUpperCase();
@@ -429,16 +443,29 @@ function owedQaOf(cfg, id, st, md) {
   const decl = declaredSurfaces(md);
   return owedQa({
     rows: scenariosFrom(md), extra: extraRows(st), reviews: st.reviews, asked: askedFrom(md), values: abGateOf(md).values, ab: typeOf(st) === 'ab', quick: light(st),
-    // Data fetched by a checkout extension, or served through the app proxy.
-    fetches: decl !== 'none' && decl.some((d) => (d.op === '+' && /^capability:[^/]+\/network_access$/.test(d.key)) || (d.op !== '-' && d.key === 'app-proxy')),
+    // Data fetched by a checkout extension or served through the app proxy, or a fetch the branch adds or changes (a
+    // later fix to the same request owes the check too).
+    fetches: (decl !== 'none' && decl.some((d) => (d.op === '+' && /^capability:[^/]+\/network_access$/.test(d.key)) || (d.op !== '-' && d.key === 'app-proxy')))
+      || addedLines(effectiveBase(st, cfg)).some(({ file, line }) => isAppCode(file) && /\.(m?[jt]sx?)$/.test(file) && !/(^|\/)(tests?|__tests__)\/|\.test\./.test(file) && /\bfetch\s*\(/.test(line)),
   });
 }
+
+/** Whether the app code changed since commit only in styles, locale files or tests, by fewer than 30 lines. */
+export function safeDelta(numstat) {
+  const rows = numstat.split(/\r?\n/).filter(Boolean).map((l) => l.split('\t')).filter(([, , f]) => f && isAppCode(f.replace(/^.* => /, '')));
+  const lines = rows.reduce((n, [a, d]) => n + (Number(a) || 0) + (Number(d) || 0), 0);
+  return rows.length > 0 && lines < 30 && rows.every(([, , f]) => /\.(css|scss|less)$|(^|\/)locales\/[^/]+\.json$|(^|\/)(tests?|__tests__|fixtures)\/|\.test\.[jt]sx?$/.test(f));
+}
+const smallSafeDelta = (commit) => { const r = run('git', ['diff', '--numstat', `${commit}..HEAD`]); return r.code === 0 && safeDelta(r.stdout); };
 
 /** A review recorded against the code as it is now, or why it doesn't count. */
 function reviewProblem(cfg, st, kind, digest = codeDigest(cfg)) {
   const r = st.reviews?.[kind];
   const skill = kind === 'code' ? 'code-review' : 'security-review';
   if (!r) return `run /${skill} on the change's diff and record it: app.mjs review <ID> ${kind} --found "<what it found and what was done>"`;
+  // A fix loop that only touched styles, copy or tests (under 30 lines) can't add a security problem: the security
+  // review carries. The kit decides from the diff, not from the agent's word.
+  if (r.digest !== digest && kind === 'security' && r.commit && smallSafeDelta(r.commit)) return null;
   if (r.digest !== digest) return `the code changed since the ${kind} review was recorded (code ${r.digest}, now ${digest}): run /${skill} on what changed, then record it again`;
   return null;
 }
@@ -533,7 +560,7 @@ function strictProposeProblems(cfg, id, st, md, rows, decl) {
     ...(typeOf(st) === 'maintain' && !askedFrom(md).length ? [] : askedProblems(md, rows, tickets, id, designFramesOf(id))),
     ...droppedWords(askedFrom(md), rows).map(warn),
     st.quick && decl !== 'none' && `a --quick change has no surfaces (§ Surfaces declares ${decl.map((d) => `${d.op} ${d.key}`).join(', ')}): abandon it and start again without --quick`,
-    figma && existsSync(join(LOGS, id, 'design.md')) && !ranSince('agent design-extractor', st.createdAt) && !/^untraced:/im.test(read(`.claude/logs/${id}/design.md`)) && `the guard log shows no design-extractor run for this change: run the agent and save its report as design.md (if it ran and the log missed it, add a first line "Untraced: <why>"; Gate 1 shows it)`,
+    figma && existsSync(join(LOGS, id, 'design.md')) && !figmaUnread(id) && !ranSince('agent design-extractor', st.createdAt, st.branch) && !/^untraced:/im.test(read(`.claude/logs/${id}/design.md`)) && `the guard log shows no design-extractor run for this change: run the agent and save its report as design.md (if it ran and the log missed it, add a first line "Untraced: <why>"; Gate 1 shows it)`,
     figma && !existsSync(join(LOGS, id, 'design.md')) && `the ticket links Figma: run the design-extractor agent on the frames § Asked lists and save its report as .claude/logs/${id}/design.md (its JSON block as design-checks.json). No Figma access: write that in design.md, and the dev checks the design by hand`,
     !light(st) && newExtension && !st.precedent && `this change adds an extension or target: search earlier changes for the same target first: node .claude/kit/app.mjs precedent ${id} <target, component or API>`,
     !light(st) && !st.reviews?.outside && 'run the outcome-checker agent (mode proposal) on this proposal and record what it found and what you changed: app.mjs review <ID> outside --found "…"'.replace('<ID>', id),
@@ -576,7 +603,8 @@ const EXIT_CHECKS = {
       ...openQa(cfg, st, scenariosFrom(md)).map((q) => `QA ${q}`),
       ...(strict(st) ? owedQaOf(cfg, id, st, md).map((q) => q.replace('<ID>', id)) : []),
       reviewProblem(cfg, st, 'code', digest)?.replace('<ID>', id),
-      reviewProblem(cfg, st, 'security', digest)?.replace('<ID>', id),
+      // A quick fix declares no surfaces (no route, scope, webhook or dependency): the code review covers it.
+      !st.quick && reviewProblem(cfg, st, 'security', digest)?.replace('<ID>', id),
     ];
   },
   accept: () => [],
@@ -989,7 +1017,7 @@ function resultOf(st, s) {
 }
 function qaResult(st, id) {
   const r = st.qa?.rows?.[id];
-  return r ? `${r.verdict}${r.measured ? `: ${r.measured} (${r.how})` : r.reason ? `: ${r.reason}` : ''}` : 'not measured';
+  return r ? `${r.verdict}${r.measured ? `: ${r.measured} (${r.how})` : r.reason ? `: ${r.reason}` : ''}${r.carried ? ` [carried past a fix: ${r.carried}]` : ''}` : 'not measured';
 }
 
 /** What a gate shows the dev, in one question: Gate 1 at propose, Gate 2 at accept. */
@@ -1146,8 +1174,10 @@ function archivedNext(cfg, id, st, to) {
 /** The guard's log: [{ at, kind, tool, reason, command, branch }]. */
 const guardLog = () => { try { return readFileSync(join(LOGS, '_guard.jsonl'), 'utf8').split(/\r?\n/).filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean); } catch { return []; } };
 /** Whether the guard logged that agent or skill ("agent outcome-checker", "skill code-review") at or after since. */
-export const ranIn = (entries, what, since) => entries.some((g) => g.kind === 'log' && /^(Agent|Task|Skill)$/.test(g.tool || '') && (g.reason === `ran ${what}` || String(g.reason).endsWith(`:${what.split(' ')[1]}`)) && g.at >= since);
-const ranSince = (what, since) => ranIn(guardLog(), what, since);
+// branch: a run logged on another change's branch doesn't count for this one (entries without a branch are older logs).
+export const ranIn = (entries, what, since, branch) => entries.some((g) => g.kind === 'log' && (what.startsWith('skill') ? g.tool === 'Skill' : /^(Agent|Task)$/.test(g.tool || ''))
+  && (g.reason === `ran ${what}` || String(g.reason).endsWith(`:${what.split(' ')[1]}`)) && g.at >= since && (!branch || !g.branch || g.branch === branch));
+const ranSince = (what, since, branch) => ranIn(guardLog(), what, since, branch);
 
 // ── Retro and summary ──
 
@@ -1471,6 +1501,18 @@ function selftest() {
   ], [['§ Asked #1 says "most recent", which S1 doesn\'t carry: a scenario that drops it can pass while the criterion fails'], []]);
   eq('debug leftovers: markers and qa logging, not lint config or prose', ['  debugger;', 'x(); debugger;', "'no-debugger': 'error',", '// probe the proxy first', 'const PROBE = 1;', "console.log('[qa] gate', v)", "console.log('[trust]', v)", 'window.__aq.env()']
     .map(isLeftover), [true, true, false, false, true, true, false, true]);
+  // Round 3 (DX and the round-2 review).
+  eq('the AC section ends at a bold label, a rule or a heading; KPI "criteria" fields and bare links aren\'t AC', [
+    acLines([{ description: '**Acceptance Criteria:**\n- Show the trust block below the totals\n**Tracking:**\n- Fire the add to cart event on click', fields: {} }]),
+    acLines([{ description: '### **Acceptance Criteria**\n- Show the trust block below the totals\n---\n- not this', fields: {} }]),
+    acLines([{ description: '', fields: { 'Success Criteria': '- revenue per visitor up', 'Acceptance Criteria': '- Show the block\n- https://figma.com/x' } }]),
+  ], [['Show the trust block below the totals'], ['Show the trust block below the totals'], ['Show the block']]);
+  eq('an AC line split across two § Asked rows is covered', askedProblems(askedMd(['| 1 | "Clicking it opens the form section" | S1 |', '| 2 | "of the contact page in a new tab" | S1 |']), [scen('S1')],
+    [{ fields: { 'Acceptance Criteria': '- Clicking it opens the form section of the contact page in a new tab' }, figmaLinks: [] }], 'X'), []);
+  eq('a security review carries past a small style, copy or test change only', [safeDelta('3\t1\textensions/a/src/styles.css\n2\t0\textensions/a/locales/de.json'), safeDelta('3\t1\textensions/a/src/index.jsx'), safeDelta('40\t0\textensions/a/src/a.css'), safeDelta('')], [true, false, false, false]);
+  eq('a run on another change\'s branch doesn\'t count', [ranIn([{ at: '2026-11-26T10:00:00Z', kind: 'log', tool: 'Skill', reason: 'ran skill code-review', branch: 'OTHER-1' }], 'skill code-review', '2026-11-26T00:00:00Z', 'ASM-9'),
+    ranIn([{ at: '2026-11-26T10:00:00Z', kind: 'log', tool: 'Skill', reason: 'ran skill code-review', branch: 'ASM-9' }], 'skill code-review', '2026-11-26T00:00:00Z', 'ASM-9')], [false, true]);
+  eq('a brand link to a file\'s first page isn\'t a frame', [figmaNodes('https://figma.com/design/k/CI?node-id=0-1'), askedProblems(askedMd(['| 1 | "two most recent" | S1 |']), [scen('S1')], [{ figmaLinks: ['https://figma.com/design/k/CI?node-id=0-1'] }], 'X')], [[], []]);
   const glog = [{ at: '2026-11-26T10:00:00Z', kind: 'log', tool: 'Agent', reason: 'ran agent outcome-checker' }, { at: '2026-11-26T11:00:00Z', kind: 'log', tool: 'Skill', reason: 'ran skill plugin:code-review' }, { at: '2026-11-26T12:00:00Z', kind: 'deny', tool: 'Bash', reason: 'ran agent blind-qa' }];
   eq('a review needs the guard\'s record of the agent or skill, after the last one', [ranIn(glog, 'agent outcome-checker', '2026-11-26T09:00:00Z'), ranIn(glog, 'agent outcome-checker', '2026-11-26T10:30:00Z'), ranIn(glog, 'skill code-review', '2026-11-26T10:30:00Z'), ranIn(glog, 'agent blind-qa', '2026-11-26T00:00:00Z')], [true, false, true, false]);
   eq('API versions over 12 months old; touched ones flagged', staleApiVersions({ 'extension-api:a': '2025-07', 'extension-api:b': '2026-04', 'webhooks:api_version': '2025-10', 'scope:x': '' }, ['a'], new Date('2026-11-25')),
@@ -1544,7 +1586,9 @@ switch (verb) {
     if (protectedBranches(cfg).some((p) => p.toLowerCase() === branch.toLowerCase())) {
       fail(`You're on ${branch}, which is protected. Create the change branch first:\n  git fetch origin\n  git switch -c ${want} --no-track ${from}`);
     }
-    if (branch !== want) fail(`Check out the change branch first (expected ${want}, on ${branch}):\n  git switch -c ${want} --no-track ${from}   (or git switch ${want} if it exists)`);
+    // A quick fix may go on the branch it fixes (a change just handed off, its PR still open): same branch, same PR.
+    const onOwnBranch = branch === want || (flags.quick && !protectedBranches(cfg).some((p) => p.toLowerCase() === branch.toLowerCase()));
+    if (!onOwnBranch) fail(`Check out the change branch first (expected ${want}, on ${branch}):\n  git switch -c ${want} --no-track ${from}   (or git switch ${want} if it exists)`);
     if (!holdsOnboarding) fail(`${branch} doesn't contain ${from}, where this app's onboarding is. Cut the branch from it:\n  git switch -c ${want}-2 --no-track ${from}   (or rebase ${branch} onto ${from})`);
     const dir = join(ROOT, changeDir(cfg, id));
     mkdirSync(dir, { recursive: true });
@@ -1702,9 +1746,10 @@ switch (verb) {
     const RUN = { outside: 'agent outcome-checker', handoff: 'agent outcome-checker', blind: 'agent blind-qa', code: 'skill code-review', security: 'skill security-review' };
     const since = kind === 'handoff' ? st.gates?.accept?.at || st.createdAt : st.reviews?.[kind]?.at || st.createdAt;
     const untraced = typeof flags.untraced === 'string' ? flags.untraced.trim() : '';
-    if (!untraced && !ranSince(RUN[kind], since)) fail(`The guard log shows no ${RUN[kind].replace(' ', ' "')}" run since ${since.slice(0, 16)}, so there's nothing to record yet: run it, then record what it found. If it did run and the log missed it (an older Claude Code that doesn't hook ${RUN[kind].startsWith('agent') ? 'Agent' : 'Skill'} calls), add --untraced "<why>": Gate 2 shows that to the dev.`);
+    // Only changes started on 0.5.0 or later: an older change's reviews are recorded as before.
+    if (strict(st) && !untraced && !ranSince(RUN[kind], since, st.branch)) fail(`The guard log shows no ${RUN[kind].replace(' ', ' "')}" run on ${st.branch} since ${since.slice(0, 16)}, so there's nothing to record yet: run it, then record what it found. If it did run and the log missed it (the dev typed /${RUN[kind].split(' ')[1]} themselves, or this session started before the kit update: restart it), add --untraced "<why>": Gate 2 shows that to the dev.`);
     const digest = codeDigest(cfg);
-    st.reviews = { ...st.reviews, [kind]: { found, digest, at: now(), stage: st.stage, ...(untraced ? { untraced } : {}), ...(kind === 'outside' ? { proposal: reviewedText(proposalOf(cfg, id)) } : {}) } };
+    st.reviews = { ...st.reviews, [kind]: { found, digest, commit: head(), at: now(), stage: st.stage, ...(untraced ? { untraced } : {}), ...(kind === 'outside' ? { proposal: reviewedText(proposalOf(cfg, id)) } : {}) } };
     st.history.push({ at: now(), event: 'review', kind, digest });
     writeChange(cfg, id, st);
     print(['code', 'security'].includes(kind) ? `${kind} review recorded on code ${digest}. A later code change needs it again.` : `${kind} review recorded.`);
@@ -1714,16 +1759,34 @@ switch (verb) {
   case 'qa-add': {
     const id = normId(rawId);
     const st = atStage(id, 'verify');
-    const text = (f) => (typeof flags[f] === 'string' ? flags[f].trim().replace(/\r?\n/g, ' ') : '');
-    const source = text('source');
-    if (!QA_SOURCES.includes(source) || !text('criterion') || !text('expected')) fail(`Usage: qa-add <ID> --source ${QA_SOURCES.join('|')} --criterion "<what is checked>" --expected "<the value or behaviour, from the ticket or Figma>" [--asked <§ Asked #>]`);
-    const asked = text('asked').replace(/^#/, '');
-    if (source === 'figma' && !askedFrom(proposalOf(cfg, id)).some((a) => a.n === asked && isFigmaRow(a))) fail(`A figma row names the § Asked row of its frame: --asked <#> (the Figma rows: ${askedFrom(proposalOf(cfg, id)).filter(isFigmaRow).map((a) => `#${a.n}`).join(', ') || 'none'}).`);
-    const extra = extraRows(st);
-    const q = { id: `Q${extra.length + 1}`, source, criterion: text('criterion'), expected: text('expected'), ...(asked ? { asked } : {}), at: now() };
-    st.qa = { ...st.qa, rows: { ...st.qa?.rows }, extra: [...extra, q] };
+    const clean = (v) => (typeof v === 'string' ? v.trim().replace(/\r?\n/g, ' ') : v == null ? '' : String(v));
+    // A batch (a blind QA run's whole table) in one call: [{ source, criterion, expected, asked?, verdict?, measured?, how? }].
+    let items;
+    if (typeof flags.file === 'string') {
+      try { items = JSON.parse(readFileSync(resolve(ROOT, flags.file), 'utf8')); } catch (e) { fail(`--file: unreadable JSON (${e.message}).`); }
+      if (!Array.isArray(items) || !items.length) fail('--file holds a JSON array of { source, criterion, expected, asked?, verdict?, measured?, how? }.');
+    } else items = [{ source: flags.source, criterion: flags.criterion, expected: flags.expected, asked: flags.asked }];
+    const figmaRows = askedFrom(proposalOf(cfg, id)).filter(isFigmaRow);
+    const extra = [...extraRows(st)];
+    const added = [];
+    const measured = {};
+    for (const it of items) {
+      const source = clean(it.source); const asked = clean(it.asked).replace(/^#/, '');
+      if (!QA_SOURCES.includes(source) || !clean(it.criterion) || !clean(it.expected)) fail(`Usage: qa-add <ID> --source ${QA_SOURCES.join('|')} --criterion "<what is checked>" --expected "<the value or behaviour, from the ticket or Figma>" [--asked <§ Asked #>], or --file rows.json. Nothing was added.`);
+      if (source === 'figma' && !figmaRows.some((a) => a.n === asked)) fail(`A figma row names the § Asked row of its frame: --asked <#> (the Figma rows: ${figmaRows.map((a) => `#${a.n}`).join(', ') || 'none'}). Nothing was added.`);
+      const q = { id: `Q${extra.length + 1}`, source, criterion: clean(it.criterion), expected: clean(it.expected), ...(asked ? { asked } : {}), at: now() };
+      extra.push(q); added.push(q);
+      // A blind run's own measurement comes with it; qa-row's rules apply (PASS/FAIL need what and how).
+      if (it.verdict) {
+        if (it.verdict === 'PASS' && HEDGE.test(clean(it.measured))) fail(`${q.id}: the measurement says part of it wasn't shown: record BLOCKED with what's missing. Nothing was added.`);
+        if (!['PASS', 'FAIL', 'BLOCKED'].includes(it.verdict) || (it.verdict !== 'BLOCKED' && (!clean(it.measured) || !clean(it.how)))) fail(`${q.id}: a verdict needs PASS, FAIL or BLOCKED, and PASS/FAIL need measured and how. Nothing was added.`);
+        measured[q.id] = { verdict: it.verdict, measured: clean(it.measured), how: clean(it.how), digest: codeDigest(cfg), at: now() };
+      }
+    }
+    st.qa = { ...st.qa, rows: { ...st.qa?.rows, ...measured }, extra };
     writeChange(cfg, id, st);
-    print(`${q.id} (${source}): ${q.criterion} → expected ${q.expected}. Measure it: app.mjs qa-row ${id} ${q.id} --measured … --how … --verdict …`);
+    print(added.map((q) => `${q.id} (${q.source}): ${q.criterion} → expected ${q.expected}${measured[q.id] ? ` · ${measured[q.id].verdict}` : ''}`).join('\n')
+      + (added.some((q) => !measured[q.id]) ? `\nMeasure the rest: app.mjs qa-row ${id} <Q#> --measured … --how … --verdict …` : ''));
     break;
   }
 
@@ -1734,6 +1797,24 @@ switch (verb) {
     if (baseline && typeOf(st) !== 'fix') fail('--baseline is for a fix: the qa: row measured on the unfixed build, before Gate 1.');
     const md = proposalOf(cfg, id);
     const clean = (v) => (typeof v === 'string' ? v.trim().replace(/\r?\n/g, ' ') : '');
+    // After a fix: PASS rows the fix can't reach (another page, another extension) keep their result, with why; the
+    // rest are measured again. The handoff shows each carried row.
+    if (typeof flags.carry === 'string' && !baseline) {
+      const why = clean(flags.carry);
+      const ids = String(rest[0] || '').split(',').map((x) => x.trim()).filter(Boolean);
+      if (!why || !ids.length) fail('Usage: qa-row <ID> <S#,Q#,…> --carry "<why the fix can\'t reach these rows>"');
+      const digest = codeDigest(cfg);
+      const carried = ids.map((n) => {
+        const s = qaTarget(st, scenariosFrom(md), n);
+        const r = s && st.qa?.rows?.[s.id];
+        if (!r || r.verdict !== 'PASS') fail(`${n}: only a row measured PASS before can be carried (it's ${r?.verdict || 'not measured'}). Nothing was carried.`);
+        return [s.id, { ...r, digest, carried: why, carriedAt: now() }];
+      });
+      st.qa = { ...st.qa, rows: { ...st.qa?.rows, ...Object.fromEntries(carried) } };
+      writeChange(cfg, id, st);
+      print(`${carried.map(([n]) => n).join(', ')} carried to code ${digest}: ${why}`);
+      break;
+    }
     let batch;
     if (typeof flags.file === 'string') {
       // A batch (a blind QA run's criteria): one write, so parallel calls can't overwrite each other.
@@ -1751,11 +1832,13 @@ switch (verb) {
       const measured = clean(r.measured); const how = clean(r.how);
       if (r.verdict !== 'BLOCKED' && (!measured || !how)) fail(`${s.id}: a ${r.verdict} needs what you observed (--measured: the text, the value, the element) and where and how (--how: the store page, viewport, tool). Nothing was recorded.`);
       // A PASS that says part of it wasn't shown is partial (as the theme kit refuses since 1.13.10's review): split it.
-      const hedge = r.verdict === 'PASS' && measured.match(/\b(?:not provable|can(?:no|')t (?:be )?prove[nd]?|not (?:yet )?(?:verified|measured|tested|checked)|unverified|untested|assumed|only partly|partially)\b|\blimitations?\s*:/i);
+      const hedge = r.verdict === 'PASS' && measured.match(HEDGE);
       if (hedge) fail(`${s.id}: the measurement says "${hedge[0]}", so part of it wasn't shown. Measure it, or record BLOCKED with what's missing. Nothing was recorded.`);
       // A frame is measured at its own width (ASM-924 measured mobile at 390 px against a 360 px frame).
       const q = (st.qa?.extra || []).find((x) => x.id === s.id);
-      const width = q?.source === 'figma' && r.verdict !== 'BLOCKED' && asked.find((a) => a.n === q.asked)?.asked.match(/\b(\d{3,4})\s?px\b/)?.[1];
+      // The frame's width from what the design-extractor read, else from the § Asked row.
+      const row = q?.source === 'figma' && r.verdict !== 'BLOCKED' ? asked.find((a) => a.n === q.asked)?.asked || '' : '';
+      const width = row && (designFramesOf(id).find((f) => f.node && f.width && row.includes(f.node))?.width || row.match(/\b(\d{3,4})\s?px\b/)?.[1]);
       if (width && !new RegExp(`\\b${width}\\s?px\\b`).test(how)) fail(`${s.id} checks a ${width}px frame: measure it at ${width}px and say so in --how (e.g. "kit-browser at ${width}px, __aq.box"). Nothing was recorded.`);
       done.push([s, { verdict: r.verdict, measured, how, digest, at: now() }]);
     }
@@ -1870,6 +1953,20 @@ switch (verb) {
         const lines = text.split(/\r?\n/).filter((l) => words.some((w) => l.toLowerCase().includes(w))).slice(0, 4).map((l) => l.trim().slice(0, 200));
         hits.push({ change: `${repo === ROOT ? '(this repo)' : repo.split(/[\\/]/).pop()}/appspec/archive/${dir}`, matched, lines });
       }
+      // The code itself: most sibling apps were built before the kit, so their answer (a target, a default_placement, a
+      // component) lives only in an extension's toml and source (seeberger-cms's trust list had no archive).
+      if (repo === ROOT) continue;
+      for (const top of ls(repo, { withFileTypes: true }).filter((e) => e.isDirectory() && !/^(node_modules|\.|appspec$|app$|prisma$|public$|build$)/.test(e.name))) {
+        for (const ext of ls(join(repo, top.name), { withFileTypes: true }).filter((e) => e.isDirectory() && existsSync(join(repo, top.name, e.name, 'shopify.extension.toml')))) {
+          const dir = join(repo, top.name, ext.name);
+          const files = walk(dir).filter((f) => /\.(toml|m?[jt]sx?|liquid|graphql)$/.test(f) && statSync(f).size < 200_000).slice(0, 200);
+          const text = files.map((f) => readFileSync(f, 'utf8')).join('\n');
+          const matched = words.filter((w) => text.toLowerCase().includes(w));
+          if (!matched.length) continue;
+          const lines = text.split(/\r?\n/).filter((l) => words.some((w) => l.toLowerCase().includes(w))).slice(0, 4).map((l) => l.trim().slice(0, 200));
+          hits.push({ change: `${repo.split(/[\\/]/).pop()}/${top.name}/${ext.name} (extension code, no archived change)`, matched, lines });
+        }
+      }
     }
     hits.sort((a, b) => b.matched.length - a.matched.length);
     // Other clients' repo and ticket names stay in the local logs: change.json and the proposal are committed and reach
@@ -1898,10 +1995,10 @@ switch (verb) {
     const dir = join(LOGS, id, `reverted-${stamp}`);
     mkdirSync(dir, { recursive: true });
     // --binary: an edited image or font must come back from the patch too. No patch, no checkout.
+    // git writes the patch itself: decoding it as text would mangle a file in another encoding.
     if (tracked.length) {
-      const d = run('git', ['diff', '--binary', 'HEAD', '--', ...tracked]);
-      if (d.code !== 0) fail(`git diff failed, so nothing was reverted: ${d.stderr.trim()}`);
-      writeFileSync(join(dir, 'changes.patch'), d.stdout);
+      const d = run('git', ['diff', '--binary', `--output=${join(dir, 'changes.patch')}`, 'HEAD', '--', ...tracked]);
+      if (d.code !== 0 || !existsSync(join(dir, 'changes.patch'))) fail(`git diff failed, so nothing was reverted: ${d.stderr.trim()}`);
     }
     for (const f of untracked) { mkdirSync(dirname(join(dir, 'new', f)), { recursive: true }); renameSync(join(ROOT, f), join(dir, 'new', f)); }
     if (tracked.length) { const r = run('git', ['checkout', 'HEAD', '--', ...tracked]); if (r.code !== 0) fail(`git checkout failed: ${r.stderr.trim()}. The patch is in ${dir}.`); }

@@ -116,20 +116,42 @@ async (page) => {
       // One frame of design-checks.json against the page: each element found by its text, each fixed value compared
       // (colours as hex, sizes within 1px), each spacing as a rendered gap. Run at the frame's width.
       compare: (frame) => {
-        const hex = (v) => { const m = String(v).match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/); return m ? (m[4] === '0' ? 'transparent' : `#${[m[1], m[2], m[3]].map((x) => Number(x).toString(16).padStart(2, '0')).join('')}`) : String(v).trim().toLowerCase(); };
-        const same = (got, want) => { const g = hex(got); const w = hex(want); const gn = parseFloat(g); const wn = parseFloat(w); return g === w || (/^-?[\d.]+px$/.test(w) && Math.abs(gn - wn) <= 1) || (/^\d+$/.test(w) && gn === wn); };
+        // Colours as #rrggbb (#rrggbbaa when not opaque, so a half-transparent colour can't pass for a solid one).
+        const hex = (v) => {
+          const s = String(v).trim().toLowerCase();
+          const m = s.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
+          if (m) { const a = m[4] === undefined ? 1 : Number(m[4]); return a === 0 ? 'transparent' : `#${[m[1], m[2], m[3]].map((x) => Number(x).toString(16).padStart(2, '0')).join('')}${a < 1 ? Math.round(a * 255).toString(16).padStart(2, '0') : ''}`; }
+          if (/^#[0-9a-f]{3}$/.test(s)) return `#${[...s.slice(1)].map((c) => c + c).join('')}`;
+          if (/^#[0-9a-f]{8}$/.test(s) && s.endsWith('ff')) return s.slice(0, 7);
+          return s;
+        };
+        const same = (got, want, prop) => {
+          const g = hex(got); const w = hex(want); const gn = parseFloat(g); const wn = parseFloat(w);
+          if (g === w) return true;
+          if (/letter-spacing/.test(prop) && [g, w].every((x) => x === 'normal' || parseFloat(x) === 0)) return true;
+          if (/font-family/.test(prop)) return g.split(',')[0].replace(/["']/g, '').trim() === w.split(',')[0].replace(/["']/g, '').trim();
+          // A unitless line height (1.5) is a multiple of the font size; computed styles give px.
+          if (/line-height/.test(prop) && /^[\d.]+$/.test(w)) return Math.abs(gn - wn * parseFloat(gotSize)) <= 1;
+          return (/^-?[\d.]+px$/.test(w) && Math.abs(gn - wn) <= 1) || (/^\d+$/.test(w) && gn === wn);
+        };
+        let gotSize = '16px';
         const out = [];
         if (frame?.width && Math.abs(innerWidth - frame.width) > 1) out.push({ name: 'viewport', verdict: 'FAIL', got: `${innerWidth}px`, want: `${frame.width}px: resize first` });
         for (const e of frame?.elements || []) {
           if (!e.text) { out.push({ name: e.name, verdict: 'SKIPPED', note: 'no text to find it by' }); continue; }
           const el = first(e.text);
           if (!el || hiddenBy(el)) { out.push({ name: e.name, verdict: 'MISSING', note: el ? hiddenBy(el) : `no element shows "${e.text}"` }); continue; }
-          const got = css(el, Object.keys(e.fixed || {}));
-          const bad = Object.entries(e.fixed || {}).filter(([p, w]) => !same(got[p], w)).map(([p, w]) => `${p}: ${hex(got[p])} (want ${w})`);
+          const got = css(el, [...Object.keys(e.fixed || {}), 'font-size']);
+          gotSize = got['font-size'];
+          const bad = Object.entries(e.fixed || {}).filter(([p, w]) => !same(got[p], w, p)).map(([p, w]) => `${p}: ${hex(got[p])} (want ${w})`);
           out.push({ name: e.name, verdict: bad.length ? 'FAIL' : 'PASS', ...(bad.length ? { got: bad.join('; ') } : {}) });
         }
+        // between names elements of this frame (by name, resolved to their text) or gives texts directly. Only gaps
+        // between two elements are measured; a padding or an edge distance is judged on a screenshot.
+        const textOf = (n) => (frame?.elements || []).find((e) => e.name === n)?.text || n;
         for (const s of frame?.spacing || []) {
-          const [a, b] = s.between || [];
+          if (s.kind && !/gap/i.test(s.kind)) { out.push({ name: s.name, verdict: 'SKIPPED', note: `${s.kind}: measure on a screenshot or with __aq.box` }); continue; }
+          const [a, b] = (s.between || []).map(textOf);
           const A = a && first(a); const B = b && first(b);
           if (!A || !B) { out.push({ name: s.name, verdict: 'MISSING', note: `not found: ${!A ? a : b}` }); continue; }
           const ra = A.getBoundingClientRect(); const rb = B.getBoundingClientRect();
