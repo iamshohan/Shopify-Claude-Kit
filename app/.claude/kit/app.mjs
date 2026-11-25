@@ -130,6 +130,17 @@ const filled = (cfg, id, st, heading) => added(cfg, id, st, heading).length > 0;
 const strict = (st) => (st?.schemaVersion || 2) >= 3;
 // A quick fix and maintenance (no behaviour change; the regression is the proof) skip the outside review, precedent and blind QA.
 const light = (st) => Boolean(st?.quick) || typeOf(st) === 'maintain';
+/**
+ * A quick fix that grew past 80 changed lines of app code (tests aside) isn't small any more: from verify on it owes
+ * blind QA and the security review like any change, without a restart.
+ */
+const outgrewQuick = (cfg, st) => {
+  if (!st?.quick) return false;
+  const r = run('git', ['diff', '--numstat', `${effectiveBase(st, cfg)}...HEAD`]);
+  const lines = r.stdout.split(/\r?\n/).filter(Boolean).map((l) => l.split('\t')).filter(([, , f]) => f && isAppCode(f) && !/(^|\/)(tests?|__tests__|fixtures)\/|\.test\./.test(f))
+    .reduce((n, [a, d]) => n + (Number(a) || 0) + (Number(d) || 0), 0);
+  return lines > 80;
+};
 const ticketFile = (id) => join(LOGS, id, 'ticket.json');
 const ticketsOf = (id) => { try { return JSON.parse(readFileSync(ticketFile(id), 'utf8')); } catch { return null; } };
 /** Lower case, one space, no markdown emphasis or typographic quotes: a quote copied from Jira matches its source. */
@@ -442,7 +453,7 @@ export function owedQa({ rows, extra, reviews, asked, values, ab, fetches, quick
 function owedQaOf(cfg, id, st, md) {
   const decl = declaredSurfaces(md);
   return owedQa({
-    rows: scenariosFrom(md), extra: extraRows(st), reviews: st.reviews, asked: askedFrom(md), values: abGateOf(md).values, ab: typeOf(st) === 'ab', quick: light(st),
+    rows: scenariosFrom(md), extra: extraRows(st), reviews: st.reviews, asked: askedFrom(md), values: abGateOf(md).values, ab: typeOf(st) === 'ab', quick: light(st) && !outgrewQuick(cfg, st),
     // Data fetched by a checkout extension or served through the app proxy, or a fetch the branch adds or changes (a
     // later fix to the same request owes the check too).
     fetches: (decl !== 'none' && decl.some((d) => (d.op === '+' && /^capability:[^/]+\/network_access$/.test(d.key)) || (d.op !== '-' && d.key === 'app-proxy')))
@@ -604,7 +615,8 @@ const EXIT_CHECKS = {
       ...(strict(st) ? owedQaOf(cfg, id, st, md).map((q) => q.replace('<ID>', id)) : []),
       reviewProblem(cfg, st, 'code', digest)?.replace('<ID>', id),
       // A quick fix declares no surfaces (no route, scope, webhook or dependency): the code review covers it.
-      !st.quick && reviewProblem(cfg, st, 'security', digest)?.replace('<ID>', id),
+      (!st.quick || outgrewQuick(cfg, st)) && reviewProblem(cfg, st, 'security', digest)?.replace('<ID>', id),
+      outgrewQuick(cfg, st) && warn('this --quick change grew past 80 lines of app code, so it now owes blind QA and the security review like any change'),
     ];
   },
   accept: () => [],

@@ -115,7 +115,12 @@
       "PowerShell(gh pr create --draft:*)",
       "Bash(node *search_docs.mjs*)",
       "Bash(node *validate.mjs*)",
-      "mcp__figma-remote-mcp__download_assets"
+      "mcp__figma-remote-mcp__download_assets",
+      "Bash(gh pr view:*)",
+      "Bash(gh auth status:*)",
+      "PowerShell(gh pr view:*)",
+      "PowerShell(gh auth status:*)",
+      "mcp__kit-browser__browser_handle_dialog"
     ],
     "deny": [
       "Read(./.env)",

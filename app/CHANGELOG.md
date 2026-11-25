@@ -108,6 +108,15 @@
   - a figma row's width comes from design-checks.json
   - a data row is owed whenever the branch adds a `fetch`
 
+**From the final rating (8/10):**
+- The app and extension tomls are now open at propose; the guard used to refuse the very validate-before-Gate-1 step propose asks for.
+- app-implement says a quick fix to an open PR stays on that branch.
+- The quick lane lists every section Gate 1 checks.
+- Handoff uses the PR the branch already has.
+- A fix loop's code review is `low` for a delta under about 30 lines.
+- A `--quick` change that grows past 80 lines of app code owes blind QA and the security review again.
+- `gh pr view`, `gh auth status` and kit-browser's dialog handling no longer prompt.
+
 Not done, on purpose: saving the dev store's password in app-kit.json (it saves one question per run, but stores a password); taking the dev's request as the Gate 1 answer for a quick fix (Gate 1 stays an explicit yes).
 
 Changes started before 0.5.0 keep their old checks (`schemaVersion` 2).

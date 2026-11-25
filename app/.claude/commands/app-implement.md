@@ -26,7 +26,7 @@ You are running the Shopify App Kit for one change.
    - **Archived:** status says what's left (commit, push, the handoff). Do that. Only if the dev says the ticket was reopened, start it again below.
    - **Not started:**
      1. `git status --porcelain`. Uncommitted app changes → ask the dev what to do with them. Never stash or discard without asking.
-     2. `git fetch origin`, then the `git switch -c <branch> --no-track …` status printed (`--no-track`: a branch that tracks the base can send a push there). A branch that already exists: reuse it when it holds only this change's own commits, and say so; ask the dev only otherwise.
+     2. `git fetch origin`, then the `git switch -c <branch> --no-track …` status printed (`--no-track`: a branch that tracks the base can send a push there). A branch that already exists: reuse it when it holds only this change's own commits, and say so; ask the dev only otherwise. **A small fix to a change whose PR is still open** (`--quick`, below): don't cut a branch; stay on, or `git switch` to, that change's branch, so the fix lands in the same PR.
      3. `node .claude/kit/app.mjs start <ID> --type <type> --title "<one line>"`, adding `--test` when the arguments include it or the dev calls it a test run, and `--quick` for a small fix with no surfaces (a colour, a size, a text: often right after a handoff).
 5. Status names the current stage and its skill. **Load that skill with the Skill tool and do only that stage.**
 6. When the stage's "Done when" holds, run `node .claude/kit/app.mjs done <ID> <stage>` (gates also need `--answer "<the dev's words>"`). If it refuses, its message says what's missing.

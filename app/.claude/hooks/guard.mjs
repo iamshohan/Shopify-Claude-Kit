@@ -76,6 +76,7 @@ const SCRIPT_FILE = /\.(sh|bash|ps1|psm1|bat|cmd|[cm]?[jt]sx?|py|rb|ya?ml)$|(^|[
 // Files tools write on their own; editing them is never "app code before the spec".
 const GENERATED = /^(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb?|\.shopify\/|\.react-router\/|build\/|dist\/|node_modules\/|\.playwright-mcp\/|\.claude\/logs\/|[^/]+\/[^/]+\/(dist|generated|node_modules)\/|extensions\/[^/]+\/schema\.graphql$)|\.generated\.[jt]sx?$|\.d\.ts$/;
 // Tests and what they run on (mocks, helpers, fixtures, the runner's config): a fix starts with a failing test, before Gate 1.
+const CONFIG_TOML = /^shopify\.app(\.[\w-]+)?\.toml$|(^|\/)shopify\.extension\.toml$/i;
 const TEST_FILE = /(^|\/)(tests?|__tests__|__mocks__|test-utils|testing|fixtures)\/|\.(test|spec)\.[cm]?[jt]sx?$|(^|\/)(vitest|jest)\.(config|setup|workspace)\.[cm]?[jt]s$|(^|\/)setupTests\.[cm]?[jt]sx?$/;
 const KIT_DIR = /^\.claude\/(hooks|kit|commands|agents|skills|rules)\/|^\.claude\/(settings\.json|claude\.md|readme\.md|version)$/i;
 // In the master repo only the guard's own wiring asks.
@@ -154,6 +155,9 @@ function codeClosed(rel, ctx) {
   if (st.stage === 'build') return null;
   // A fix starts with a failing test, before Gate 1.
   if (rel && TEST_FILE.test(rel) && st.stage === 'propose') return null;
+  // A config change is drafted and validated before Gate 1 (validate caught a missing [auth] the docs didn't list);
+  // build's surface check then holds it to what Gate 1 approved.
+  if (rel && CONFIG_TOML.test(rel) && st.stage === 'propose') return null;
   const how = st.stage === 'propose' ? 'it opens in the build stage, after Gate 1 approves the proposal' : `go back to build first: node .claude/kit/app.mjs back ${id} build --reason "…"`;
   return { hasChange: true, id, stage: st.stage, why: `${id} is at "${st.stage}", so app code is closed (spec first): ${how}. Tests may be written at propose.` };
 }
@@ -710,6 +714,9 @@ function selftest() {
     [file('Edit', 'app/routes/app._index.tsx'), null], [file('Edit', 'extensions/gift/src/run.ts'), null],
     // before Gate 1 app code is refused (scenarios first); after build it's logged: verify's digest catches a stale result
     [file('Edit', 'app/routes/app._index.tsx'), 'deny', at('propose')], [file('Edit', 'app/routes/app._index.tsx'), 'log', at('verify')],
+    // The app and extension tomls are drafted and validated before Gate 1; other app code isn't.
+    [file('Edit', 'shopify.app.toml'), null, at('propose')], [file('Edit', 'shopify.app.dev.toml'), null, at('propose')], [file('Edit', 'extensions/gift/shopify.extension.toml'), null, at('propose')],
+    [file('Edit', 'extensions/gift/src/run.toml.js'), 'deny', at('propose')],
     [file('Edit', 'extensions/gift/tests/fixtures/at-threshold.json'), null, at('propose')], [file('Edit', 'app/lib/gift.test.ts'), null, ctx({ changes: [{ id: ID, st: { stage: 'propose', branch: ID, type: 'fix' } }] })],
     [file('Edit', 'app/lib/gift.test.ts'), 'log', at('accept')],
     [file('Edit', 'app/routes/app._index.tsx'), 'log', ctx({ changes: [] })], [file('Edit', 'app/routes/app._index.tsx'), 'log', ctx({ changes: [change('build'), change('build', 'other')] })],
