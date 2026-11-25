@@ -1,10 +1,8 @@
 # Changelog
 
-## Unreleased
-
-- **The dev store's editor setup is the agent's job in verify.** It reads and changes the theme editor and checkout editor setup in the dev's Chrome itself (app embed, app block, block settings), says so in one line, and checks the preview afterwards. Before, it asked the dev to place blocks and report the setup. Publishing a theme or checkout configuration stays the dev's. Theme kit: no counterpart needed, its QA already works in the draft theme's editor in Chrome without asking.
-
 ## 0.4.0 — 2026-11-25
+
+**The dev store's editor setup is the agent's job in verify.** It reads and changes the theme editor and checkout editor setup in the dev's Chrome itself (app embed, app block, block settings), says so in one line, and checks the preview afterwards. Before, it asked the dev to place blocks and report the setup. Publishing a theme or checkout configuration stays the dev's. Theme kit: no counterpart needed, its QA already works in the draft theme's editor in Chrome without asking.
 
 **A lighter guard**, with the theme kit 1.17.0 (same principle and the same cuts): it's for secrets, sensitive actions and honest mistakes, not for an agent working around it on purpose.
 - **change.json is read and committed freely** (`cat`, `git add` were refused); it's still written only by `app.mjs`.
