@@ -897,7 +897,7 @@ try {
   writeFileSync(plan6, plan6Text);
   ok('a plan from an older template isn\'t refused for sections the kit added later', !/Decided for you|Independent check/.test(olderPlan.all) && /Decided for you/.test(gate1.all + noAgreement.all), olderPlan.all);
   ok('a plan with no questions passes ("none"), and a design constant against an AC needs "Gate 1" or a Q#',
-    /"Spacing" touches AC 2/.test(noAgreement.all) && !/Spacing/.test(gate1.all) && !/Questions and answers/.test(gate1.err), noAgreement.all + gate1.all);
+    noAgreement.code === 1 && /"Spacing" touches AC 2 and "Dev agreed" is empty/.test(noAgreement.err) && !/Spacing/.test(gate1.all) && !/Questions and answers/.test(gate1.err), noAgreement.all + gate1.all);
   // QA fixes failures on its own for at most 2 rounds after approval; a third round needs the dev's words.
   const s6 = JSON.parse(readFileSync(st6, 'utf8'));
   const t0 = '2026-11-01T10:00:00.000Z';

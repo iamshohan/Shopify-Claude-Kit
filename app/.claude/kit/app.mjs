@@ -329,11 +329,11 @@ function proposeProblems(cfg, id, st) {
     type === 'ab' && !filled(cfg, id, st, '## Gate') && 'fill proposal.md § Gate: the attribute key and values, and what happens without it',
     // A proposal from before the rename has § Sunset; it counts.
     type === 'ab' && !filled(cfg, id, st, '## A/B test completion') && !filled(cfg, id, st, '## Sunset') && 'fill proposal.md § A/B test completion: when the test ends and how the extension is removed',
-    // The test code is measured too: verify records its checks as qa: rows, and qa-row takes only declared scenarios.
-    // Found by wording, so a warning; verify's gate-key check is the fact behind it.
+    // The test code is measured too: verify records its checks as qa: rows, and qa-row takes only declared scenarios, so
+    // without these two nothing ever measures "writes once" or "control clears" (verify's key check only reads the files).
     type === 'ab' && !(rows.some((s) => /variation/i.test(JSON.stringify(s)) && /cart\.js|attribute|propert/i.test(JSON.stringify(s)))
       && rows.some((s) => /control/i.test(JSON.stringify(s)) && /clear|remov|delet|absent/i.test(JSON.stringify(s))))
-      && warn('an A/B change measures its own test code: add qa: scenarios for "the variation code writes the key and value to /cart.js (once, no update loop)" and "the control code clears it"'),
+      && 'an A/B change measures its own test code: add qa: scenarios for "the variation code writes the key and value to /cart.js (once, no update loop)" and "the control code clears it"',
     ...retiresFrom(md).filter((c) => !ledger.has(testKey(c.file, c.name))).map((c) => `§ Retires → ${checkKey(c)} isn't a test an archived change bound; list only those there`),
     !sectionLines(md, '## Tasks').some((l) => /^- \[[ x]\] \S/.test(l)) && 'fill proposal.md § Tasks: one "- [ ] …" line per task, each naming the scenarios it satisfies',
   ].filter(Boolean);

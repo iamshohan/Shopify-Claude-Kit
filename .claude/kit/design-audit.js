@@ -8,8 +8,10 @@ function designAudit(spec, env) {
     qa: (s) => Array.from(document.querySelectorAll(s)),
     style: (el) => getComputedStyle(el),
     rect: (el) => el.getBoundingClientRect(),
-    // Without the scrollbar, as probe.gutter and media queries measure it.
-    vw: () => document.documentElement.clientWidth,
+    // The window, for the viewport check (resized to 1440, innerWidth is 1440)...
+    vw: () => innerWidth,
+    // ...and without the scrollbar for the right edge, as probe.gutter and media queries measure it.
+    cw: () => document.documentElement.clientWidth,
   };
   // rgb()/rgba() anywhere in a value (colours, borders, shadows) → #rrggbb; a partly transparent one keeps its alpha.
   const hex = (m, r, g, b, a) => {
@@ -91,7 +93,7 @@ function designAudit(spec, env) {
       const outer = s.type === 'containerPad' ? find(s.name, s.container) : null;
       const inner = s.type === 'containerPad' ? (outer && find(s.name, s.child ? `${s.container} ${s.child}` : `${s.container} > *`)) : find(s.name, s.element);
       if (!inner || (s.type === 'containerPad' && !outer)) continue;
-      const o = outer ? env.rect(outer) : { top: 0, left: 0, right: env.vw(), bottom: Infinity };
+      const o = outer ? env.rect(outer) : { top: 0, left: 0, right: (env.cw || env.vw)(), bottom: Infinity };
       const r = env.rect(inner);
       const got = { top: r.top - o.top, right: o.right - r.right, bottom: o.bottom - r.bottom, left: r.left - o.left };
       for (const [side, want] of Object.entries(s.sides || {})) {

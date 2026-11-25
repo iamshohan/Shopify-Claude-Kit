@@ -564,7 +564,8 @@ writeFileSync(outFile, JSON.stringify({ testResults: files.map((file) => ({ name
     '| S3 | a cart with one item | the variation code runs | /cart.js has _ab_gift = B, after one update | qa: variation writes once |', '| S4 | a cart with _ab_gift = B | the control code runs | the attribute is cleared | qa: control clears |'];
   // Without the test code's own scenarios (S3, S4), gate refuses an A/B change.
   write(C(AB, 'proposal.md'), proposal({ id: AB, scenarios: abScen.slice(0, 2) }));
-  ok('an A/B change without scenarios for its own test code (variation writes, control clears) is flagged', /worth a look[^]*measures its own test code/i.test(app('done', AB, 'propose', '--answer', 'ok').all));
+  const abBare = app('done', AB, 'propose', '--answer', 'ok');
+  ok('an A/B change without scenarios for its own test code (variation writes, control clears) is refused', abBare.code === 1 && /measures its own test code/.test(abBare.err.split(/Also worth a look/)[0]), abBare.all);
   write(C(AB, 'proposal.md'), proposal({ id: AB, scenarios: abScen }));
   const abNo = app('done', AB, 'propose', '--answer', 'ok');
   ok('an A/B change needs § Gate and § A/B test completion', /§ Gate/.test(abNo.err) && /§ A\/B test completion/.test(abNo.err), abNo.all);

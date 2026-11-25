@@ -10,7 +10,9 @@
 - **Discards** ask only with something to lose; `.git/info/exclude` no longer asks; `node --env-file` / dotenv in code no longer counts as reading `.env` (printing it still does).
 - **The seal is protected by path** (writing it is refused, reading it passes); the seal now goes under the normalised change id the wrapper reads.
 - **Bypass mode works:** mutations, migrations, safety settings and the guard's own files stay refused; a kit skill edited here passes and is logged. `/app-setup` notes the mode instead of stopping.
-- **Wording checks are warnings:** § Needs your attention saying "none" beside flagged surfaces, and the A/B variation/control scenario wording, pass with "Worth a look". `gate` prints them as `warnings` and fails only on refusals.
+- **Wording checks are warnings:** § Needs your attention saying "none" beside flagged surfaces passes with "Worth a look". `gate` prints warnings as `warnings` and fails only on refusals; Gate 1 shows them to the dev before approval. An A/B change's own test-code scenarios ("variation writes once", "control clears") stay required: without them nothing measures those.
+
+**Caught by the last review, before release:** the guard fixes listed under theme kit 1.17.0 apply here too (`git clean -x`, kit code in bypass mode, a CRLF settings edit, names-only `env`, `prisma/.env` and `web/.env` counted for searches).
 
 **Shorter instructions:** skills, commands, rules and READMEs are 19% shorter (9.4k → 7.6k words) with no rule removed, on the same principle as the theme kit's. The app kit still has no outside reviewer of its proposal or handoff: with one real repo, Gate 1 and Gate 2 stay the dev's review until real use shows the need.
 

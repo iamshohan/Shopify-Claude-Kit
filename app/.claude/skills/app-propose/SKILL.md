@@ -43,6 +43,7 @@ By type:
    - the surfaces in one line, `pcdScopes` first; `design` in a line when there is one
    - `decided`: "N decisions in § Decided for you", plus the one or two the dev would most likely change
    - fix: `reproduce`; A/B: the key and values from `abGate`, and `completion` in a line
+   - `warnings`, one line each: fix them before handing over, or say why not (`done propose` comes after the dev's approval)
    End with: "Review it and tell me: approve, what to change, or any question." Then stop and wait; no AskUserQuestion. Questions → answer and wait. Changes → edit, run gate again, say what changed, wait.
 4. On an explicit approval: `node .claude/kit/app.mjs done <ID> propose --answer "<the dev's words>"`. A reply that could be read either way: ask.
 

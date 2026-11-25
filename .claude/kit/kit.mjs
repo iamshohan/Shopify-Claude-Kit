@@ -223,6 +223,8 @@ function staysInCodeProblems(key) {
     if (!why) return [`Stays in code → "${value}": say why it stays in code`];
     // A design constant (spacing, a breakpoint) is listed under Decided for you and approved with the plan; content the
     // merchant would change (text, images, links, which items show) is asked as its own question (Q#).
+    // An empty "Dev agreed" records no agreement at all: a missing fact. Text that just doesn't name it the expected way warns.
+    if (!/^none\b/i.test(ac) && !agreed.trim()) return [`Stays in code → "${value}" touches ${ac} and "Dev agreed" is empty: ask it (Q#), or list it under plan.md → Decided for you and write "Gate 1" there`];
     if (!/^none\b/i.test(ac) && !/Q\s*\d+|Gate 1|Decided for you/i.test(agreed)) return [warn(`Stays in code → "${value}" touches ${ac}. A design constant: list it under plan.md → Decided for you and write "Gate 1" in "Dev agreed". Content the merchant would change: ask it as its own question (Q#), or make it editable`)];
     // "Gate 1" counts only when the dev can see it there: the value is named under Decided for you.
     if (!/^none\b/i.test(ac) && !/Q\s*\d+/i.test(agreed) && hasHeading(key, 'plan.md', '### Decided for you')

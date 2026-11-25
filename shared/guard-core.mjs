@@ -326,7 +326,9 @@ export function discardsWork(g, isPath) {
   if (g.sub === 'update-ref' || (g.sub === 'stash' && ['drop', 'clear'].includes(a[0]))) return 'always';
   if (g.sub === 'branch' && a.some((x) => ['-D', '-f', '--force', '-M', '-C'].includes(x))) return 'always';
   if (g.sub === 'switch' && ['-C', '--force-create'].some((f) => a.includes(f))) return 'always';
-  if ((g.sub === 'reset' && a.includes('--hard')) || (g.sub === 'clean' && a.some((x) => x === '--force' || /^-[a-z]*f/i.test(x)))) return 'tree';
+  // reset --hard <ref> drops commits; clean -x/-X deletes ignored files (.env, .claude/logs), which git status never lists.
+  if (g.sub === 'reset' && a.includes('--hard')) return a.some((x) => !x.startsWith('-')) ? 'always' : 'tree';
+  if (g.sub === 'clean' && a.some((x) => x === '--force' || /^-[a-z]*f/i.test(x))) return a.some((x) => /^-[a-z]*x/i.test(x)) ? 'always' : 'tree';
   if (g.sub === 'switch' && ['--discard-changes', '-f', '--force'].some((f) => a.includes(f))) return 'tree';
   if (g.sub === 'checkout') {
     if (['-B', '-f', '--force'].some((f) => a.includes(f))) return a.includes('-B') ? 'always' : 'tree';
@@ -664,11 +666,22 @@ export function searchesSecrets(w, i, root, dir, segs = [], secrets = []) {
   return paths.some((p) => { const t = dirAfter(folder(p), dir); return t !== null && secrets.some((f) => holds(t, f) && !skipped(f)); });
 }
 
-/** The secret files a recursive search could read, where they really exist: the root's .env* and config.yml, .claude/.env.local, ~/.claude/.env. */
+/**
+ * The secret files a recursive search could read, where they really exist: .env* in the root or a folder one level down
+ * (prisma/.env, web/.env), the root's config.yml, .claude/.env.local, ~/.claude/.env and Claude's own credentials.
+ */
 export function secretFiles(root) {
+  const env = (n) => /^\.env(?!\.(example|sample|template|dist)$)(rc|[._-].*)?$/i.test(n);
+  const found = [];
   let top = [];
-  try { top = readdirSync(root).filter((n) => /^\.env(?!\.(example|sample|template|dist)$)(rc|[._-].*)?$/i.test(n) || /^config\.yml$/i.test(n)); } catch { /* unreadable: none */ }
-  return [...top.map((n) => join(root, n)), join(root, '.claude', '.env.local'), join(homedir(), '.claude', '.env')].filter((f) => existsSync(f));
+  try { top = readdirSync(root, { withFileTypes: true }); } catch { /* unreadable: none */ }
+  for (const e of top) {
+    if (e.isFile() && (env(e.name) || /^config\.yml$/i.test(e.name))) found.push(join(root, e.name));
+    if (e.isDirectory() && !/^(node_modules|\.git)$/.test(e.name)) {
+      try { for (const n of readdirSync(join(root, e.name))) if (env(n)) found.push(join(root, e.name, n)); } catch { /* unreadable */ }
+    }
+  }
+  return [...found, join(root, '.claude', '.env.local'), join(homedir(), '.claude', '.env'), join(homedir(), '.claude', '.credentials.json')].filter((f) => existsSync(f));
 }
 
 // ── Secrets ──

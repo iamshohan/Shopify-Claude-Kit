@@ -224,7 +224,8 @@ function configChange(ti, ctx) {
   const before = ctx.read(CONFIG_REL);
   let after = null;
   if (typeof ti.content === 'string') after = ti.content;
-  else if (before !== null && typeof ti.old_string === 'string') after = ti.replace_all ? before.split(ti.old_string).join(ti.new_string) : before.replace(ti.old_string, () => ti.new_string);
+  // An old_string the guard can't find (CRLF line endings, say) leaves the change unknown: it asks.
+  else if (before !== null && typeof ti.old_string === 'string' && before.includes(ti.old_string)) after = ti.replace_all ? before.split(ti.old_string).join(ti.new_string) : before.replace(ti.old_string, () => ti.new_string);
   // Unreadable settings leave the guard on its defaults: the dev store unknown, only main and master protected.
   if (typeof after === 'string') {
     try { JSON.parse(after); } catch { return { decision: 'deny', reason: `That would leave ${CONFIG_REL} unreadable (not valid JSON), and the guard would fall back to its defaults. Write valid JSON.` }; }
@@ -316,7 +317,9 @@ function decideCommand(raw, ctx, depth = 0, cwd = null) {
   // A .env loaded into a process (node --env-file, dotenv) is how the app runs; printing it is still refused below.
   if (envFileIn(secrets) || DB_FILE.test(secrets) || CLI_LOGIN.test(secrets) || SECRET_VAR.test(scanned)) return { decision: 'deny', reason: SECRETS_WHY };
   // env | cut -d= -f1 prints the variables' names, not their values.
-  const namesOnly = /\b(env|printenv)(\.exe)?\s*\|\s*cut\s+-d\s*['"]?=['"]?\s*-f\s*1\b/.test(cmd);
+  // Only when every env/printenv in the command is such a pipe, and the field is 1 alone (not -f1,2 or -f1-).
+  const NAMES = /\b(env|printenv)(\.exe)?\s*\|\s*cut\s+-d\s*['"]?=['"]?\s*-f\s*1(?![-,\d])/g;
+  const namesOnly = (cmd.match(NAMES) || []).length > 0 && (cmd.match(NAMES) || []).length === (cmd.match(/(^|[\s;&|(])(env|printenv)(\.exe)?(?=$|[\s;&|)])/g) || []).length;
   if (segs.some((s) => dumpsEnv(s) && !(namesOnly && /^\s*(env|printenv)(\.exe)?\s*$/.test(s))) || SECRET_READ.test(secrets)) return { decision: 'deny', reason: ENV_DUMP_WHY };
   const pathRe = (...ps) => new RegExp(ps.map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\//g, '[\\\\/]')).join('|'), 'i');
   const only = kitOnly(P);
@@ -438,8 +441,8 @@ function decideCommand(raw, ctx, depth = 0, cwd = null) {
   const sensitive = kinds.find((k) => k.kind === 'sensitive' || (k.kind === 'kit' && (!ctx.master() || [k.rel, `${k.rel}/`].some((r) => GUARD_WIRING.test(r)))) || /^\.claude\/?$/i.test(k.rel))
     || (writesTo(scanned, /\.git[\\/](config|hooks)\b|settings(\.local)?\.json|\.mcp\.json/) ? { rel: 'git or Claude Code settings' } : null);
   if (sensitive) {
-    // A skill or command (not the hook or its settings) is soft: the installer overwrites it on the next update.
-    const soft = sensitive.kind === 'kit' && !ctx.master() && ![sensitive.rel, `${sensitive.rel}/`].some((r) => /^\.claude\/(settings\.json|hooks\/)/i.test(r));
+    // A skill or command (not kit code: the guard and the wrapper) is soft: the installer overwrites it on the next update.
+    const soft = sensitive.kind === 'kit' && !ctx.master() && /^\.claude\/(skills|commands|agents|rules)\/.|^\.claude\/(CLAUDE|README)\.md$/i.test(sensitive.rel);
     hold({ decision: 'ask', ...(soft ? { soft: true } : {}), reason: `This writes or removes ${sensitive.rel}, which changes what git, Claude Code or the kit allow (an alias, a hook, a permission). Allow it? (${cmd.slice(0, 300)})` });
   }
   const later = kinds.find((k) => k.kind === 'later');
@@ -500,8 +503,8 @@ function decideFile(ti, cwd, ctx) {
   if (lower === CONFIG_REL) return configChange(ti, ctx);
   if (KIT_DIR.test(rel)) {
     // In the kit's master repo, editing the kit is the work; only the hook's own wiring still asks.
-    // Soft, except the hook and its settings: a skill or command edited here is overwritten by the next update.
-    if (!ctx.master()) return { decision: 'ask', ...(/^\.claude\/(settings\.json|hooks\/)/i.test(rel) ? {} : { soft: true }), reason: `This edits the kit itself (${rel}). Kit changes belong in the kit's own repo so every app gets them.` };
+    // Soft for instructions only (a skill or command edited here is overwritten by the next update); kit code is the guard and the wrapper.
+    if (!ctx.master()) return { decision: 'ask', ...(/^\.claude\/(skills|commands|agents|rules)\/.|^\.claude\/(CLAUDE|README)\.md$/i.test(rel) ? { soft: true } : {}), reason: `This edits the kit itself (${rel}). Kit changes belong in the kit's own repo so every app gets them.` };
     if (GUARD_WIRING.test(rel)) return { decision: 'ask', reason: `This changes the guard that checks this session (${rel}). Allow it?` };
     return scriptNote;
   }
@@ -876,6 +879,8 @@ function selftest() {
     [enforceMode(decide(file('Edit', '.claude/skills/app-build/SKILL.md'), ctx()), { permission_mode: 'bypassPermissions' }).decision === 'log', 'a kit skill edited in an app repo passes in bypass mode'],
     [enforceMode(decide(file('Edit', '.claude/settings.json'), ctx()), { permission_mode: 'bypassPermissions' }).decision === 'deny', 'the hook\'s settings stay refused in bypass mode'],
     [enforceMode(sealed, { permission_mode: 'bypassPermissions' }).decision === 'deny', 'a mutation stays refused in bypass mode'],
+    [enforceMode(decide(file('Edit', '.claude/kit/shopify.mjs'), ctx()), { permission_mode: 'bypassPermissions' }).decision === 'deny', 'the wrapper\'s code stays refused in bypass mode'],
+    [decide(bash('git clean -fdx'), ctx({ dirty: () => false }))?.decision === 'ask', 'git clean -x asks on a clean tree (it deletes ignored .env files)'],
     [enforceMode(null, { permission_mode: 'bypassPermissions', tool_input: { command: 'node .claude/hooks/guard.mjs --mode-probe' } })?.decision === 'deny', 'the mode probe is refused in bypass mode'],
     [enforceMode(sealed, { permission_mode: 'bypassPermissions' }).seal === undefined, 'a mutation blocked by mode leaves no seal behind'],
     [gqlOperations('#\rmutation { productDelete(input: {id: "x"}) { deletedProductId } }').ops?.[0]?.type === 'mutation', 'a lone CR ends a GraphQL comment, as servers read it'],

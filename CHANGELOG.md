@@ -27,7 +27,7 @@
 
 **Release pace:** at most one release a week from now on; a safety fix may go out at once, marked as one.
 
-**Wording checks are warnings.** A stage exit that only disliked the wording (a missing "Surprises:" or "Client surprises:" line, ticket numbers in code comments, the "client's call" row count, report.md named in the PR, the GitHub-draft "Save" line, investigation keyword gaps, the stays-in-code phrasing) now passes and prints "Worth a look before you go on". Fact checks stay refusals: QA rows recorded and fresh, draft at HEAD, branch pushed, theme check, repro with both sides, AC coverage, and an outside check skipped on a task that isn't a small fix. 1 of 14 real refusals was a wording check.
+**Wording checks are warnings.** A stage exit that only disliked the wording (a missing "Surprises:" or "Client surprises:" line, ticket numbers in code comments, the "client's call" row count, report.md named in the PR, the GitHub-draft "Save" line, investigation keyword gaps, the stays-in-code phrasing) now passes and prints "Worth a look before you go on". Fact checks stay refusals: QA rows recorded and fresh, draft at HEAD, branch pushed, theme check, repro with both sides, AC coverage, an outside check skipped on a task that isn't a small fix, and a value kept in code against an editability AC with an empty "Dev agreed". 1 of 14 real refusals was a wording check.
 
 **Video: editor scenes are stills.** Theme-editor and admin scenes are one still per sentence with a slow zoom, taken with Claude in Chrome's zoom screenshot (`video.mjs still`). No screen recording, no Windows-only capture, no corner marks, no minutes away from the computer. Storefront scenes still record. Scenes already recorded the old way still assemble.
 
@@ -46,6 +46,15 @@
 - `update.mjs` refuses a clone off main or with uncommitted changes (`--force` overrides).
 - `export-logs.mjs` writes each theme task's `summary.json` (minutes per stage, loops back, refusals, QA verdicts) next to its logs, the numbers the next round starts from; it deletes only your own exports older than 90 days, not a teammate's.
 - `qa-row` calls run one at a time (parallel ones overwrite each other's row).
+
+**Caught by the last review, before release:**
+- `git clean -x`/`-X` (deletes ignored files: `.env`, `.claude/logs`) and `git reset --hard <ref>` (drops commits) always ask; the "only with something to lose" rule can't see either.
+- In bypass mode only instructions (skills, commands, agents, rules, the guides) pass as soft prompts; the kit's code, which holds the guard and the wrapper, stays refused.
+- A settings edit the guard can't apply (a file with CRLF line endings) asks instead of being logged as "no change".
+- `env | cut -d= -f1` counts as names only when every `env` in the command is such a pipe with field 1 alone (`-f1,2` printed values).
+- Secret files for the search rule include `.env*` one folder down (`prisma/.env`, `web/.env`) and Claude's own `~/.claude/.credentials.json`.
+- `video.mjs still` checks every new image before replacing the scene's old ones (a retake reusing one, or a typo, lost them).
+- design-audit compares the window width with the target viewport again (`innerWidth`); only the right gutter leaves out the scrollbar.
 - The investigation's read-only check reads non-ASCII paths; `video start` warns about unaccepted code on GitHub-connected drafts too; design-audit measures the right gutter without the scrollbar.
 - Stale comments and docs (gate answers aren't logged since 1.16.0; the QA skill's "you don't fix").
 

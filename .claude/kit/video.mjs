@@ -644,12 +644,17 @@ async function main() {
     try { shots = parseShots(args.flags.shots); } catch (e) { fail(e.message); }
     const beats = beatsOf(s.say).length;
     if (shots.length !== beats) fail(`--shots has ${shots.length} image(s) and the scene's Say ${beats} beat(s): one image per beat, in order, split by ";".`);
-    for (const f of readdirSync(t.scenes)) if (f.startsWith(`${nn(s.n)}-`) && f.endsWith('.png')) rmSync(join(t.scenes, f));
-    const stills = shots.map((shot, i) => {
+    // Every shot is checked before anything is replaced: a retake may reuse this scene's own earlier still, and a typo
+    // mustn't leave the scene without images.
+    const sized = shots.map((shot) => {
       if (!existsSync(shot.file)) fail(`No image at ${shot.file}: give the path the zoom's save_to_disk printed.`);
-      const size = imageSize(shot.file) || fail(`${shot.file} isn't an image ffmpeg can read.`);
+      return { shot, size: imageSize(shot.file) || fail(`${shot.file} isn't an image ffmpeg can read.`) };
+    });
+    const staged = sized.map(({ shot }, i) => { const tmp = join(t.scenes, `${nn(s.n)}-${i + 1}.new.png`); ff(['-i', shot.file, '-frames:v', '1', '-update', '1', tmp]); return tmp; });
+    for (const f of readdirSync(t.scenes)) if (f.startsWith(`${nn(s.n)}-`) && f.endsWith('.png') && !f.endsWith('.new.png')) rmSync(join(t.scenes, f));
+    const stills = sized.map(({ shot, size }, i) => {
       const file = join(t.scenes, `${nn(s.n)}-${i + 1}.png`);
-      ff(['-i', shot.file, '-frames:v', '1', '-update', '1', file]);
+      renameSync(staged[i], file);
       return { file, w: size.w, h: size.h, ...(shot.focus ? { crop: focusCrop(shot.focus, size.w, size.h) } : {}) };
     });
     save(s.n, { kind: 'chrome', stills });

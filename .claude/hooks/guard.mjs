@@ -197,7 +197,8 @@ function configChange(ti, ctx) {
   const before = ctx.read(CONFIG_REL);
   let after = null;
   if (typeof ti.content === 'string') after = ti.content;
-  else if (before !== null && typeof ti.old_string === 'string') {
+  // An old_string the guard can't find (CRLF line endings, say) leaves the change unknown: it asks.
+  else if (before !== null && typeof ti.old_string === 'string' && before.includes(ti.old_string)) {
     after = ti.replace_all ? before.split(ti.old_string).join(ti.new_string) : before.replace(ti.old_string, () => ti.new_string);
   }
   // Unreadable settings leave the guard protecting only main and master, whatever baseBranch says.
@@ -285,7 +286,9 @@ function decideCommand(raw, ctx, depth = 0, cwd = null) {
     return { decision: 'deny', reason: 'Credential files (.env*, .claude/.env.local, Theme Kit config.yml, the Shopify CLI\'s shopify-cli-* folders) and tokens are never read or written by Claude. jira.mjs --check reports whether Jira credentials are set; shopify.mjs auth-check reports the Shopify logins.' };
   }
   // env | cut -d= -f1 prints the variables' names, not their values.
-  const namesOnly = /\b(env|printenv)(\.exe)?\s*\|\s*cut\s+-d\s*['"]?=['"]?\s*-f\s*1\b/.test(cmd);
+  // Only when every env/printenv in the command is such a pipe, and the field is 1 alone (not -f1,2 or -f1-).
+  const NAMES = /\b(env|printenv)(\.exe)?\s*\|\s*cut\s+-d\s*['"]?=['"]?\s*-f\s*1(?![-,\d])/g;
+  const namesOnly = (cmd.match(NAMES) || []).length > 0 && (cmd.match(NAMES) || []).length === (cmd.match(/(^|[\s;&|(])(env|printenv)(\.exe)?(?=$|[\s;&|)])/g) || []).length;
   if (segs.some((s) => dumpsEnv(s) && !(namesOnly && /^\s*(env|printenv)(\.exe)?\s*$/.test(s))) || SECRET_READ.test(secrets)) return { decision: 'deny', reason: ENV_DUMP_WHY };
   if (ADMIN_HTTP.test(scanned)) return { decision: 'deny', reason: 'Admin API calls go through node .claude/kit/shopify.mjs query or mutate, which reach only the configured store and show every write to the dev first.' };
   // Where the command writes or deletes ('?': an inline script or git apply, whose targets the guard can't name).
@@ -389,7 +392,8 @@ function decideCommand(raw, ctx, depth = 0, cwd = null) {
     const kitFile = /^\.claude\/?$/i.test(rel) || (ctx.master() ? [rel, asDir].some((r) => GUARD_WIRING.test(r)) : [rel, asDir].some((r) => KIT_FILE.test(r)));
     // The guard's own wiring, git's and Claude Code's settings and the kit's settings stay asked in every mode; another kit
     // file (a skill, a command) is soft: the installer overwrites it on the next update.
-    const wiring = ctx.master() || GUARD_OFF.test(rel) || rel.toLowerCase() === CONFIG_REL || /^\.claude\/?$/i.test(rel) || [rel, asDir].some((r) => /^\.claude\/(settings\.json|hooks\/)/i.test(r));
+    // Soft only for instructions (skills, commands, agents, rules, the guides); the kit's code holds the guard and the wrapper.
+    const wiring = ctx.master() || GUARD_OFF.test(rel) || rel.toLowerCase() === CONFIG_REL || !/^\.claude\/(skills|commands|agents|rules)\/.|^\.claude\/(CLAUDE|README)\.md$/i.test(rel);
     if (kitFile || GUARD_OFF.test(rel) || rel.toLowerCase() === CONFIG_REL) {
       hold({ decision: 'ask', ...(wiring ? {} : { soft: true }), reason: `This writes or removes ${rel}, which changes the kit, its settings, or what git or Claude Code allow (a hook, an alias, a permission). Allow it? (${cmd.slice(0, 200)})` });
     }
@@ -448,8 +452,8 @@ function decideFile(ti, cwd, ctx) {
   if (/^(\.claude\/\.env\.local|\.env(?!\.(example|sample|template|dist)$)(\.[^/]*)?|config\.yml)$/i.test(rel)) return { decision: 'deny', reason: 'Credential files are written by the dev, never by Claude.' };
   if (KIT_FILE.test(rel)) {
     // In the kit's master repo, editing the kit is the work; only the hook's own wiring still asks.
-    // Soft, except the hook and its settings: a skill or command edited here is overwritten by the next update.
-    if (!ctx.master()) return { decision: 'ask', ...(/^\.claude\/(settings\.json|hooks\/)/i.test(rel) ? {} : { soft: true }), reason: `This edits the kit itself (${rel}). Kit changes belong in the master copy so every repo gets them.` };
+    // Soft for instructions only (a skill or command edited here is overwritten by the next update); kit code is the guard and the wrapper.
+    if (!ctx.master()) return { decision: 'ask', ...(/^\.claude\/(skills|commands|agents|rules)\/.|^\.claude\/(CLAUDE|README)\.md$/i.test(rel) ? { soft: true } : {}), reason: `This edits the kit itself (${rel}). Kit changes belong in the master copy so every repo gets them.` };
     if (GUARD_WIRING.test(rel)) return { decision: 'ask', reason: `This changes the guard that checks this session (${rel}). Allow it?` };
   }
   // The shared guard source and the app kit's guard, edited from a session at the master repo's root, where this guard runs.
@@ -958,6 +962,12 @@ function selftest() {
     [bash('git checkout a82a9ba -- layout/theme.liquid'), null, ctx(K, {}, false, { dirty: () => false })],
     [bash('git checkout a82a9ba -- layout/theme.liquid'), 'ask', ctx(K, {}, false, { dirty: (p) => p.includes('layout/theme.liquid') })],
     [bash('git reset --hard'), null, ctx(K, {}, false, { dirty: () => false })], [bash('git stash drop'), 'ask', ctx(K, {}, false, { dirty: () => false })],
+    // clean -x deletes ignored files (.env, .claude/logs) and reset --hard <ref> drops commits: git status shows neither
+    ...['git clean -fdx', 'git clean -fX', 'git reset --hard HEAD~1'].map((c) => [bash(c), 'ask', ctx(K, {}, false, { dirty: () => false })]),
+    // names only means every env is piped into cut -f1 alone
+    ...['env | cut -d= -f1,2', 'env | cut -d= -f1; env | grep -i shop'].map((c) => [bash(c), 'deny']),
+    // an edit the guard can't apply (CRLF, say) changes settings it can't see: asks
+    [{ tool_name: 'Edit', tool_input: { file_path: join(ROOT, CONFIG_REL), old_string: '"baseBranch": "main",\n  "x"', new_string: '"baseBranch": "develop",\n  "x"' }, cwd: ROOT }, 'ask'],
     // settings: a safety key asks, the rest is logged
     [write(CONFIG_REL, '{"store":"a.myshopify.com","baseBranch":"main","draftRoute":"github"}'), 'log'],
     [write(CONFIG_REL, '{"store":"a.myshopify.com","baseBranch":"develop"}'), 'ask'],
@@ -996,6 +1006,7 @@ function selftest() {
     [enforceMode(decide(file('Write', 'templates/product.json'), ctx()), { permission_mode: 'bypassPermissions' }).decision === 'log', 'merchant JSON outside the plan passes in bypass mode (Gate 2 shows it)'],
     [enforceMode(decide(file('Edit', '.claude/skills/shopify-qa/SKILL.md'), ctx()), { permission_mode: 'bypassPermissions' }).decision === 'log', 'a kit skill edited in a theme repo passes in bypass mode'],
     [enforceMode(decide(file('Edit', '.claude/settings.json'), ctx()), { permission_mode: 'bypassPermissions' }).decision === 'deny', 'the hook\'s settings stay refused in bypass mode'],
+    ...['.claude/kit/shopify.mjs', '.claude/kit/guard-core.mjs', '.claude/kit/lib.mjs'].map((p) => [enforceMode(decide(file('Edit', p), ctx()), { permission_mode: 'bypassPermissions' }).decision === 'deny', `${p} (the wrapper or the guard's code) stays refused in bypass mode`]),
     [enforceMode(decide(bash(kit(`delete-draft ${K}`)), ctx()), { permission_mode: 'bypassPermissions' }).decision === 'deny', 'deleting the draft stays refused in bypass mode'],
     [enforceMode(decide(bash(`rm -rf .claude/logs/${K}`), ctx()), { permission_mode: 'bypassPermissions' }).decision === 'log', 'moving a task\'s logs passes in bypass mode (a test-run restart)'],
     [enforceMode(null, { permission_mode: 'bypassPermissions', tool_input: { command: 'node .claude/hooks/guard.mjs --mode-probe' } })?.decision === 'deny', 'the mode probe is refused in bypass mode'],
