@@ -157,7 +157,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash|PowerShell|Monitor|Edit|Write|MultiEdit|NotebookEdit|mcp__kit-browser__browser_run_code_unsafe",
+        "matcher": "Bash|PowerShell|Monitor|Edit|Write|MultiEdit|NotebookEdit|mcp__kit-browser__browser_run_code_unsafe|Agent|Task|Skill",
         "hooks": [
           {
             "type": "command",

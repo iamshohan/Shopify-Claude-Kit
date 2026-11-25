@@ -249,7 +249,10 @@ export function devStatus(cfg, root = ROOT) {
   // Edits the dev server hasn't picked up yet: extension files newer than its last update.
   const newest = extensions(cfg).flatMap((e) => walkFiles(join(root, e.dir))).reduce((m, f) => Math.max(m, statSync(f).mtimeMs), 0);
   const stale = updated && newest > Date.parse(updated) + 2000;
-  const errors = lines.filter((l) => l.level === 'error' || /\b(error|failed)\b/i.test(l.message || '')).slice(-5).map((l) => `${l.timestamp} ${l.source}: ${String(l.message).slice(0, 200)}`);
+  // Only errors since the last successful update: one fixed long ago mustn't keep failing.
+  const fromIdx = Math.max(0, lines.map((l) => /Updated dev preview|Ready, watching for changes|successfully built/.test(l.message || '')).lastIndexOf(true));
+  const errors = lines.slice(fromIdx).filter((l) => l.level === 'error' || /\b(error|failed)\b/i.test(l.message || '')).slice(-5)
+    .map((l) => `${l.timestamp} ${l.source}: ${String(l.message).replace(/([?&]key=)[^&\s]+/g, '$1…').slice(0, 200)}`);
   const sizes = Object.fromEntries(lines.map((l) => (l.message || '').match(/^(\S+) successfully built in \S+ \(([^)]+)\)/)).filter(Boolean).map((m) => [m[1], m[2]]));
   const want = devStore(cfg);
   return {

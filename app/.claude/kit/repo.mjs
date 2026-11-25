@@ -54,7 +54,7 @@ export const isAppCode = (p) => APP_CODE.test(p) && !BUILD_OUTPUT.test(p) && !/^
 // ── Arguments and settings ──
 
 // Flags that never take a value (see parseArgsWith in core.mjs); a new boolean flag must be listed here.
-const BOOLEAN_FLAGS = new Set(['dry-run', 'json', 'help', 'force', 'selftest', 'test', 'none', 'all', 'write', 'skip-tests', 'regression']);
+const BOOLEAN_FLAGS = new Set(['dry-run', 'json', 'help', 'force', 'selftest', 'test', 'none', 'all', 'write', 'skip-tests', 'regression', 'quick', 'baseline']);
 export const parseArgs = parseArgsWith(BOOLEAN_FLAGS);
 
 export function readConfig({ required = true } = {}) {

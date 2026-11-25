@@ -47,7 +47,10 @@ const calls = () => readFileSync(join(fakeDir, 'calls.jsonl'), 'utf8').trim().sp
 const C = (id, f) => `appspec/changes/${id}/${f}`;
 // What app.mjs ticket saves (jira.mjs isn't reachable offline).
 const ticket = (id, extra = {}) => write(`.claude/logs/${id}/ticket.json`, JSON.stringify([{ key: id, summary: 'Free gift', description: 'The merchant wants to reward carts of 50 EUR or more with a free gift.', fields: {}, comments: [], figmaLinks: [], ...extra }]));
-const outside = (id) => app('review', id, 'outside', '--found', 'Dropped words: none · Uncovered: none · Surprises: none');
+// The guard logs the agent or skill run (as Claude Code would call it); review accepts a record only after one.
+const RUNS = { outside: ['Agent', { subagent_type: 'outcome-checker' }], handoff: ['Agent', { subagent_type: 'outcome-checker' }], blind: ['Agent', { subagent_type: 'blind-qa' }], code: ['Skill', { skill: 'code-review' }], security: ['Skill', { skill: 'security-review' }] };
+const review = (id, kind, found, ...more) => { guard(...RUNS[kind]); return app('review', id, kind, '--found', found, ...more); };
+const outside = (id) => review(id, 'outside', 'Dropped words: none · Uncovered: none · Surprises: none');
 const check = (r, name) => (json(r).checks || []).find((c) => c.slice(5).startsWith(name)) || '';
 
 const ID = 'GIFT-1';
@@ -292,6 +295,9 @@ writeFileSync(outFile, JSON.stringify({ testResults: files.map((file) => ({ name
   ok('§ Asked: a paraphrase isn\'t a quote, and a Figma frame the ticket links needs a row and design.md', para.some((p) => /isn't in the ticket word for word/.test(p)) && para.some((p) => /Figma node 12:34/.test(p)) && para.some((p) => /design-extractor/.test(p)), JSON.stringify(para));
   write(C(ID, 'proposal.md'), proposal({ scenarios: [S1, S2], surfaces: SCOPE, attention: '- New scope write_cart_transforms: stores approve it again on the next open.', asked: '| 1 | "reward carts of 50 EUR or more with a free gift" | S1 |\n| 2 | Figma: Gift line · 12:34 · 390px | S2 |' }));
   write(`.claude/logs/${ID}/design.md`, '# Design\n\n- Gift line: "Free" in #1d1d1b, 14px.\n');
+  ok('design.md counts only after a logged design-extractor run', json(app('gate', ID)).problems?.some((p) => /no design-extractor run/.test(p)));
+  guard('Agent', { subagent_type: 'design-extractor' });
+  ok('a review needs the guard\'s record that the agent ran', /shows no agent "outcome-checker" run/.test(app('review', ID, 'outside', '--found', 'Dropped words: none').err));
   ok('the outside review is recorded at propose', outside(ID).code === 0 && json(app('status', ID, '--json')).reviews?.outside?.found);
   const PROPOSAL_ASKED = read(C(ID, 'proposal.md'));
   const v = app('gate', ID);
@@ -340,11 +346,11 @@ writeFileSync(outFile, JSON.stringify({ testResults: files.map((file) => ({ name
   ok('done build refuses an undeclared scope, and wants the code review recorded', b1.code !== 0 && /scope:read_customers/.test(b1.err) && /review .* code --found/.test(b1.err), b1.all);
   write('shopify.app.toml', read('shopify.app.toml').replace(',read_customers', ''));
   write('extensions/gift/src/wip.js', '// not committed\n');
-  ok('a review is recorded only against committed code', /Commit first/.test(app('review', ID, 'code', '--found', 'no findings').err));
+  ok('a review is recorded only against committed code', /Commit first/.test(review(ID, 'code', 'no findings').err));
   rmSync(join(repo, 'extensions/gift/src/wip.js'));
   commit('drop the extra scope');
   ok('review needs what the review found', app('review', ID, 'code').code !== 0);
-  ok('review records the code review', app('review', ID, 'code', '--found', 'no findings in the Function').code === 0 && json(app('status', ID, '--json')).reviews?.code?.found === 'no findings in the Function');
+  ok('review records the code review', review(ID, 'code', 'no findings in the Function').code === 0 && json(app('status', ID, '--json')).reviews?.code?.found === 'no findings in the Function');
   ok('no verification.md: change.json and the gate output hold the record', !existsSync(join(repo, C(ID, 'verification.md'))) && !existsSync(join(repo, C(ID, 'tasks.md'))));
   const b2 = app('done', ID, 'build');
   ok('done build passes when the surfaces match and the review is recorded', b2.code === 0, b2.all);
@@ -372,19 +378,22 @@ writeFileSync(outFile, JSON.stringify({ testResults: files.map((file) => ({ name
   ok('done verify waits for the QA scenario and the security review', dv1.code !== 0 && /QA S2/.test(dv1.err) && /security-review/.test(dv1.err) && !/code-review/.test(dv1.err), dv1.all);
   ok('done verify also owes the blind QA run and a row measured against the Figma frame', /blind-qa agent/.test(dv1.err) && /§ Asked #2 .*--source figma --asked 2/.test(dv1.err), dv1.all);
   ok('a figma row names its § Asked frame', /--asked <#>/.test(app('qa-add', ID, '--source', 'figma', '--criterion', 'gift line', '--expected', '14px').err));
-  ok('a review that didn\'t run on this code is refused', /didn't run on this code/.test(app('review', ID, 'security', '--found', 'carried over from the earlier review').err));
+  ok('a review that didn\'t run on this code is refused', /didn't run on this code/.test(review(ID, 'security', 'carried over from the earlier review').err));
   const qf = app('qa-add', ID, '--source', 'figma', '--asked', '2', '--criterion', 'Gift line at 390px: text and colour', '--expected', '"Free" in #1d1d1b, 14px');
   ok('qa-add numbers the rows Q1, Q2, …', qf.code === 0 && /^Q1 \(figma\)/.test(qf.out), qf.all);
+  ok('a figma row is measured at its frame\'s width', /390px frame/.test(app('qa-row', ID, 'Q1', '--measured', 'Free', '--how', 'kit-browser at 1280px', '--verdict', 'PASS').err));
   app('qa-row', ID, 'Q1', '--measured', '"Free", rgb(29, 29, 27), 14px', '--how', '__aq.box at 390px', '--verdict', 'PASS');
-  ok('the blind run is recorded only after its criteria are added', app('review', ID, 'blind', '--found', '1 criterion, no FAIL').code === 0 && /none of its criteria/.test(app('done', ID, 'verify').err));
+  ok('the blind run is recorded only after its criteria are added', review(ID, 'blind', '1 criterion, no FAIL').code === 0 && /none of its criteria/.test(app('done', ID, 'verify').err));
   app('qa-add', ID, '--source', 'blind', '--criterion', 'gift line text', '--expected', 'Free');
-  app('qa-row', ID, 'Q2', '--measured', 'Free', '--how', 'kit-browser checkout, 390px', '--verdict', 'PASS');
+  write(`.claude/logs/${ID}/rows.json`, JSON.stringify([{ row: 'Q2', verdict: 'PASS', measured: 'Free', how: 'kit-browser checkout, 390px' }]));
+  const batch = app('qa-row', ID, '--file', `.claude/logs/${ID}/rows.json`);
+  ok('qa-row records a batch from a file', batch.code === 0 && /^Q2: PASS/.test(batch.out), batch.all);
   ok('qa-row takes a qa: scenario, not a test one', /for a qa: scenario/.test(app('qa-row', ID, 'S1', '--verdict', 'PASS').err));
   const bare = app('qa-row', ID, 'S2', '--verdict', 'PASS');
   ok('a PASS needs --measured and --how in the same call', bare.code !== 0 && /--measured/.test(bare.err), bare.all);
   ok('a waiver needs a qa: scenario', app('waive', ID, 'S1', '--reason', 'cannot').code !== 0);
   app('qa-row', ID, 'S2', '--measured', 'gift line shows "Free"', '--how', 'dev store checkout, 50 EUR cart', '--verdict', 'PASS');
-  app('review', ID, 'security', '--found', 'no findings; the Function reads no customer data');
+  review(ID, 'security', 'no findings; the Function reads no customer data');
   // Docs and .gitignore aren't app code: committing them keeps the QA row and the reviews. Build output isn't either.
   write('README.md', '# E2E Gift\n');
   write('.gitignore', 'node_modules/\n.shopify/\n.env\n');
@@ -405,7 +414,7 @@ writeFileSync(outFile, JSON.stringify({ testResults: files.map((file) => ({ name
   ok('the Gate 2 view lists the rows beyond the scenarios', g2.qaBeyondScenarios?.some((q) => /^Q1 \[figma #2\].*PASS/.test(q)) && g2.qaBeyondScenarios?.some((q) => /^Q2 \[blind\]/.test(q)), JSON.stringify(g2.qaBeyondScenarios));
   ok('accept (Gate 2) moves to handoff', app('done', ID, 'accept', '--answer', 'Accept').code === 0);
   ok('handoff wants the client comment read by the outside reviewer first', /mode handoff/.test(app('handoff', ID).err));
-  app('review', ID, 'handoff', '--found', 'Client surprises: none · Claims: none · Wording: fine');
+  review(ID, 'handoff', 'Client surprises: none · Claims: none · Wording: fine');
 
   // ── Archive ──
   // A shared file that can't be written (a folder in its place): handoff stops before the move and simply runs again.
@@ -447,7 +456,7 @@ writeFileSync(outFile, JSON.stringify({ testResults: files.map((file) => ({ name
   ok('a second change passes Gate 1', g2a.code === 0, g2a.all);
   write('extensions/gift/tests/gift.test.js', 'test("gift added at threshold", () => {});\ntest("one gift only", () => {}); // FAILS\n');
   commit('one gift only');
-  app('review', ID2, 'code', '--found', 'no findings');
+  review(ID2, 'code', 'no findings');
   app('done', ID2, 'build');
   const vr2 = app('verify', ID2);
   ok('verify fails on the failing test', vr2.code !== 0 && /^FAIL tests: S1: FAIL/.test(check(vr2, 'tests')), vr2.all);
@@ -537,7 +546,7 @@ writeFileSync(outFile, JSON.stringify({ testResults: files.map((file) => ({ name
     fxNoRepro.code !== 0 && /no bound test fails on the unfixed code \(S1: PASS\)/.test(fxNoRepro.err) && fxp.code === 0, fxNoRepro.all + fxp.all);
   write('extensions/gift/src/run.js', 'export function run(input) { return { operations: input.cart.cost.subtotalAmount.amount >= 50.0 ? [{ add: "gift" }] : [] }; }\n');
   commit('fix-3: exact comparison');
-  app('review', FX, 'code', '--found', 'no findings');
+  review(FX, 'code', 'no findings');
   app('done', FX, 'build');
   const fxv = app('verify', FX);
   ok('verify refuses a scenario whose test and fixtures the branch never touched', fxv.code !== 0 && /S1: extensions\/gift\/tests\/default\.test\.js isn't new or changed/.test(check(fxv, 'scenarios')), fxv.out);
@@ -577,7 +586,7 @@ writeFileSync(outFile, JSON.stringify({ testResults: files.map((file) => ({ name
   ok('maintenance passes Gate 1', app('done', MN, 'propose', '--answer', 'Approved plan').code === 0);
   write('extensions/gift/src/run.js', 'const THRESHOLD = 50;\nexport function run(input) { return { operations: input.cart.cost.subtotalAmount.amount >= THRESHOLD ? [{ add: "gift" }] : [] }; }\n');
   commit('name the threshold');
-  app('review', MN, 'code', '--found', 'no findings');
+  review(MN, 'code', 'no findings');
   const mb = app('done', MN, 'build');
   ok('a surface changed on main outside the kit doesn\'t block the build', mb.code === 0, mb.all);
   const mv = app('verify', MN);
@@ -585,7 +594,7 @@ writeFileSync(outFile, JSON.stringify({ testResults: files.map((file) => ({ name
   ok('verify warns about the surface changed outside the kit, and doesn\'t count it as this change\'s', /^WARN surfaces: 0 surface changes, all declared · changed outside the kit .*\+ webhook:products\/update/.test(check(mv, 'surfaces'))
     && !json(mv).attention?.some((a) => /products\/update/.test(a.change)), mv.out);
   app('qa-row', MN, 'S1', '--measured', 'gift line shows "Free"', '--how', 'dev store checkout', '--verdict', 'PASS');
-  app('review', MN, 'security', '--found', 'no findings');
+  review(MN, 'security', 'no findings');
   ok('maintain verify done', app('done', MN, 'verify').code === 0);
   app('done', MN, 'accept', '--answer', 'Accept');
   const ma = app('handoff', MN);
@@ -667,11 +676,13 @@ writeFileSync(outFile, JSON.stringify({ testResults: files.map((file) => ({ name
   write('abtest/AB-5/variation.js', 'var ID = "AB_GIFT"; var VAR = "B"; /* writes _ab_gift */ fetch("/cart/update.js", { method: "POST", body: JSON.stringify({ attributes: { "_ab_gift": "B" } }) });\n');
   write('abtest/AB-5/control.js', 'var ID = "AB_GIFT"; fetch("/cart/update.js", { method: "POST", body: JSON.stringify({ attributes: { "_ab_gift": "" } }) });\n');
   commit('ab-ship reads the gate');
-  app('review', AB, 'code', '--found', 'no findings');
+  review(AB, 'code', 'no findings');
   app('done', AB, 'build');
   const abv = app('verify', AB);
   ok('verify fails on debug code the branch adds, and on fetch without network_access', /^FAIL debug leftovers: checkout\/ab-ship\/src\/Checkout\.jsx/.test(check(abv, 'debug leftovers')) && /^FAIL capabilities: ab-ship calls fetch\(\) without/.test(check(abv, 'capabilities')), abv.out);
   ok('verify validates every app config', /^PASS app configs/.test(check(abv, 'app configs')), abv.out);
+  const pd = app('predeploy', AB);
+  ok('predeploy refuses off the base branch and with debug code in the extensions, and prints a deploy tied to the commit', pd.code !== 0 && json(pd).problems?.some((p) => /not main/.test(p)) && json(pd).problems?.some((p) => /QA or debug code/.test(p)) && /--message "AB-5 @ /.test(json(pd).deploy || ''), pd.all);
 
   // A quick fix: no surfaces, no outside review.
   commit('ab-5 verify');

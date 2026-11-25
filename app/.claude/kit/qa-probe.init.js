@@ -11,6 +11,7 @@
 //   __aq.overflow()               what sticks out of the viewport horizontally
 //   __aq.links('Sicher bei')      links and buttons inside the block that holds the text: name, href, target
 //   __aq.images('Sicher bei')     images inside that block: rendered vs natural size, data: or hosted
+//   __aq.compare(frame)           one frame of design-checks.json against the page: PASS/FAIL/MISSING per element and gap
 async (page) => {
   const probe = () => {
     const deep = (root = document) => {
@@ -42,7 +43,18 @@ async (page) => {
         if (n.getAttribute?.('aria-hidden') === 'true') return `aria-hidden on <${n.tagName.toLowerCase()}>`;
       }
       const r = el.getBoundingClientRect();
-      return r.width === 0 || r.height === 0 ? 'zero size' : null;
+      if (r.width === 0 || r.height === 0) return 'zero size';
+      // Screen-reader-only text (a 1px clipped box) and content an overflow:hidden ancestor cuts off read as visible
+      // in the DOM but aren't on screen.
+      const cs = getComputedStyle(el);
+      if (/rect\(0(px)?,? 0(px)?,? 0(px)?,? 0(px)?\)/.test(cs.clip) || /inset\(50%\)/.test(cs.clipPath) || (r.width <= 1 && r.height <= 1)) return 'screen-reader only (clipped to 1px)';
+      for (let n = el.parentElement; n && n !== document.body; n = n.parentElement) {
+        const ns = getComputedStyle(n);
+        if (!/hidden|clip/.test(ns.overflow + ns.overflowX + ns.overflowY)) continue;
+        const p = n.getBoundingClientRect();
+        if (r.bottom <= p.top || r.top >= p.bottom || r.right <= p.left || r.left >= p.right) return `cut off by <${n.tagName.toLowerCase()}> (overflow hidden)`;
+      }
+      return null;
     };
     const rect = (el) => { const r = el.getBoundingClientRect(); return { x: Math.round(r.left + scrollX), y: Math.round(r.top + scrollY), w: Math.round(r.width), h: Math.round(r.height) }; };
     // The nearest landmark a block sits in: an aside, a labelled region, a summary or a heading above it.
@@ -69,8 +81,10 @@ async (page) => {
       env: () => {
         const text = norm(document.body?.innerText).toLowerCase();
         const steps = /information|informationen/.test(text) && /shipping|versand/.test(text) && /payment|zahlung/.test(text) && deep().some((el) => el.tagName === 'NAV' && /breadcrumb/i.test(el.getAttribute('aria-label') || ''));
+        // "one page" only when shipping and the pay button share the page; anything else is unknown, not a guess.
+        const onePage = /shipping|versand|livraison|envío/.test(text) && /pay now|jetzt (kaufen|bezahlen)|bestellung abschließen|complete order|payer|payer maintenant|pagar/.test(text);
         return { width: innerWidth, height: innerHeight, dpr: devicePixelRatio, url: location.href, readyState: document.readyState,
-          checkout: /\/checkouts?\//.test(location.pathname) ? (steps ? 'three steps (breadcrumbs)' : 'one page') : null,
+          checkout: /\/checkouts?\//.test(location.pathname) ? (steps ? 'three steps (breadcrumbs)' : onePage ? 'one page' : 'unknown: look at the page') : null,
           collapsed: deep().filter((el) => (el.tagName === 'DETAILS' && !el.open) || el.getAttribute('aria-expanded') === 'false').map((el) => norm(el.textContent).slice(0, 50)).slice(0, 10) };
       },
       copies: (text) => byText(text).map((el) => ({ tag: el.tagName.toLowerCase(), visible: !hiddenBy(el), hiddenBy: hiddenBy(el), rect: hiddenBy(el) ? null : rect(el), inside: where(el), text: norm(shown(el)).slice(0, 80) })),
@@ -93,8 +107,36 @@ async (page) => {
       wraps: (text) => {
         const el = first(text);
         if (!el) return `no element shows "${text}"`;
-        const lh = parseFloat(getComputedStyle(el).lineHeight) || parseFloat(getComputedStyle(el).fontSize) * 1.2;
-        return { lines: Math.round(el.getBoundingClientRect().height / lh), lineHeight: lh, width: Math.round(el.getBoundingClientRect().width) };
+        const cs = getComputedStyle(el);
+        const lh = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.2;
+        // The content box: a padded button isn't two lines.
+        const h = el.getBoundingClientRect().height - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) - parseFloat(cs.borderTopWidth) - parseFloat(cs.borderBottomWidth);
+        return { lines: Math.max(1, Math.round(h / lh)), lineHeight: lh, width: Math.round(el.getBoundingClientRect().width) };
+      },
+      // One frame of design-checks.json against the page: each element found by its text, each fixed value compared
+      // (colours as hex, sizes within 1px), each spacing as a rendered gap. Run at the frame's width.
+      compare: (frame) => {
+        const hex = (v) => { const m = String(v).match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/); return m ? (m[4] === '0' ? 'transparent' : `#${[m[1], m[2], m[3]].map((x) => Number(x).toString(16).padStart(2, '0')).join('')}`) : String(v).trim().toLowerCase(); };
+        const same = (got, want) => { const g = hex(got); const w = hex(want); const gn = parseFloat(g); const wn = parseFloat(w); return g === w || (/^-?[\d.]+px$/.test(w) && Math.abs(gn - wn) <= 1) || (/^\d+$/.test(w) && gn === wn); };
+        const out = [];
+        if (frame?.width && Math.abs(innerWidth - frame.width) > 1) out.push({ name: 'viewport', verdict: 'FAIL', got: `${innerWidth}px`, want: `${frame.width}px: resize first` });
+        for (const e of frame?.elements || []) {
+          if (!e.text) { out.push({ name: e.name, verdict: 'SKIPPED', note: 'no text to find it by' }); continue; }
+          const el = first(e.text);
+          if (!el || hiddenBy(el)) { out.push({ name: e.name, verdict: 'MISSING', note: el ? hiddenBy(el) : `no element shows "${e.text}"` }); continue; }
+          const got = css(el, Object.keys(e.fixed || {}));
+          const bad = Object.entries(e.fixed || {}).filter(([p, w]) => !same(got[p], w)).map(([p, w]) => `${p}: ${hex(got[p])} (want ${w})`);
+          out.push({ name: e.name, verdict: bad.length ? 'FAIL' : 'PASS', ...(bad.length ? { got: bad.join('; ') } : {}) });
+        }
+        for (const s of frame?.spacing || []) {
+          const [a, b] = s.between || [];
+          const A = a && first(a); const B = b && first(b);
+          if (!A || !B) { out.push({ name: s.name, verdict: 'MISSING', note: `not found: ${!A ? a : b}` }); continue; }
+          const ra = A.getBoundingClientRect(); const rb = B.getBoundingClientRect();
+          const gap = Math.round(rb.top >= ra.bottom - 1 ? rb.top - ra.bottom : rb.left - ra.right);
+          out.push({ name: s.name, verdict: Math.abs(gap - s.expected) <= 1 ? 'PASS' : 'FAIL', got: `${gap}px`, want: `${s.expected}px` });
+        }
+        return out;
       },
       overflow: () => deep().filter((el) => { const r = el.getBoundingClientRect(); return r.width > 0 && (r.right > innerWidth + 1 || r.left < -1) && !hiddenBy(el); })
         .slice(0, 10).map((el) => ({ tag: el.tagName.toLowerCase(), text: (own(el) || norm(el.textContent)).slice(0, 40), left: Math.round(el.getBoundingClientRect().left), right: Math.round(el.getBoundingClientRect().right) })),

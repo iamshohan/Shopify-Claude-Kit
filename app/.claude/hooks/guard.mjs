@@ -558,6 +558,10 @@ export function decide(input, ctx = defaultCtx) {
   const tool = input.tool_name;
   const ti = input.tool_input || {};
   if (RUN_CODE_TOOL.test(tool || '')) return runCodeDecision(ti, input.cwd, ROOT, RUN_CODE_FILES);
+  // Logged, never blocked: app.mjs review accepts an outside review, blind QA or code review only when the log shows
+  // the agent or skill ran (0.5.0 review: a record alone proved nothing).
+  if (tool === 'Agent' || tool === 'Task') return { decision: 'log', reason: `ran agent ${String(ti.subagent_type || 'general-purpose').slice(0, 60)}` };
+  if (tool === 'Skill') return { decision: 'log', reason: `ran skill ${String(ti.skill || '').slice(0, 60)}` };
   if (['Edit', 'Write', 'MultiEdit', 'NotebookEdit'].includes(tool)) return decideFile(ti, input.cwd, ctx);
   // Bash, PowerShell, Monitor, and any later tool that runs a command: all read the same way.
   if (typeof ti.command === 'string') return decideCommand(ti.command, ctx, 0, input.cwd || null);
@@ -772,6 +776,8 @@ function selftest() {
     [bash('cd .claude && git commit -m x'), 'deny', ctx({ branch: 'main' })], [bash(`cd ${OUT} && git push origin main`), 'deny'],
     // Monitor runs commands too
     [{ tool_name: 'Monitor', tool_input: { command: 'shopify app deploy --force' } }, 'deny'], [{ tool_name: 'Monitor', tool_input: { command: 'cat .env' } }, 'deny'],
+    // Agents and skills pass and are logged by name, so app.mjs review can tell they ran.
+    [{ tool_name: 'Agent', tool_input: { subagent_type: 'outcome-checker', prompt: 'x' } }, 'log'], [{ tool_name: 'Skill', tool_input: { skill: 'code-review' } }, 'log'],
     // kit-browser's run_code: the kit's probe file runs; other files and Node APIs in inline code don't.
     [{ tool_name: 'mcp__kit-browser__browser_run_code_unsafe', tool_input: { filename: '.claude/kit/qa-probe.init.js' }, cwd: ROOT }, null],
     [{ tool_name: 'mcp__kit-browser__browser_run_code_unsafe', tool_input: { filename: '.claude/logs/X/steal.js' }, cwd: ROOT }, 'deny'],

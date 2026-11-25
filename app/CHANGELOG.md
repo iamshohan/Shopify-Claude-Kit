@@ -38,6 +38,45 @@
   - QA records the editor placement with each placement row
 - **Setup:** checks kit-browser and notes Figma access. `project.md` records the client's store vs the dev store (checkout layout, Plus, branding) and the sibling repos.
 
+**Round 2, after an outside rating (6.5/10) and a code review of the first pass:**
+- **Proof that reviews ran.** The guard logs every Agent and Skill call by name; it never blocks them. `review <ID> outside|blind|handoff|code|security` refuses unless the log shows `outcome-checker`, `blind-qa`, `code-review` or `security-review` ran since the last record (for handoff, since Gate 2). `design.md` likewise needs a logged `design-extractor` run. `--untraced "<why>"` covers an older Claude Code, and Gate 2 shows it.
+- **AC coverage:**
+  - the ticket's acceptance criteria (the list under an "Acceptance criteria"/"Akzeptanzkriterien"/"AC" heading, or a field so named) must each have a § Asked row or be named out of scope
+  - meaning-carrying words in a quote that its scenarios drop ("most recent", counts, "new tab", "section") get a warning
+  - every frame in `design-checks.json` needs a Figma row
+- **Figma by machine:**
+  - `__aq.compare(frame)` diffs one design-checks.json frame against the page: colours as hex, sizes within 1 px, gaps between texts
+  - a figma row is refused unless `--how` names its frame's width
+- **Deploy hygiene:** `app.mjs predeploy`, for the dev and read-only, checks:
+  - a clean tree
+  - on the merged base and up to date
+  - no QA or debug code anywhere in the extensions
+
+  It prints `shopify app deploy … --message "<ID> @ <sha>" --source-control-url <commit>`. It's the first step of every deploy checklist. Deploy uploads the working tree, which is how ASM-924's uncommitted probes reached production.
+- **A fix's baseline:** `qa-row <ID> <S#> --baseline` at propose records the visual bug on the unfixed build. Gate 1 now refuses a fix with neither a failing test nor a baseline FAIL.
+- **Smaller:**
+  - `qa-row --file rows.json` records a batch
+  - journeys go through each add-to-cart path the store has
+  - an A/B change always leaves the dev a check in the A/B tool's preview on the client's store
+  - Gate 1 and Gate 2 say when Figma wasn't read
+  - app-proxy changes owe a data row
+  - "can't be done" claims are found in more wordings and need a `shopify.dev/docs/api/` reference page
+- **Fixed from the code review:**
+  - the capability check now covers only checkout and customer-account extensions; admin extensions fetch their backend freely
+  - the debug check no longer matches `no-debugger`, the word "probe" or lockfiles
+  - `revert` keeps binary edits, stops if the diff fails, and refuses paths outside the repo
+  - German „…“ and French «…» quotes are accepted
+  - `precedent` keeps other clients' repo and ticket names in the local logs, out of change.json and the proposal
+  - numbered steps stay separate in handoff.md
+  - `dev-status` counts only errors since the last rebuild and redacts keys in them
+  - blind-qa may run the A/B files and read design-checks.json
+  - the probe reports screen-reader-only and overflow-clipped text as hidden, doesn't count padding as a line, and says "unknown" for a checkout layout it can't tell
+  - "carried over" in a finding is allowed
+  - `--quick` and `--baseline` are boolean flags
+  - Figma nodes are matched whole, and a prototype's starting node isn't a frame
+  - input query size ignores comments and line endings
+  - the old-API-version check only warns, since the deploy refusal isn't confirmed
+
 Changes started before 0.5.0 keep their old checks (`schemaVersion` 2).
 
 Theme kit: no counterpart in this release. It is held for a week to collect feedback. Its plan stage already has the outside reviewer and design extraction; a blind QA agent and § Not proven yet's Gate 2 ordering would be new there and are candidates for its next release.
