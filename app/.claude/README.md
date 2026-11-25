@@ -21,7 +21,7 @@ Type them in Claude Code's prompt; pasted as text they don't start.
 
 1. **propose → Gate 1.** You get `proposal.md`: the scenarios, the surfaces it adds (scopes, webhooks, extensions, models, dependencies), the design for heavy ones, what needs your attention and what it decided for you without asking. Before writing it, it asks you only the real calls: a departure from the ticket, a new scope or something the merchant maintains, money, real alternatives, a contradiction, something hard to undo. You review it, then approve or say what to change, in your own words.
 2. **build:** Claude implements the approved tasks; app code waits for Gate 1.
-3. **verify:** every automated check and the `qa:` scenarios on the dev store. When QA needs the app running, the agent gives you an `appDev` command for a separate terminal (it targets the dev app and store; a bare `shopify app dev` may not). Placing a checkout block is yours too.
+3. **verify:** every automated check and the `qa:` scenarios on the dev store. When QA needs the app running, the agent gives you an `appDev` command for a separate terminal (it targets the dev app and store; a bare `shopify app dev` may not). The agent checks and changes the dev store's theme and checkout editor setup itself in your Chrome (it says so first); publishing stays yours.
 4. **accept → Gate 2:** the measured result and anything changed since Gate 1.
 5. **handoff:** the change moves to `appspec/archive/` with `handoff.md`: PR text and deploy checklist. You open the PR (or take the merge commands), merge and deploy.
 
